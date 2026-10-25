@@ -25,6 +25,7 @@ func runCLI(args []string) int {
 		force         bool
 		buildBin      bool
 		runApp        bool
+		removeApp     bool
 		outDir        string
 		repoRoot      string
 		tuiMode       bool
@@ -37,6 +38,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
 	fs.BoolVar(&runApp, "run", false, "Launch the compiled <tool>-mint interface (builds it first if missing)")
+	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
@@ -87,7 +89,7 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
 		return 2
 	}
 
@@ -97,6 +99,10 @@ func runCLI(args []string) int {
 		appArgs = fs.Args()[1:]
 	} else if outDir == "" && fs.NArg() >= 2 {
 		outDir = fs.Arg(1)
+	}
+
+	if removeApp {
+		return removeScaffoldedApp(program, outDir, repoRoot)
 	}
 
 	if runApp && !buildBin {
@@ -201,6 +207,51 @@ func printCompatReport(rep CompatReport) {
 	if len(rep.LinkedLibs) > 0 {
 		fmt.Printf("Libraries:   %s\n", strings.Join(rep.LinkedLibs, ", "))
 	}
+}
+
+func removeScaffoldedApp(program, outDir, repoRoot string) int {
+	tool := sanitizeToolName(program)
+	dir := outDir
+	if dir == "" {
+		if repoRoot != "" {
+			dir = filepath.Join(repoRoot, "apps", tool)
+		} else {
+			dir = filepath.Join("apps", tool)
+		}
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mint-gen: remove error: %v\n", err)
+		return 1
+	}
+	st, err := os.Stat(absDir)
+	if err != nil || !st.IsDir() {
+		fmt.Fprintf(os.Stderr, "mint-gen: no build found for %q at %s\n", program, absDir)
+		return 1
+	}
+	// Ensure target looks like a scaffolded app directory before removing.
+	hasMarker := false
+	for _, marker := range []string{tool + "-mint", "spec.go", "main.go", "go.mod"} {
+		if _, err := os.Stat(filepath.Join(absDir, marker)); err == nil {
+			hasMarker = true
+			break
+		}
+	}
+	if !hasMarker {
+		fmt.Fprintf(os.Stderr, "mint-gen: refusing to remove %s (does not appear to be a scaffolded Mint app)\n", absDir)
+		return 1
+	}
+	if err := os.RemoveAll(absDir); err != nil {
+		fmt.Fprintf(os.Stderr, "mint-gen: remove error: %v\n", err)
+		return 1
+	}
+	// Best-effort cleanup of any matching /usr/local/bin/<tool>-mint symlink.
+	symlinkPath := filepath.Join("/usr/local/bin", tool+"-mint")
+	if lst, err := os.Lstat(symlinkPath); err == nil && lst.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(symlinkPath)
+	}
+	fmt.Printf("Removed %s (%s)\n", tool, absDir)
+	return 0
 }
 
 func existingBinaryPath(program, outDir, repoRoot string) string {
