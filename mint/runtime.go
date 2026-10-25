@@ -92,7 +92,13 @@ func currentTermSignature() string {
 		}
 	}
 	wrap := detectWrapper()
-	return term + "|" + prog + "|" + wrap
+	ct := strings.ToLower(strings.TrimSpace(os.Getenv("COLORTERM")))
+	return term + "|" + prog + "|" + wrap + "|" + ct
+}
+
+func hasTrueColorEnv() bool {
+	ct := strings.ToLower(strings.TrimSpace(os.Getenv("COLORTERM")))
+	return ct == "truecolor" || ct == "24bit"
 }
 
 func detectWrapper() string {
@@ -214,14 +220,7 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 		}
 	}
 	lowerTerm := strings.ToLower(term)
-	colorTerm := strings.ToLower(os.Getenv("COLORTERM"))
-	if strings.Contains(lowerTerm, "256color") || strings.Contains(lowerTerm, "direct") {
-		if depth < 256 {
-			depth = 256
-		}
-	}
-	if colorTerm == "truecolor" || colorTerm == "24bit" ||
-		strings.Contains(lowerTerm, "direct") ||
+	modernTerm := strings.Contains(lowerTerm, "direct") ||
 		strings.Contains(lowerTerm, "kitty") ||
 		strings.Contains(lowerTerm, "alacritty") ||
 		strings.Contains(lowerTerm, "wezterm") ||
@@ -233,7 +232,14 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 		os.Getenv("GHOSTTY_RESOURCES_DIR") != "" ||
 		os.Getenv("VTE_VERSION") != "" ||
 		os.Getenv("KONSOLE_VERSION") != "" ||
-		os.Getenv("WT_SESSION") != "" {
+		os.Getenv("WT_SESSION") != ""
+	if strings.Contains(lowerTerm, "256color") || modernTerm {
+		if depth < 256 {
+			depth = 256
+		}
+	}
+	// Gate 24-bit TrueColor strictly on $COLORTERM ∈ {"truecolor", "24bit"}.
+	if hasTrueColorEnv() {
 		depth = 16777216
 	}
 	if os.Getenv("NO_COLOR") != "" || term == "dumb" || strings.HasSuffix(lowerTerm, "-mono") || strings.HasSuffix(lowerTerm, "-m") {
@@ -248,7 +254,7 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 	}
 
 	// Heuristic defaults for modern capabilities before optional wire verification.
-	if depth == 16777216 {
+	if depth == 16777216 || modernTerm {
 		p.SyncOutput = true
 		p.OSC52 = true
 		p.OSC8 = true
@@ -322,7 +328,11 @@ func applyWireReply(p *termProfile, reply string) {
 			ver := strings.TrimSpace(rest[:end])
 			if ver != "" {
 				p.Version = ver
-				p.ColorDepth = 16777216
+				if hasTrueColorEnv() {
+					p.ColorDepth = 16777216
+				} else if p.ColorDepth < 256 {
+					p.ColorDepth = 256
+				}
 				p.OSC52 = true
 				p.OSC8 = true
 			}
@@ -472,27 +482,14 @@ func (l1 *level1Runtime) quantizePalette(p theme.Palette) theme.Palette {
 			Err:    "\x1b[1m",
 		}
 	}
-	if l1.profile.ColorDepth >= 16777216 {
+	if l1.profile.ColorDepth > 16 {
 		return p
 	}
 	quant := func(seq string, isBg bool) string {
-		r, g, b, ok := parseTrueColorSGR(seq)
-		if !ok {
-			if l1.profile.ColorDepth <= 16 {
-				if idx, okIdx := parse256SGR(seq); okIdx {
-					return ansi16From256(idx, isBg)
-				}
-			}
-			return seq
-		}
-		idx := rgbTo256(r, g, b)
-		if l1.profile.ColorDepth <= 16 {
+		if idx, ok := parse256SGR(seq); ok {
 			return ansi16From256(idx, isBg)
 		}
-		if isBg {
-			return fmt.Sprintf("\x1b[48;5;%dm", idx)
-		}
-		return fmt.Sprintf("\x1b[38;5;%dm", idx)
+		return seq
 	}
 	return theme.Palette{
 		Accent: quant(p.Accent, false),
@@ -628,25 +625,7 @@ var rt = func() *level5Runtime {
 	return r
 }()
 
-// ── TrueColor -> 256 / 16 Colour Quantiser Helpers ───────────────────────────
-
-func parseTrueColorSGR(seq string) (r, g, b int, ok bool) {
-	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
-		return 0, 0, 0, false
-	}
-	body := seq[2 : len(seq)-1]
-	parts := strings.Split(body, ";")
-	if len(parts) != 5 || (parts[0] != "38" && parts[0] != "48") || parts[1] != "2" {
-		return 0, 0, 0, false
-	}
-	r, err1 := strconv.Atoi(parts[2])
-	g, err2 := strconv.Atoi(parts[3])
-	b, err3 := strconv.Atoi(parts[4])
-	if err1 != nil || err2 != nil || err3 != nil {
-		return 0, 0, 0, false
-	}
-	return r, g, b, true
-}
+// ── 256 -> 16 Colour Quantiser Helpers ──────────────────────────────────────
 
 func parse256SGR(seq string) (idx int, ok bool) {
 	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
@@ -659,22 +638,6 @@ func parse256SGR(seq string) (idx int, ok bool) {
 	}
 	n, err := strconv.Atoi(parts[2])
 	return n, err == nil
-}
-
-func rgbTo256(r, g, b int) int {
-	if r == g && g == b {
-		if r < 8 {
-			return 16
-		}
-		if r > 248 {
-			return 231
-		}
-		return int(float64(r-8)/247.0*24.0) + 232
-	}
-	ri := int(float64(r) / 255.0 * 5.0 + 0.5)
-	gi := int(float64(g) / 255.0 * 5.0 + 0.5)
-	bi := int(float64(b) / 255.0 * 5.0 + 0.5)
-	return 16 + 36*ri + 6*gi + bi
 }
 
 func ansi16From256(idx int, isBg bool) string {

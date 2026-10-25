@@ -39,7 +39,7 @@ func SetPalette(p theme.Palette) bool {
 	if !p.Complete() {
 		return false
 	}
-	C = p
+	C = rt.quantizePalette(p)
 	return true
 }
 

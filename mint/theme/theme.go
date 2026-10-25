@@ -52,10 +52,63 @@ var (
 	dim  = sgr(2)
 )
 
-func idxFg(n int) string    { return sgr(38, 5, n) }
-func idxBg(n int) string    { return sgr(48, 5, n) }
-func rgbFg(c [3]int) string { return sgr(38, 2, c[0], c[1], c[2]) }
-func rgbBg(c [3]int) string { return sgr(48, 2, c[0], c[1], c[2]) }
+func idxFg(n int) string { return sgr(38, 5, n) }
+func idxBg(n int) string { return sgr(48, 5, n) }
+
+// hasTrueColor reports whether the terminal environment explicitly advertises
+// 24-bit colour via $COLORTERM ("truecolor" or "24bit").
+func hasTrueColor() bool {
+	ct := strings.ToLower(strings.TrimSpace(os.Getenv("COLORTERM")))
+	return ct == "truecolor" || ct == "24bit"
+}
+
+var cubeLevels = [6]int{0, 95, 135, 175, 215, 255}
+
+// rgbTo256 returns the nearest xterm 256-colour index (16..255) for an RGB
+// triplet using Euclidean distance across the 6x6x6 colour cube and 24-step
+// greyscale ramp.
+func rgbTo256(r, g, b int) int {
+	bestIdx := 16
+	bestDist := 1 << 30
+	for ri, rv := range cubeLevels {
+		dr := r - rv
+		for gi, gv := range cubeLevels {
+			dg := g - gv
+			for bi, bv := range cubeLevels {
+				db := b - bv
+				d := dr*dr + dg*dg + db*db
+				if d < bestDist {
+					bestDist = d
+					bestIdx = 16 + 36*ri + 6*gi + bi
+				}
+			}
+		}
+	}
+	for i := 0; i < 24; i++ {
+		gv := 8 + 10*i
+		dr, dg, db := r-gv, g-gv, b-gv
+		d := dr*dr + dg*dg + db*db
+		if d < bestDist {
+			bestDist = d
+			bestIdx = 232 + i
+		}
+	}
+	return bestIdx
+}
+
+func rgbFg(c [3]int) string {
+	if !hasTrueColor() {
+		return idxFg(rgbTo256(c[0], c[1], c[2]))
+	}
+	return sgr(38, 2, c[0], c[1], c[2])
+}
+
+func rgbBg(c [3]int) string {
+	if !hasTrueColor() {
+		return idxBg(rgbTo256(c[0], c[1], c[2]))
+	}
+	return sgr(48, 2, c[0], c[1], c[2])
+}
 func themeDefault() Palette {
 	return Palette{
 		Accent: idxFg(141),
