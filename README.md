@@ -54,7 +54,7 @@ Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and inst
    sudo chmod +x /usr/local/bin/mint-gen
    ```
 
-Once installed, the 3 steps from any directory are:
+Once installed, the steps from any directory are:
 
 1. **Check compatibility (optional):** Verify the program works in a pure TUI and cache your terminal's capability profile.
    ```sh
@@ -67,6 +67,10 @@ Once installed, the 3 steps from any directory are:
 3. **Run your new interface:** Launch the compiled `nmap` interface (building it first if needed).
    ```sh
    mint-gen --run nmap
+   ```
+4. **Remove a build (optional):** Delete the generated `apps/nmap/` folder and compiled binary.
+   ```sh
+   mint-gen --remove nmap
    ```
 
 ## Prerequisites

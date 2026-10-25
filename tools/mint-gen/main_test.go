@@ -161,6 +161,13 @@ func TestScaffoldAppAndCLI(t *testing.T) {
 	if code := runCLI([]string{"--run", "--out", outDir, "demo", "--version"}); code != 0 {
 		t.Fatalf("expected --run demo --version to return 0, got %d", code)
 	}
+	// Verify mint-gen --remove removes the scaffolded app directory and binary
+	if code := runCLI([]string{"--remove", "--out", outDir, "demo"}); code != 0 {
+		t.Fatalf("expected --remove demo to return 0, got %d", code)
+	}
+	if _, err := os.Stat(outDir); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be removed, stat err = %v", outDir, err)
+	}
 }
 
 func TestDetectTemplateAndCLIFlags(t *testing.T) {
