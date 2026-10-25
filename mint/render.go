@@ -10,8 +10,9 @@ import (
 )
 
 // C is the active palette. It starts as the theme selected in
-// ~/.config/mint-interfaces/theme.conf (the default purple if none).
-var C = loadPalette()
+// ~/.config/mint-interfaces/theme.conf (the default purple if none),
+// quantised to the terminal's probed colour depth when necessary.
+var C = rt.quantizePalette(loadPalette())
 
 // loadPalette picks the theme from ~/.config/mint-interfaces/theme.conf,
 // then applies any colours given in the MINT_PALETTE environment variable
@@ -80,7 +81,7 @@ func (c *canvas) put(r, col int, s string) {
 // Terminals embedded in editors scroll their window to keep the cursor in
 // view; leaving it at the bottom right made Neovim's :terminal stay
 // scrolled sideways after the window shrank.
-func (c *canvas) paint() { out(c.b.String() + esc + "H") }
+func (c *canvas) paint() { out(rt.wrapFrame(c.b.String() + esc + "H")) }
 
 func (c *canvas) frame(h, w int) {
 	if w < 4 || h < 4 {
@@ -147,8 +148,9 @@ func watchSize() *sizeWatch {
 
 // changed reports whether the size differs from the last call.
 func (s *sizeWatch) changed() bool {
+	sigResized := rt.consumeResize()
 	h, w := TermSize()
-	if h != s.h || w != s.w {
+	if sigResized || h != s.h || w != s.w {
 		s.h, s.w = h, w
 		return true
 	}

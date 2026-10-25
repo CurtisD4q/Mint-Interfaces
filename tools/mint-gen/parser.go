@@ -321,7 +321,7 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 
 		kind, choices, minVal, maxVal := classifyFlag(canonFlag, argPart, desc)
 		label := cleanFlagLabel(canonFlag, secondFlag, desc)
-		hint := cleanArgHint(argPart)
+		hint := enrichRepeatableHint(cleanArgHint(argPart), desc)
 
 		out = append(out, appkit.FlagSpec{
 			Flag:    canonFlag,
@@ -441,6 +441,23 @@ func cleanArgHint(argPart string) string {
 		return "value"
 	}
 	return strings.ToLower(h)
+}
+
+func enrichRepeatableHint(hint, desc string) string {
+	lower := strings.ToLower(hint + " " + desc)
+	if strings.Contains(lower, "key=val") || strings.Contains(lower, "k=v") || strings.Contains(lower, "name=value") {
+		if !strings.Contains(strings.ToLower(hint), "key=val") {
+			return "key=value"
+		}
+	}
+	if strings.Contains(lower, "can be specified multiple times") ||
+		strings.Contains(lower, "may be given multiple times") ||
+		strings.Contains(lower, "repeatable") {
+		if !strings.Contains(strings.ToLower(hint), "repeatable") {
+			return hint + " (repeatable)"
+		}
+	}
+	return hint
 }
 
 func isManSectionHeader(line string) bool {

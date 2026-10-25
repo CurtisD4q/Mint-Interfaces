@@ -18,11 +18,11 @@ go run ./examples/demo      # every original widget and dialog
 go run ./examples/features  # the additions, including a background job
 ```
 
-## Quickstart: Wrap any CLI program in 4 steps
+## Quickstart: Wrap any CLI program in 3 steps
 
-You can generate and compile a full Mint interface for any installed command-line program in four steps (see [Turnkey CLI apps and automated scaffolding](#turnkey-cli-apps-mintappkit-and-automated-scaffolding-toolsmint-gen) and [Standalone binaries and flags](#standalone-binaries-and-flags) below for full details):
+You can generate and compile a full Mint interface for any installed command-line program in three steps (see [Turnkey CLI apps and automated scaffolding](#turnkey-cli-apps-mintappkit-and-automated-scaffolding-toolsmint-gen) and [Standalone binaries and flags](#standalone-binaries-and-flags) below for full details):
 
-1. **Check compatibility (optional):** Verify the program works in a pure TUI (`--list-templates` lists all 28 templates):
+1. **Check compatibility (optional):** Verify the program works in a pure TUI and inspect or cache your terminal's capability profile in `~/.config/mint-interfaces/termcaps.json` (`--list-templates` lists all 28 templates; `--probe-term` refreshes the terminal probe):
    ```sh
    go run ./tools/mint-gen --check nmap
    ```
@@ -34,7 +34,6 @@ You can generate and compile a full Mint interface for any installed command-lin
    ```sh
    ./apps/nmap/nmap-mint
    ```
-4. **Customise (optional):** Edit presets, labels, or flags in `apps/<tool>/spec.go` and rebuild with `./tools/build.sh ./apps/nmap`.
 
 ## Prerequisites
 
@@ -366,7 +365,7 @@ python3 tools/check_catalogue.py
 #### Step-by-step: generating and running a Mint interface for any installed CLI program
 
 1. **Check compatibility (optional)**
-   Verify that the program is installed and works inside a pure detached TUI:
+   Verify that the program is installed and works inside a pure detached TUI (this also probes and caches your terminal's capability profile in `~/.config/mint-interfaces/termcaps.json` on first run; pass `--probe-term` anytime to force a fresh probe):
    ```bash
    go run ./tools/mint-gen --check nmap
    ```
@@ -378,9 +377,10 @@ python3 tools/check_catalogue.py
    go run ./tools/mint-gen --build nmap
    ```
    Behind the scenes, this automatically:
+   - Ensures your terminal capability profile is cached in `~/.config/mint-interfaces/termcaps.json` (keyed by `$TERM`, `$TERM_PROGRAM`, and `$TMUX`).
    - Reads `man nmap` and `nmap --help` to extract its summary, synopsis, target input, file-output flags (`-oN`, `-oX`, `-o`, etc.), subcommands, and option flags.
    - Auto-selects the matching template from `T01`–`T28` (for `nmap`, `T12` `network-scanner` using `ArchetypeScanner` + `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, and `WithHistory`).
-   - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`) and groups secondary flags into collapsible sections (`mint.Collapsible`).
+   - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`, or interactive path/repeatable browsers) and groups secondary flags into collapsible sections (`mint.Collapsible`).
    - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
 
 3. **Run your new interface immediately**
@@ -389,12 +389,6 @@ python3 tools/check_catalogue.py
    ./apps/nmap/nmap-mint
    ```
    You immediately get the full multi-screen interface: **Configure & Run** (target, presets, flags, collapsible sections, and output file naming), **Live / Last Output** (progress bar, live parsed `mint.Table`, collapsible large-text chunks, and full-screen `ViewLog` with `←`/`→` horizontal pan, `/` search, and `s` save), **Output Directory Browser**, and **Saved Runs History**.
-
-4. **Customise `apps/<program>/spec.go` (optional)**
-   If you want to tweak labels, add preset profiles, or promote specific flags to the top section, edit `apps/nmap/spec.go` and rebuild with:
-   ```bash
-   ./tools/build.sh ./apps/nmap
-   ```
 
 ### Icons
 

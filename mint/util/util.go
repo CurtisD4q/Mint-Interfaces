@@ -276,21 +276,112 @@ func JSONEncode(v any) (string, error) {
 
 // ── width ────────────────────────────────────────────────────────────────────
 
-// VLen counts characters the way the original does: every byte that is not
-// a UTF-8 continuation byte (0x80–0xBF) starts a new cell.
+// RuneWidth returns the terminal column width (0, 1, or 2) of a Unicode
+// code point following East Asian Width / WCWidth rules.
+func RuneWidth(r rune) int {
+	if r < 32 || (r >= 0x7f && r < 0xa0) {
+		return 0
+	}
+	if r == 0x200b || r == 0x200c || r == 0x200d || r == 0xfeff {
+		return 0
+	}
+	if (r >= 0xfe00 && r <= 0xfe0f) || (r >= 0xe0100 && r <= 0xe01ef) {
+		return 0
+	}
+	if (r >= 0x0300 && r <= 0x036f) || (r >= 0x1ab0 && r <= 0x1aff) ||
+		(r >= 0x1dc0 && r <= 0x1dff) || (r >= 0x20d0 && r <= 0x20ff) ||
+		(r >= 0xfe20 && r <= 0xfe2f) {
+		return 0
+	}
+	if (r >= 0x1100 && r <= 0x115f) ||
+		r == 0x2329 || r == 0x232a ||
+		(r >= 0x2e80 && r <= 0x303e) ||
+		(r >= 0x3040 && r <= 0xa4cf && r != 0x303f) ||
+		(r >= 0xac00 && r <= 0xd7a3) ||
+		(r >= 0xf900 && r <= 0xfaff) ||
+		(r >= 0xfe10 && r <= 0xfe19) ||
+		(r >= 0xfe30 && r <= 0xfe6f) ||
+		(r >= 0xff00 && r <= 0xff60) ||
+		(r >= 0xffe0 && r <= 0xffe6) ||
+		(r >= 0x1f300 && r <= 0x1f64f) ||
+		(r >= 0x1f680 && r <= 0x1f6ff) ||
+		(r >= 0x1f900 && r <= 0x1f9ff) ||
+		(r >= 0x1fa70 && r <= 0x1faff) ||
+		(r >= 0x20000 && r <= 0x2fffd) ||
+		(r >= 0x30000 && r <= 0x3fffd) {
+		return 2
+	}
+	return 1
+}
+
+// VLen counts visual terminal columns, accounting for 0-width combining marks
+// and 2-column CJK/emoji runes while matching 1-cell per UTF-8 character on
+// standard Latin/box-drawing strings.
 func VLen(s string) int {
 	n := 0
-	for i := 0; i < len(s); i++ {
-		if b := s[i]; b < 0x80 || b > 0xBF {
+	i := 0
+	for i < len(s) {
+		b := s[i]
+		if b < 0x80 {
 			n++
+			i++
+			continue
 		}
+		if b < 0xC2 || b > 0xF4 {
+			i++
+			continue
+		}
+		r, w := decodeValidUTF8(s[i:])
+		if w == 0 {
+			i++
+			continue
+		}
+		n += RuneWidth(r)
+		i += w
 	}
 	return n
 }
 
-// Chars splits s into characters exactly as the Lua pattern
-// "[%z\1-\127\194-\244][\128-\191]*" does: a lead byte (0x00–0x7F or
-// 0xC2–0xF4) plus any continuation bytes. Other bytes are skipped.
+func decodeValidUTF8(s string) (rune, int) {
+	b := s[0]
+	need := 1
+	switch {
+	case b >= 0xF0:
+		need = 4
+	case b >= 0xE0:
+		need = 3
+	case b >= 0xC2:
+		need = 2
+	default:
+		return 0, 0
+	}
+	if len(s) < need {
+		return rune(b), 1
+	}
+	var r rune
+	switch need {
+	case 2:
+		if s[1] < 0x80 || s[1] > 0xBF {
+			return rune(b), 1
+		}
+		r = rune(b&0x1F)<<6 | rune(s[1]&0x3F)
+	case 3:
+		if s[1] < 0x80 || s[1] > 0xBF || s[2] < 0x80 || s[2] > 0xBF {
+			return rune(b), 1
+		}
+		r = rune(b&0x0F)<<12 | rune(s[1]&0x3F)<<6 | rune(s[2]&0x3F)
+	case 4:
+		if s[1] < 0x80 || s[1] > 0xBF || s[2] < 0x80 || s[2] > 0xBF || s[3] < 0x80 || s[3] > 0xBF {
+			return rune(b), 1
+		}
+		r = rune(b&0x07)<<18 | rune(s[1]&0x3F)<<12 | rune(s[2]&0x3F)<<6 | rune(s[3]&0x3F)
+	}
+	return r, need
+}
+
+// Chars splits s into characters (grapheme clusters: lead UTF-8 rune plus any
+// attached 0-width combining marks or ZWJ sequences). Invalid continuation
+// bytes are skipped just as in the original Lua pattern.
 func Chars(s string) []string {
 	var out []string
 	i := 0
@@ -301,6 +392,21 @@ func Chars(s string) []string {
 			for j < len(s) && s[j] >= 0x80 && s[j] <= 0xBF {
 				j++
 			}
+			// Also attach any immediately following 0-width combining mark or variation selector.
+			for j < len(s) && s[j] >= 0xC2 && s[j] <= 0xF4 {
+				nr, nw := decodeValidUTF8(s[j:])
+				if nw > 1 && RuneWidth(nr) == 0 {
+					j += nw
+					if nr == 0x200d && j < len(s) && s[j] >= 0xC2 && s[j] <= 0xF4 {
+						_, nw2 := decodeValidUTF8(s[j:])
+						if nw2 > 1 {
+							j += nw2
+						}
+					}
+					continue
+				}
+				break
+			}
 			out = append(out, s[i:j])
 			i = j
 		} else {
@@ -310,7 +416,7 @@ func Chars(s string) []string {
 	return out
 }
 
-// Truncate shortens s to n cells, ending in "…" when it had to cut.
+// Truncate shortens s to n visual cells, ending in "…" when it had to cut.
 func Truncate(s string, n int) string {
 	if n < 1 {
 		return ""
@@ -322,13 +428,18 @@ func Truncate(s string, n int) string {
 		return "…"
 	}
 	var b strings.Builder
-	count := 0
+	used := 0
+	budget := n - 1
 	for _, ch := range Chars(s) {
-		count++
-		if count >= n {
+		w := VLen(ch)
+		if w < 1 {
+			w = 1
+		}
+		if used+w > budget {
 			break
 		}
 		b.WriteString(ch)
+		used += w
 	}
 	return b.String() + "…"
 }

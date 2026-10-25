@@ -267,9 +267,8 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 			matchIdx = -1
 			return
 		}
-		q := strings.ToLower(query)
 		for i, l := range lines {
-			if strings.Contains(strings.ToLower(CleanLine(l.Text)), q) {
+			if containsFold(CleanLine(l.Text), query) {
 				matches = append(matches, i)
 			}
 		}
@@ -365,7 +364,7 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 				y := contentTop + row
 				raw := CleanLine(lines[idx].Text)
 				shown := sliceCols(raw, hscroll, lineWidth)
-				isMatch := qLower != "" && strings.Contains(strings.ToLower(raw), qLower)
+				isMatch := qLower != "" && containsFold(raw, query)
 				switch {
 				case idx == activeLine:
 					cv.selBar(y, w)
@@ -410,7 +409,7 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 		switch {
 		case k == nil:
 			sc++
-			if sc >= 2 {
+			if rt.consumeResize() || sc >= 2 {
 				sc = 0
 				if nh, nw := TermSize(); nh != h || nw != w {
 					h, w = nh, nw
