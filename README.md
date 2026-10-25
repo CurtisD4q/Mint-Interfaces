@@ -35,6 +35,45 @@ You can generate and compile a full Mint interface for any installed command-lin
    ./apps/nmap/nmap-mint
    ```
 
+### Global install: Run `mint-gen` and `<tool>-mint` from anywhere
+
+Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and install a `/usr/local/bin/mint-gen` wrapper so `mint-gen` and every built `<tool>-mint` binary work from any directory:
+
+1. Move the repository to `/usr/local/share/mint-interfaces` and make `apps/` writable by your user so builds do not need `sudo`:
+   ```sh
+   sudo mv mint-interfaces /usr/local/share/mint-interfaces
+   sudo mkdir -p /usr/local/share/mint-interfaces/apps
+   sudo chown -R "$USER:$USER" /usr/local/share/mint-interfaces/apps
+   ```
+2. Install `/usr/local/bin/mint-gen` to run the generator from `/usr/local/share/mint-interfaces` and automatically symlink each compiled `<tool>-mint` binary into `/usr/local/bin`:
+   ```sh
+   sudo tee /usr/local/bin/mint-gen >/dev/null << 'EOF'
+   #!/usr/bin/env sh
+   go -C /usr/local/share/mint-interfaces run ./tools/mint-gen "$@"
+   status=$?
+   for bin in /usr/local/share/mint-interfaces/apps/*/*-mint; do
+       [ -x "$bin" ] && sudo ln -sf "$bin" /usr/local/bin/
+   done
+   exit $status
+   EOF
+   sudo chmod +x /usr/local/bin/mint-gen
+   ```
+
+Once installed, the 3 steps from any directory are:
+
+1. **Check compatibility (optional):** Verify the program works in a pure TUI and cache your terminal's capability profile.
+   ```sh
+   mint-gen --check nmap
+   ```
+2. **Generate and compile:** Parse `man` and `--help`, build the static binary, and link `nmap-mint` into `/usr/local/bin`.
+   ```sh
+   mint-gen --build nmap
+   ```
+3. **Run your new interface:**
+   ```sh
+   nmap-mint
+   ```
+
 ## Prerequisites
 
 **To run a Mint app:** nothing to install. Apps are single static binaries.
