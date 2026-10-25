@@ -482,27 +482,14 @@ func (l1 *level1Runtime) quantizePalette(p theme.Palette) theme.Palette {
 			Err:    "\x1b[1m",
 		}
 	}
-	if l1.profile.ColorDepth >= 16777216 && hasTrueColorEnv() {
+	if l1.profile.ColorDepth > 16 {
 		return p
 	}
 	quant := func(seq string, isBg bool) string {
-		r, g, b, ok := parseTrueColorSGR(seq)
-		if !ok {
-			if l1.profile.ColorDepth <= 16 {
-				if idx, okIdx := parse256SGR(seq); okIdx {
-					return ansi16From256(idx, isBg)
-				}
-			}
-			return seq
-		}
-		idx := rgbTo256(r, g, b)
-		if l1.profile.ColorDepth <= 16 {
+		if idx, ok := parse256SGR(seq); ok {
 			return ansi16From256(idx, isBg)
 		}
-		if isBg {
-			return fmt.Sprintf("\x1b[48;5;%dm", idx)
-		}
-		return fmt.Sprintf("\x1b[38;5;%dm", idx)
+		return seq
 	}
 	return theme.Palette{
 		Accent: quant(p.Accent, false),
@@ -638,25 +625,7 @@ var rt = func() *level5Runtime {
 	return r
 }()
 
-// ── TrueColor -> 256 / 16 Colour Quantiser Helpers ───────────────────────────
-
-func parseTrueColorSGR(seq string) (r, g, b int, ok bool) {
-	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
-		return 0, 0, 0, false
-	}
-	body := seq[2 : len(seq)-1]
-	parts := strings.Split(body, ";")
-	if len(parts) != 5 || (parts[0] != "38" && parts[0] != "48") || parts[1] != "2" {
-		return 0, 0, 0, false
-	}
-	r, err1 := strconv.Atoi(parts[2])
-	g, err2 := strconv.Atoi(parts[3])
-	b, err3 := strconv.Atoi(parts[4])
-	if err1 != nil || err2 != nil || err3 != nil {
-		return 0, 0, 0, false
-	}
-	return r, g, b, true
-}
+// ── 256 -> 16 Colour Quantiser Helpers ──────────────────────────────────────
 
 func parse256SGR(seq string) (idx int, ok bool) {
 	if !strings.HasPrefix(seq, "\x1b[") || !strings.HasSuffix(seq, "m") {
@@ -669,37 +638,6 @@ func parse256SGR(seq string) (idx int, ok bool) {
 	}
 	n, err := strconv.Atoi(parts[2])
 	return n, err == nil
-}
-
-var xtermCubeLevels = [6]int{0, 95, 135, 175, 215, 255}
-
-func rgbTo256(r, g, b int) int {
-	bestIdx := 16
-	bestDist := 1 << 30
-	for ri, rv := range xtermCubeLevels {
-		dr := r - rv
-		for gi, gv := range xtermCubeLevels {
-			dg := g - gv
-			for bi, bv := range xtermCubeLevels {
-				db := b - bv
-				d := dr*dr + dg*dg + db*db
-				if d < bestDist {
-					bestDist = d
-					bestIdx = 16 + 36*ri + 6*gi + bi
-				}
-			}
-		}
-	}
-	for i := 0; i < 24; i++ {
-		gv := 8 + 10*i
-		dr, dg, db := r-gv, g-gv, b-gv
-		d := dr*dr + dg*dg + db*db
-		if d < bestDist {
-			bestDist = d
-			bestIdx = 232 + i
-		}
-	}
-	return bestIdx
 }
 
 func ansi16From256(idx int, isBg bool) string {

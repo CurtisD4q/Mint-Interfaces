@@ -46,19 +46,17 @@ func TestTermProfileCacheAndLevels(t *testing.T) {
 }
 
 func TestLevel1QuantiserAndASCIIFallback(t *testing.T) {
+	t.Setenv("COLORTERM", "")
 	var r level5Runtime
 	r.profile = termProfile{
 		Level:      1,
 		ColorDepth: 16,
 		ASCIIOnly:  true,
 	}
-	pal := theme.Palette{
-		Accent: "\x1b[38;2;158;119;255m",
-		Text:   "\x1b[38;2;230;230;240m",
-	}
+	pal := theme.Load("nord")
 	q := r.quantizePalette(pal)
-	if strings.Contains(q.Accent, "38;2;") {
-		t.Fatalf("expected 24-bit sequence to be quantised at Level 1, got %q", q.Accent)
+	if strings.Contains(q.Accent, "38;2;") || strings.Contains(q.Accent, "38;5;") {
+		t.Fatalf("expected 16-colour SGR at Level 1, got %q", q.Accent)
 	}
 	got := r.sanitizeGlyphs("╭──╮ ● ☑ ▸")
 	if strings.ContainsRune(got, '╭') || strings.ContainsRune(got, '●') {
@@ -146,25 +144,11 @@ func TestColorTermGateFallbackTo256(t *testing.T) {
 		t.Fatalf("expected ColorDepth 256 when COLORTERM is unset, got %d", prof.ColorDepth)
 	}
 
-	var r level5Runtime
-	r.profile = prof
-	pal := theme.Palette{
-		Accent: "\x1b[38;2;136;192;208m",
-		Bright: "\x1b[38;2;143;188;187m",
-		Text:   "\x1b[38;2;216;222;233m",
-		Muted:  "\x1b[38;2;118;128;144m",
-		On:     "\x1b[38;2;163;190;140m",
-		Amber:  "\x1b[38;2;235;203;139m",
-		SelBg:  "\x1b[48;2;59;66;82m",
-		Bold:   "\x1b[1m",
-		Dim:    "\x1b[2m",
-		Err:    "\x1b[38;2;191;97;106m",
+	pal := theme.Load("nord")
+	if strings.Contains(pal.Accent, "38;2;") || strings.Contains(pal.SelBg, "48;2;") {
+		t.Fatalf("expected 24-bit sequences to fall back to 256-colour when COLORTERM is unset, got Accent=%q SelBg=%q", pal.Accent, pal.SelBg)
 	}
-	q := r.quantizePalette(pal)
-	if strings.Contains(q.Accent, "38;2;") || strings.Contains(q.SelBg, "48;2;") {
-		t.Fatalf("expected 24-bit sequences to fall back to 256-colour when COLORTERM is unset, got Accent=%q SelBg=%q", q.Accent, q.SelBg)
-	}
-	if !strings.Contains(q.Accent, "38;5;") || !strings.Contains(q.SelBg, "48;5;") {
-		t.Fatalf("expected 256-colour SGR sequences, got Accent=%q SelBg=%q", q.Accent, q.SelBg)
+	if !strings.Contains(pal.Accent, "38;5;") || !strings.Contains(pal.SelBg, "48;5;") {
+		t.Fatalf("expected 256-colour SGR sequences, got Accent=%q SelBg=%q", pal.Accent, pal.SelBg)
 	}
 }
