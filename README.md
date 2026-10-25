@@ -13,7 +13,7 @@ There is no settings logic and no system backend in the library. An app describe
 It uses only Go's standard library: no Charm, no tcell, and no `golang.org/x/...`. See [Prerequisites](#prerequisites) for what building, running and the Emacs integration need.
 
 ```
-go run ./example            # the program below
+go run ./examples/example   # the program below
 go run ./examples/demo      # every original widget and dialog
 go run ./examples/features  # the additions, including a background job
 ```

@@ -1,6 +1,6 @@
 // The "Build a screen" program from the README.
 //
-//	go run ./example
+//	go run ./examples/example
 package main
 
 import (
