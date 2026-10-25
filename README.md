@@ -18,6 +18,24 @@ go run ./examples/demo      # every original widget and dialog
 go run ./examples/features  # the additions, including a background job
 ```
 
+## Quickstart: Wrap any CLI program in 4 steps
+
+You can generate and compile a full Mint interface for any installed command-line program in four steps (see [Turnkey CLI apps and automated scaffolding](#turnkey-cli-apps-mintappkit-and-automated-scaffolding-toolsmint-gen) and [Standalone binaries and flags](#standalone-binaries-and-flags) below for full details):
+
+1. **Check compatibility (optional):** Verify the program works in a pure TUI (`--list-templates` lists all 28 templates):
+   ```sh
+   go run ./tools/mint-gen --check nmap
+   ```
+2. **Generate and compile in one command:** Parse `man` + `--help`, auto-select a template (`T01`–`T28`), scaffold `apps/<tool>/`, and build the static binary:
+   ```sh
+   go run ./tools/mint-gen --build nmap
+   ```
+3. **Run your new interface:** Launch the standalone binary in your terminal (or via `M-x nmap-mint` in [Emacs](#running-from-emacs-emacsmintel)):
+   ```sh
+   ./apps/nmap/nmap-mint
+   ```
+4. **Customise (optional):** Edit presets, labels, or flags in `apps/<tool>/spec.go` and rebuild with `./tools/build.sh ./apps/nmap`.
+
 ## Prerequisites
 
 **To run a Mint app:** nothing to install. Apps are single static binaries.
@@ -343,14 +361,40 @@ python3 tools/check_catalogue.py
   - `suite` (`ArchetypeSuite` — `T08`–`T09`, `T21`–`T23`, `T28`): Multi-subcommand suites for archives, backups, VCS (`git`/`gh`), containers (`docker`/`kubectl`), package managers, and cron/timers.
 - **8 Composable Mixins**: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
 
-`tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output:
+`tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
 
-```sh
-go run ./tools/mint-gen --list-templates          # list all 28 templates, 6 archetypes & 8 mixins
-go run ./tools/mint-gen --check nmap              # verify TUI compatibility
-go run ./tools/mint-gen --build nmap              # auto-detect template (T12) & build static binary
-go run ./tools/mint-gen --template T25 --build rg # override template explicitly
-```
+#### Step-by-step: generating and running a Mint interface for any installed CLI program
+
+1. **Check compatibility (optional)**
+   Verify that the program is installed and works inside a pure detached TUI:
+   ```bash
+   go run ./tools/mint-gen --check nmap
+   ```
+   *(You can also run `go run ./tools/mint-gen --list-templates` to see all 28 available templates `T01`–`T28`, 6 base archetypes, and 8 mixins.)*
+
+2. **Generate and compile the interface in one command**
+   Run `mint-gen` with `--build` (or pass `--template T12` if you want to override the auto-detected template):
+   ```bash
+   go run ./tools/mint-gen --build nmap
+   ```
+   Behind the scenes, this automatically:
+   - Reads `man nmap` and `nmap --help` to extract its summary, synopsis, target input, file-output flags (`-oN`, `-oX`, `-o`, etc.), subcommands, and option flags.
+   - Auto-selects the matching template from `T01`–`T28` (for `nmap`, `T12` `network-scanner` using `ArchetypeScanner` + `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, and `WithHistory`).
+   - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`) and groups secondary flags into collapsible sections (`mint.Collapsible`).
+   - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
+
+3. **Run your new interface immediately**
+   Launch the compiled binary directly in your terminal (or load `apps/nmap/nmap-mint.el` and run `M-x nmap-mint` in Emacs):
+   ```bash
+   ./apps/nmap/nmap-mint
+   ```
+   You immediately get the full multi-screen interface: **Configure & Run** (target, presets, flags, collapsible sections, and output file naming), **Live / Last Output** (progress bar, live parsed `mint.Table`, collapsible large-text chunks, and full-screen `ViewLog` with `←`/`→` horizontal pan, `/` search, and `s` save), **Output Directory Browser**, and **Saved Runs History**.
+
+4. **Customise `apps/<program>/spec.go` (optional)**
+   If you want to tweak labels, add preset profiles, or promote specific flags to the top section, edit `apps/nmap/spec.go` and rebuild with:
+   ```bash
+   ./tools/build.sh ./apps/nmap
+   ```
 
 ### Icons
 
