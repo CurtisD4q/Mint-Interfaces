@@ -27,10 +27,12 @@ func runCLI(args []string) int {
 		outDir        string
 		repoRoot      string
 		tuiMode       bool
+		probeTerm     bool
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
 	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and 8 Mixins")
+	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
@@ -44,6 +46,15 @@ func runCLI(args []string) int {
 	if listTemplates {
 		printTemplateCatalogue()
 		return 0
+	}
+
+	if probeTerm {
+		prof, cachePath, _ := ensureTermProfile(true)
+		fmt.Printf("Terminal:    %s\n", formatTermSummary(prof, false))
+		fmt.Printf("Saved to:    %s\n", cachePath)
+		if checkTarget == "" && fs.NArg() == 0 {
+			return 0
+		}
 	}
 
 	if repoRoot == "" {
@@ -63,8 +74,10 @@ func runCLI(args []string) int {
 	}
 
 	if checkTarget != "" {
+		prof, _, cached := ensureTermProfile(false)
 		rep := CheckCompatibility(checkTarget)
 		printCompatReport(rep)
+		fmt.Printf("Terminal:    %s\n", formatTermSummary(prof, cached))
 		if !rep.Compatible {
 			return 1
 		}
@@ -105,12 +118,14 @@ func runCLI(args []string) int {
 		tpl.ApplyTo(&spec)
 	}
 
+	prof, _, cached := ensureTermProfile(false)
 	res, err := ScaffoldApp(spec, outDir, repoRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mint-gen: scaffold error: %v\n", err)
 		return 1
 	}
 
+	fmt.Printf("Terminal: %s\n", formatTermSummary(prof, cached))
 	fmt.Printf("Scaffolded %s [template=%s archetype=%s] (%d flags, outputs_file=%v) in %s:\n",
 		spec.Name, spec.Template, spec.Archetype, len(spec.Flags), spec.OutputsFile, res.AppDir)
 	for _, f := range res.Files {

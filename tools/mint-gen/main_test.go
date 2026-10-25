@@ -220,3 +220,11 @@ func TestDetectTemplateAndCLIFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeTermFlag(t *testing.T) {
+	t.Setenv("MINT_TERMCAPS", t.TempDir()+"/termcaps.json")
+	t.Setenv("TERM", "xterm-256color")
+	if code := runCLI([]string{"--probe-term"}); code != 0 {
+		t.Fatalf("expected --probe-term exit code 0, got %d", code)
+	}
+}

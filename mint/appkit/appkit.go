@@ -323,11 +323,21 @@ func (a *ToolApp) buildFlagAndTargetArgs() (args []string, outPath string) {
 			}
 		default:
 			if val != "" {
-				if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
-					flagTok := strings.TrimSuffix(f.Flag, "=")
-					args = append(args, flagTok+"="+val)
-				} else {
-					args = append(args, f.Flag, val)
+				parts := []string{val}
+				if strings.Contains(val, "\n") {
+					parts = strings.Split(val, "\n")
+				}
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if part == "" {
+						continue
+					}
+					if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
+						flagTok := strings.TrimSuffix(f.Flag, "=")
+						args = append(args, flagTok+"="+part)
+					} else {
+						args = append(args, f.Flag, part)
+					}
 				}
 			}
 		}
@@ -621,28 +631,34 @@ func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []FileEntry
+	eagerStat := len(entries) <= 256
+	out := make([]FileEntry, 0, len(entries))
 	for _, e := range entries {
-		info, ierr := e.Info()
 		var sz int64
 		var mod time.Time
-		if ierr == nil {
-			sz = info.Size()
-			mod = info.ModTime()
+		isDir := e.IsDir()
+		if eagerStat {
+			if info, ierr := e.Info(); ierr == nil {
+				sz = info.Size()
+				mod = info.ModTime()
+			}
 		}
 		out = append(out, FileEntry{
 			Name:    e.Name(),
 			Path:    filepath.Join(dir, e.Name()),
 			Size:    sz,
 			ModTime: mod,
-			IsDir:   e.IsDir(),
+			IsDir:   isDir,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].IsDir != out[j].IsDir {
 			return out[i].IsDir
 		}
-		return out[i].ModTime.After(out[j].ModTime)
+		if eagerStat && !out[i].ModTime.Equal(out[j].ModTime) {
+			return out[i].ModTime.After(out[j].ModTime)
+		}
+		return out[i].Name < out[j].Name
 	})
 	return out, nil
 }
@@ -866,7 +882,37 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 				a.Values[key] = strconv.Itoa(v)
 			},
 		})
+	case FlagFile, FlagDir:
+		dirsOnly := f.Kind == FlagDir
+		return mint.Action(mint.ActionOpts{
+			Label: label,
+			Hint:  a.pathFlagSummary(key, dirsOnly),
+			OnActivate: func(c *mint.Ctx) {
+				startDir := a.ResultsDir
+				if cur := strings.TrimSpace(a.Values[key]); cur != "" {
+					if dirsOnly {
+						startDir = cur
+					} else {
+						startDir = filepath.Dir(cur)
+					}
+				}
+				if chosen, ok := browsePathPopup(c, label, startDir, a.Values[key], dirsOnly); ok {
+					a.Values[key] = chosen
+				}
+			},
+		})
 	default:
+		if isRepeatableKVFlag(f) {
+			return mint.Action(mint.ActionOpts{
+				Label: label,
+				Hint:  a.kvFlagSummary(key, f.Hint),
+				OnActivate: func(c *mint.Ctx) {
+					if updated, ok := editRepeatableValuesPopup(c, label, a.Values[key], f.Hint); ok {
+						a.Values[key] = updated
+					}
+				},
+			})
+		}
 		hint := f.Hint
 		if hint == "" {
 			hint = "value"
@@ -878,6 +924,192 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 			Get:         func() string { return a.Values[key] },
 			Set:         func(v string) { a.Values[key] = strings.TrimSpace(v) },
 		})
+	}
+}
+
+func (a *ToolApp) pathFlagSummary(key string, dirsOnly bool) string {
+	v := strings.TrimSpace(a.Values[key])
+	if v != "" {
+		return v
+	}
+	if dirsOnly {
+		return "browse dir…"
+	}
+	return "browse file…"
+}
+
+func isRepeatableKVFlag(f FlagSpec) bool {
+	combined := strings.ToLower(f.Hint + " " + f.Label)
+	return strings.Contains(combined, "key=val") ||
+		strings.Contains(combined, "k=v") ||
+		strings.Contains(combined, "header") ||
+		strings.Contains(combined, "repeatable") ||
+		strings.Contains(combined, "multiple")
+}
+
+func (a *ToolApp) kvFlagSummary(key, hint string) string {
+	v := strings.TrimSpace(a.Values[key])
+	if v == "" {
+		if hint != "" {
+			return hint
+		}
+		return "key=value…"
+	}
+	lines := strings.Split(v, "\n")
+	if len(lines) == 1 {
+		return lines[0]
+	}
+	return fmt.Sprintf("%s (+%d more)", lines[0], len(lines)-1)
+}
+
+func editRepeatableValuesPopup(c *mint.Ctx, title, current, hint string) (string, bool) {
+	if hint == "" {
+		hint = "KEY=VALUE"
+	}
+	var entries []string
+	for _, line := range strings.Split(current, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			entries = append(entries, t)
+		}
+	}
+	for {
+		items := []mint.Choice{
+			{Value: "__add__", Label: "+ Add entry (" + hint + ")…"},
+		}
+		if len(entries) > 0 {
+			items = append(items,
+				mint.Choice{Value: "__done__", Label: "✓ Done (" + strconv.Itoa(len(entries)) + " configured)"},
+				mint.Choice{Value: "__clear__", Label: "✕ Clear all entries"},
+			)
+		}
+		for i, e := range entries {
+			items = append(items, mint.Choice{
+				Value: fmt.Sprintf("idx:%d", i),
+				Label: e,
+			})
+		}
+		pickChoice, ok := c.ChooseItem(title, items, "No matching entries")
+		if !ok {
+			return strings.Join(entries, "\n"), true
+		}
+		pick := pickChoice.Value
+		switch pick {
+		case "__done__":
+			return strings.Join(entries, "\n"), true
+		case "__clear__":
+			entries = nil
+		case "__add__":
+			val, pok := c.Prompt(title, "Add "+hint, "")
+			if pok && strings.TrimSpace(val) != "" {
+				entries = append(entries, strings.TrimSpace(val))
+			}
+		default:
+			if strings.HasPrefix(pick, "idx:") {
+				idx, err := strconv.Atoi(strings.TrimPrefix(pick, "idx:"))
+				if err == nil && idx >= 0 && idx < len(entries) {
+					val, pok := c.Prompt(title, "Edit entry (empty to remove)", entries[idx])
+					if pok {
+						val = strings.TrimSpace(val)
+						if val == "" {
+							entries = append(entries[:idx], entries[idx+1:]...)
+						} else {
+							entries[idx] = val
+						}
+					}
+				}
+			} else if strings.Contains(pick, ",") {
+				return strings.Join(entries, "\n"), true
+			}
+		}
+	}
+}
+
+func browsePathPopup(c *mint.Ctx, title, startDir, currentVal string, dirsOnly bool) (string, bool) {
+	dir := strings.TrimSpace(startDir)
+	if dir == "" {
+		dir = "."
+	}
+	if abs, err := filepath.Abs(util.ExpandUser(dir)); err == nil {
+		dir = abs
+	}
+	showHidden := false
+	for {
+		rawEntries, err := os.ReadDir(dir)
+		items := []mint.Choice{
+			{Value: "__manual__", Label: "✎ Type path manually…"},
+		}
+		if dirsOnly {
+			items = append(items, mint.Choice{
+				Value: "__select_dir__",
+				Label: "✓ Use this directory: " + dir,
+			})
+		}
+		items = append(items,
+			mint.Choice{Value: "__up__", Label: "↑ .. (Parent directory: " + filepath.Dir(dir) + ")"},
+			mint.Choice{Value: "__hidden__", Label: fmt.Sprintf("⊙ Toggle hidden dotfiles (hidden=%v)", showHidden)},
+		)
+		if currentVal != "" {
+			items = append(items, mint.Choice{Value: "__clear__", Label: "✕ Clear value"})
+		}
+		if err == nil {
+			var dirs, files []mint.Choice
+			for _, e := range rawEntries {
+				name := e.Name()
+				if !showHidden && strings.HasPrefix(name, ".") {
+					continue
+				}
+				full := filepath.Join(dir, name)
+				isDir := e.IsDir()
+				if e.Type()&os.ModeSymlink != 0 && len(rawEntries) <= 2048 {
+					if st, serr := os.Stat(full); serr == nil && st.IsDir() {
+						isDir = true
+					}
+				}
+				if isDir {
+					dirs = append(dirs, mint.Choice{
+						Value: "dir:" + full,
+						Label: "▸ " + name + "/",
+					})
+				} else if !dirsOnly {
+					files = append(files, mint.Choice{
+						Value: "file:" + full,
+						Label: "  " + name,
+					})
+				}
+			}
+			items = append(items, dirs...)
+			items = append(items, files...)
+		}
+		pickChoice, ok := c.ChooseItem(title+" — "+dir, items, "No matching files")
+		if !ok {
+			return "", false
+		}
+		pick := pickChoice.Value
+		switch pick {
+		case "__manual__":
+			def := currentVal
+			if def == "" {
+				def = dir
+			}
+			v, pok := c.Prompt(title, "Enter path", def)
+			if pok {
+				return strings.TrimSpace(v), true
+			}
+		case "__select_dir__":
+			return dir, true
+		case "__up__":
+			dir = filepath.Dir(dir)
+		case "__hidden__":
+			showHidden = !showHidden
+		case "__clear__":
+			return "", true
+		default:
+			if strings.HasPrefix(pick, "dir:") {
+				dir = strings.TrimPrefix(pick, "dir:")
+			} else if strings.HasPrefix(pick, "file:") {
+				return strings.TrimPrefix(pick, "file:"), true
+			}
+		}
 	}
 }
 
@@ -1102,6 +1334,31 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 					a.ResultsDir = filepath.Dir(a.ResultsDir)
 				},
 			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Quick filter & jump (100k+ entries)…",
+				Hint:  "search",
+				OnActivate: func(c *mint.Ctx) {
+					if chosen, ok := browsePathPopup(c, "Browse Files", a.ResultsDir, "", false); ok && chosen != "" {
+						info, err := os.Stat(chosen)
+						if err == nil && info.IsDir() {
+							a.ResultsDir = chosen
+							return
+						}
+						a.ResultsDir = filepath.Dir(chosen)
+						b, rerr := os.ReadFile(chosen)
+						if rerr != nil {
+							c.ToastError("Cannot read: " + rerr.Error())
+							return
+						}
+						raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+						lines := make([]mint.LogLine, len(raw))
+						for i, l := range raw {
+							lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
+						}
+						c.Push(mint.ViewLog(filepath.Base(chosen), func() []mint.LogLine { return lines }))
+					}
+				},
+			}),
 		}
 
 		var fileRows []mint.Row
@@ -1110,7 +1367,11 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 		} else if len(entries) == 0 {
 			fileRows = append(fileRows, mint.Note("  No files in "+a.ResultsDir))
 		} else {
-			for _, e := range entries {
+			limit := len(entries)
+			if limit > 200 {
+				limit = 200
+			}
+			for _, e := range entries[:limit] {
 				entry := e
 				if entry.IsDir {
 					fileRows = append(fileRows, mint.Action(mint.ActionOpts{

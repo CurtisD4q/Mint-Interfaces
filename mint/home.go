@@ -191,7 +191,7 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 		switch {
 		case k == nil:
 			sc++
-			if sc >= 2 {
+			if rt.consumeResize() || sc >= 2 {
 				sc = 0
 				if nh, nw := TermSize(); nh != h || nw != w {
 					h, w = nh, nw

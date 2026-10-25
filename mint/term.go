@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -45,13 +46,15 @@ func tcset(fd int, t *syscall.Termios) error {
 }
 
 // ScreenEnter switches to the alternate screen in raw mode with the cursor
-// hidden and SGR mouse reporting on. Equivalent to
-// `stty raw -echo min 0 time 1`: reads return after 100 ms with no input,
-// which is what drives the idle tick (poll, resize).
+// hidden, SGR mouse reporting, and bracketed paste enabled according to the
+// probed terminal capability runtime.
 func ScreenEnter() {
 	if screenActive {
 		return
 	}
+	rt.profile = loadOrProbeTermProfile(false)
+	rt.initSignals()
+	C = rt.quantizePalette(loadPalette())
 	if t, err := tcget(0); err == nil {
 		saved := *t
 		savedTermios = &saved
@@ -61,10 +64,7 @@ func ScreenEnter() {
 		raw.Cc[syscall.VTIME] = 1
 		_ = tcset(0, &raw)
 	}
-	out(esc + "?1049h")
-	out(esc + "?25l")
-	out(esc + "?1000h")
-	out(esc + "?1006h")
+	out(rt.enterSeq())
 	screenActive = true
 
 	// If we are killed, put the terminal back first.
@@ -84,10 +84,7 @@ func ScreenLeave() {
 	if !screenActive {
 		return
 	}
-	out(esc + "?1000l")
-	out(esc + "?1006l")
-	out(esc + "?25h")
-	out(esc + "?1049l")
+	out(rt.leaveSeq())
 	if savedTermios != nil {
 		_ = tcset(0, savedTermios)
 	}
@@ -124,11 +121,13 @@ type Mouse struct {
 // Special keys have a Name and Special set: "up", "down", "left", "right",
 // "home", "end", "pgup", "pgdn", "insert", "delete", "f1"…"f12", "btab"
 // (shift-Tab), "esc", or "M-x" for Alt+x. Everything else is a literal
-// character typed (one UTF-8 character) or a control byte such as "\r",
-// "\t", "\x7f" or "\x03". Mouse is set for mouse events instead.
+// character typed (one UTF-8 character), a bracketed paste (Paste != ""),
+// or a control byte such as "\r", "\t", "\x7f" or "\x03". Mouse is set for
+// mouse events instead.
 type Key struct {
 	Name    string
 	Special bool
+	paste   string
 	Mouse   *Mouse
 }
 
@@ -139,7 +138,7 @@ func (k *Key) IsText() bool {
 }
 
 var (
-	inBuf        [512]byte
+	inBuf        [4096]byte
 	inPos, inLen int
 	// readInput reads raw terminal input; tests replace it.
 	readInput = func(b []byte) (int, error) { return syscall.Read(0, b) }
@@ -158,8 +157,6 @@ func readByte() (byte, bool) {
 	}
 	n, err := readInput(inBuf[:])
 	if err != nil && !errors.Is(err, syscall.EINTR) && !errors.Is(err, syscall.EAGAIN) {
-		// The terminal has gone (closed window, killed Emacs). Unwind to
-		// App.Run, which returns so the app can clean up and exit.
 		panic(errHangup)
 	}
 	if n <= 0 {
@@ -193,8 +190,9 @@ func readUTF8(first byte) string {
 	return string(s)
 }
 
-func named(n string) *Key { return &Key{Name: n, Special: true} }
-func char(s string) *Key  { return &Key{Name: s} }
+func named(n string) *Key  { return &Key{Name: n, Special: true} }
+func char(s string) *Key   { return &Key{Name: s} }
+func pasted(s string) *Key { return &Key{Name: s, paste: s} }
 
 // tildeKeys maps the number in "ESC [ n ~" to a key.
 var tildeKeys = map[string]string{
@@ -208,6 +206,60 @@ var tildeKeys = map[string]string{
 var finalKeys = map[byte]string{
 	'A': "up", 'B': "down", 'C': "right", 'D': "left", 'H': "home", 'F': "end",
 	'P': "f1", 'Q': "f2", 'R': "f3", 'S': "f4", 'Z': "btab",
+}
+
+func readBracketedPaste() *Key {
+	var buf []byte
+	const endMarker = "\x1b[201~"
+	for len(buf) < 65536 {
+		b, ok := readByte()
+		if !ok {
+			break
+		}
+		buf = append(buf, b)
+		if len(buf) >= len(endMarker) && string(buf[len(buf)-len(endMarker):]) == endMarker {
+			buf = buf[:len(buf)-len(endMarker)]
+			break
+		}
+	}
+	return pasted(string(buf))
+}
+
+func decodeKittyCSIu(params string) *Key {
+	codeStr, modStr, _ := strings.Cut(params, ";")
+	code, err := strconv.Atoi(codeStr)
+	if err != nil || code <= 0 {
+		return nil
+	}
+	mod := 1
+	if modStr != "" {
+		if m, err := strconv.Atoi(modStr); err == nil && m > 0 {
+			mod = m
+		}
+	}
+	switch code {
+	case 27:
+		return named("esc")
+	case 13:
+		return char("\r")
+	case 9:
+		if (mod-1)&1 != 0 {
+			return named("btab")
+		}
+		return char("\t")
+	case 127, 8:
+		return char("\x7f")
+	}
+	if (mod-1)&4 != 0 && code >= 'a' && code <= 'z' {
+		return char(string(rune(code - 'a' + 1)))
+	}
+	if (mod-1)&2 != 0 && code >= 32 && code < 127 {
+		return named("M-" + string(rune(code)))
+	}
+	if code >= 32 && utf8.ValidRune(rune(code)) {
+		return char(string(rune(code)))
+	}
+	return nil
 }
 
 // readCSI reads the rest of an "ESC [" sequence: parameter bytes, then one
@@ -227,8 +279,22 @@ func readCSI() *Key {
 			if len(params) > 0 && params[0] == '<' && (b == 'M' || b == 'm') {
 				return mouseKey(string(params[1:]), b == 'M')
 			}
+			if b == 'I' {
+				rt.focused.Store(true)
+				return nil
+			}
+			if b == 'O' {
+				rt.focused.Store(false)
+				return nil
+			}
+			if b == 'u' {
+				return decodeKittyCSIu(string(params))
+			}
 			if b == '~' {
 				num, _, _ := strings.Cut(string(params), ";")
+				if num == "200" {
+					return readBracketedPaste()
+				}
 				if n, ok := tildeKeys[num]; ok {
 					return named(n)
 				}

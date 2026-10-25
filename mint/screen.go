@@ -61,6 +61,7 @@ type Screen struct {
 type editState struct {
 	idx     int
 	chars   []string
+	buf     *lineBuffer
 	numeric bool
 	commit  func(string)
 }
@@ -458,15 +459,18 @@ func (screen *Screen) run() screenResult {
 	widget := func(it *Row, idx int) string {
 		editingHere := st.editing != nil && st.editing.idx == idx
 		if it.wtype == "text" && editingHere {
-			s := strings.Join(st.editing.chars, "")
+			if st.editing.buf == nil {
+				st.editing.buf = newLineBuffer(strings.Join(st.editing.chars, ""))
+			}
+			s := st.editing.buf.String()
 			if s == "" {
 				ph := it.placeholder
 				if ph == "" {
 					ph = "…"
 				}
-				return C.Dim + ph + Reset + C.Accent + "_" + Reset
+				return C.Dim + ph + Reset + C.Accent + "▏" + Reset
 			}
-			return C.Bright + Truncate(s, 28) + C.Accent + "_" + Reset
+			return C.Bright + st.editing.buf.renderViewport(28, "") + Reset
 		}
 		if it.wtype == "stepper" && editingHere {
 			return C.Dim + "− " + Reset + C.Bright + strings.Join(st.editing.chars, "") +
@@ -687,7 +691,7 @@ func (screen *Screen) run() screenResult {
 			cur = it.value
 		}
 		set := it.setStr
-		st.editing = &editState{idx: idx, chars: util.Chars(cur), commit: func(s string) {
+		st.editing = &editState{idx: idx, chars: util.Chars(cur), buf: newLineBuffer(cur), commit: func(s string) {
 			if set != nil {
 				set(s)
 			}
@@ -700,11 +704,18 @@ func (screen *Screen) run() screenResult {
 			return
 		}
 		st.editing = nil
-		protect(func() { ed.commit(strings.Join(ed.chars, "")) })
+		val := strings.Join(ed.chars, "")
+		if ed.buf != nil && !ed.numeric {
+			val = ed.buf.String()
+		}
+		protect(func() { ed.commit(val) })
 	}
 
 	editKey := func(k *Key) bool {
 		ed := st.editing
+		if !ed.numeric && ed.buf == nil {
+			ed.buf = newLineBuffer(strings.Join(ed.chars, ""))
+		}
 		switch {
 		case k.Mouse != nil:
 			commitEdit()
@@ -713,10 +724,6 @@ func (screen *Screen) run() screenResult {
 			st.editing = nil
 		case k.Name == "\r" || k.Name == "\n":
 			commitEdit()
-		case k.Name == "\x7f" || k.Name == "\b":
-			if len(ed.chars) > 0 {
-				ed.chars = ed.chars[:len(ed.chars)-1]
-			}
 		case k.Name == "up":
 			commitEdit()
 			st.row--
@@ -725,16 +732,23 @@ func (screen *Screen) run() screenResult {
 			commitEdit()
 			st.row++
 			clamp()
-		case k.Name == "left" || k.Name == "right":
 		case ed.numeric:
+			if k.Name == "\x7f" || k.Name == "\b" {
+				if len(ed.chars) > 0 {
+					ed.chars = ed.chars[:len(ed.chars)-1]
+				}
+				break
+			}
 			if k.Special {
 				break
 			}
 			if (k.Name >= "0" && k.Name <= "9" && len(k.Name) == 1) || (k.Name == "-" && len(ed.chars) == 0) {
 				ed.chars = append(ed.chars, k.Name)
 			}
-		case k.IsText():
-			ed.chars = append(ed.chars, k.Name)
+		default:
+			if ed.buf.handleKey(k) {
+				ed.chars = ed.buf.clusters
+			}
 		}
 		return true
 	}
@@ -995,7 +1009,7 @@ func (screen *Screen) run() screenResult {
 		switch {
 		case k == nil:
 			sc++
-			if sc >= 2 {
+			if rt.consumeResize() || sc >= 2 {
 				sc = 0
 				if nh, nw := TermSize(); nh != h || nw != w {
 					h, w = nh, nw

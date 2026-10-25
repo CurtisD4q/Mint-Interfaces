@@ -237,3 +237,24 @@ func TestMixinsAndDynamicChoicesAndSplitSections(t *testing.T) {
 		t.Fatalf("expected 3 collapsible section rows from SplitSections, got %d", len(rows))
 	}
 }
+
+func TestRepeatableKVFlags(t *testing.T) {
+	spec := ToolSpec{
+		Name: "curl",
+		Flags: []FlagSpec{
+			{Flag: "-H", Kind: FlagText, Label: "Header (-H)", Hint: "key=value (repeatable)"},
+		},
+	}
+	app := New(spec)
+	app.Values["-H"] = "Accept: application/json\nX-Token: abc"
+	args, _ := app.BuildArgs()
+	want := []string{"-H", "Accept: application/json", "-H", "X-Token: abc"}
+	if len(args) != len(want) {
+		t.Fatalf("expected %v, got %v", want, args)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("at %d: expected %q, got %q", i, want[i], args[i])
+		}
+	}
+}

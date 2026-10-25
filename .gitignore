@@ -1,0 +1,5 @@
+/demo
+/example-bin
+*.test
+__pycache__/
+/apps/spiderfoot/spiderfoot-mint
