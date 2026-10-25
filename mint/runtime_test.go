@@ -135,3 +135,36 @@ func TestWCWidthAndPlainCleanLine(t *testing.T) {
 		t.Fatalf("expected plain text 'ERROR: NAME', got %q", cleaned)
 	}
 }
+
+func TestColorTermGateFallbackTo256(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
+	t.Setenv("NO_COLOR", "")
+
+	prof := probeTerminalFeatures(false)
+	if prof.ColorDepth != 256 {
+		t.Fatalf("expected ColorDepth 256 when COLORTERM is unset, got %d", prof.ColorDepth)
+	}
+
+	var r level5Runtime
+	r.profile = prof
+	pal := theme.Palette{
+		Accent: "\x1b[38;2;136;192;208m",
+		Bright: "\x1b[38;2;143;188;187m",
+		Text:   "\x1b[38;2;216;222;233m",
+		Muted:  "\x1b[38;2;118;128;144m",
+		On:     "\x1b[38;2;163;190;140m",
+		Amber:  "\x1b[38;2;235;203;139m",
+		SelBg:  "\x1b[48;2;59;66;82m",
+		Bold:   "\x1b[1m",
+		Dim:    "\x1b[2m",
+		Err:    "\x1b[38;2;191;97;106m",
+	}
+	q := r.quantizePalette(pal)
+	if strings.Contains(q.Accent, "38;2;") || strings.Contains(q.SelBg, "48;2;") {
+		t.Fatalf("expected 24-bit sequences to fall back to 256-colour when COLORTERM is unset, got Accent=%q SelBg=%q", q.Accent, q.SelBg)
+	}
+	if !strings.Contains(q.Accent, "38;5;") || !strings.Contains(q.SelBg, "48;5;") {
+		t.Fatalf("expected 256-colour SGR sequences, got Accent=%q SelBg=%q", q.Accent, q.SelBg)
+	}
+}

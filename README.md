@@ -78,7 +78,7 @@ Once installed, the steps from any directory are:
 **To run a Mint app:** nothing to install. Apps are single static binaries.
 
 - **Systems:** Linux, macOS and the BSDs. Windows is not supported natively; apps work inside WSL (Windows Subsystem for Linux), for example in Windows Terminal.
-- **Terminal:** any terminal with 256 colours and SGR mouse reporting, which is any modern terminal (GNOME Terminal, Konsole, kitty, Alacritty, iTerm2, Windows Terminal, tmux). 24-bit colour is used only for themes that ask for it.
+- **Terminal:** any terminal with 256 colours and SGR mouse reporting, which is any modern terminal (GNOME Terminal, Konsole, kitty, Alacritty, iTerm2, Windows Terminal, tmux). 24-bit colour is used only when a theme asks for it and `$COLORTERM` is `truecolor` or `24bit`; if `$COLORTERM` is unset, RGB colours fall back to their nearest 256-colour approximation.
 - **Font:** one with the box-drawing and symbol characters Mint draws (`╭─╮ ━ ● ▸ ☑ ◉`). Most monospace fonts have them.
 - **Locale:** a UTF-8 locale, which is the default almost everywhere.
 - **Programs the app wraps:** whatever it lists in `Require`. Missing ones are named on its home screen.
@@ -204,6 +204,8 @@ Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The d
 ### Colour
 
 The built-in palette is the original purple: 256-colour index 141 for the frame and titles, and a dim selection bar. `theme.Names` lists `default`, `terminal`, `nord`, `gruvbox`, `dracula`, `catppuccin` and `custom`. `mint.SetPalette(theme.Load(name))` applies one immediately. `theme.Set(name)` writes `~/.config/mint-interfaces/theme.conf`, the same file the Lua version reads, so both versions share a theme.
+
+Truecolor (`CSI 38;2;r;g;b m` / `CSI 48;2;r;g;b m`) is gated on both the theme and the terminal: it is emitted only when a theme (or `MINT_PALETTE`) specifies RGB values **and** `$COLORTERM` is `truecolor` or `24bit`. When `$COLORTERM` is unset, any RGB colour falls back to the nearest 256-colour approximation (`CSI 38;5;n m` / `CSI 48;5;n m`).
 
 The `MINT_PALETTE` environment variable overrides individual colours for one run, for example `MINT_PALETTE="accent=#ff5f87,selbg=236"`. Each value is a `#rrggbb` colour or a 256-colour number, and the roles are `accent`, `bright`, `text`, `muted`, `on`, `amber`, `err` and `selbg`. This is how Emacs passes its theme to the apps it launches.
 

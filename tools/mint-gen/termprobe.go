@@ -72,7 +72,8 @@ func currentTermSignature() (sig, term, prog, wrapper string) {
 	case os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != "":
 		wrapper = "ssh"
 	}
-	sig = term + "|" + prog + "|" + wrapper
+	ct := strings.ToLower(strings.TrimSpace(os.Getenv("COLORTERM")))
+	sig = term + "|" + prog + "|" + wrapper + "|" + ct
 	return sig, term, prog, wrapper
 }
 
@@ -167,7 +168,11 @@ func probeCurrentTerminal(sig, term, prog, wrapper string) termProfile {
 		os.Getenv("WT_SESSION") != ""
 
 	if modern {
-		p.ColorDepth = 16777216
+		if ct == "truecolor" || ct == "24bit" {
+			p.ColorDepth = 16777216
+		} else if p.ColorDepth < 256 {
+			p.ColorDepth = 256
+		}
 		p.AltScreen = true
 		p.SGRMouse = true
 		p.BracketedPaste = true
@@ -213,7 +218,11 @@ func probeCurrentTerminal(sig, term, prog, wrapper string) termProfile {
 				ver := strings.TrimSpace(rest[:end])
 				if ver != "" {
 					p.Version = ver
-					p.ColorDepth = 16777216
+					if ct == "truecolor" || ct == "24bit" {
+						p.ColorDepth = 16777216
+					} else if p.ColorDepth < 256 {
+						p.ColorDepth = 256
+					}
 					p.OSC52 = true
 					p.OSC8 = true
 				}
