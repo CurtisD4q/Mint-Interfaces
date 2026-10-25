@@ -30,9 +30,9 @@ You can generate and compile a full Mint interface for any installed command-lin
    ```sh
    go run ./tools/mint-gen --build nmap
    ```
-3. **Run your new interface:** Launch the compiled interface in your terminal (or via `M-x nmap-mint` in [Emacs](#running-from-emacs-emacsmintel)):
+3. **Run your new interface:** Launch the standalone binary in your terminal (or via `M-x nmap-mint` in [Emacs](#running-from-emacs-emacsmintel)):
    ```sh
-   go run ./tools/mint-gen --run nmap
+   ./apps/nmap/nmap-mint
    ```
 
 ### Global install: Run `mint-gen` from anywhere
@@ -418,9 +418,9 @@ python3 tools/check_catalogue.py
    - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
 
 3. **Run your new interface immediately**
-   Launch the compiled interface with `--run` (or run `./apps/nmap/nmap-mint` directly, or load `apps/nmap/nmap-mint.el` and run `M-x nmap-mint` in Emacs):
+   Launch the compiled binary directly in your terminal (or load `apps/nmap/nmap-mint.el` and run `M-x nmap-mint` in Emacs):
    ```bash
-   go run ./tools/mint-gen --run nmap
+   ./apps/nmap/nmap-mint
    ```
    You immediately get the full multi-screen interface: **Configure & Run** (target, presets, flags, collapsible sections, and output file naming), **Live / Last Output** (progress bar, live parsed `mint.Table`, collapsible large-text chunks, and full-screen `ViewLog` with `←`/`→` horizontal pan, `/` search, and `s` save), **Output Directory Browser**, and **Saved Runs History**.
 
