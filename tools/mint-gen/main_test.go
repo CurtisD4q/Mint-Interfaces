@@ -157,6 +157,10 @@ func TestScaffoldAppAndCLI(t *testing.T) {
 	if _, err := os.Stat(res.BinaryOut); err != nil {
 		t.Fatalf("expected compiled binary %s to exist: %v", res.BinaryOut, err)
 	}
+	// Verify mint-gen --run launches the compiled binary (passing --version so it exits 0 without a TTY)
+	if code := runCLI([]string{"--run", "--out", outDir, "demo", "--version"}); code != 0 {
+		t.Fatalf("expected --run demo --version to return 0, got %d", code)
+	}
 }
 
 func TestDetectTemplateAndCLIFlags(t *testing.T) {

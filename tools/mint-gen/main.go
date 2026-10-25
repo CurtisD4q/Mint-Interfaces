@@ -24,6 +24,7 @@ func runCLI(args []string) int {
 		listTemplates bool
 		force         bool
 		buildBin      bool
+		runApp        bool
 		outDir        string
 		repoRoot      string
 		tuiMode       bool
@@ -35,6 +36,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
+	fs.BoolVar(&runApp, "run", false, "Launch the compiled <tool>-mint interface (builds it first if missing)")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
@@ -85,13 +87,24 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--out <dir>] <program> [output-dir]")
 		return 2
 	}
 
 	program := fs.Arg(0)
-	if outDir == "" && fs.NArg() >= 2 {
+	var appArgs []string
+	if runApp {
+		appArgs = fs.Args()[1:]
+	} else if outDir == "" && fs.NArg() >= 2 {
 		outDir = fs.Arg(1)
+	}
+
+	if runApp && !buildBin {
+		binPath := existingBinaryPath(program, outDir, repoRoot)
+		if st, err := os.Stat(binPath); err == nil && !st.IsDir() {
+			return runBuiltApp(binPath, appArgs)
+		}
+		buildBin = true
 	}
 
 	rep := CheckCompatibility(program)
@@ -139,6 +152,9 @@ func runCLI(args []string) int {
 		}
 		fmt.Printf("Built static binary: %s\n", res.BinaryOut)
 	}
+	if runApp {
+		return runBuiltApp(res.BinaryOut, appArgs)
+	}
 	return 0
 }
 
@@ -185,6 +201,37 @@ func printCompatReport(rep CompatReport) {
 	if len(rep.LinkedLibs) > 0 {
 		fmt.Printf("Libraries:   %s\n", strings.Join(rep.LinkedLibs, ", "))
 	}
+}
+
+func existingBinaryPath(program, outDir, repoRoot string) string {
+	tool := sanitizeToolName(program)
+	dir := outDir
+	if dir == "" {
+		if repoRoot != "" {
+			dir = filepath.Join(repoRoot, "apps", tool)
+		} else {
+			dir = filepath.Join("apps", tool)
+		}
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return filepath.Join(dir, tool+"-mint")
+}
+
+func runBuiltApp(binPath string, appArgs []string) int {
+	cmd := exec.Command(binPath, appArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode()
+		}
+		fmt.Fprintf(os.Stderr, "mint-gen: run error: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func buildScaffoldedApp(appDir, binOut string) error {

@@ -30,14 +30,14 @@ You can generate and compile a full Mint interface for any installed command-lin
    ```sh
    go run ./tools/mint-gen --build nmap
    ```
-3. **Run your new interface:** Launch the standalone binary in your terminal (or via `M-x nmap-mint` in [Emacs](#running-from-emacs-emacsmintel)):
+3. **Run your new interface:** Launch the compiled interface in your terminal (or via `M-x nmap-mint` in [Emacs](#running-from-emacs-emacsmintel)):
    ```sh
-   ./apps/nmap/nmap-mint
+   go run ./tools/mint-gen --run nmap
    ```
 
-### Global install: Run `mint-gen` and `<tool>-mint` from anywhere
+### Global install: Run `mint-gen` from anywhere
 
-Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and install a `/usr/local/bin/mint-gen` wrapper so `mint-gen` and every built `<tool>-mint` binary work from any directory:
+Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and install `/usr/local/bin/mint-gen` so you can check, build, and run any tool's interface from any directory:
 
 1. Move the repository to `/usr/local/share/mint-interfaces` and make `apps/` writable by your user so builds do not need `sudo`:
    ```sh
@@ -45,16 +45,11 @@ Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and inst
    sudo mkdir -p /usr/local/share/mint-interfaces/apps
    sudo chown -R "$USER:$USER" /usr/local/share/mint-interfaces/apps
    ```
-2. Install `/usr/local/bin/mint-gen` to run the generator from `/usr/local/share/mint-interfaces` and automatically symlink each compiled `<tool>-mint` binary into `/usr/local/bin`:
+2. Install `/usr/local/bin/mint-gen` to invoke `mint-gen` from `/usr/local/share/mint-interfaces`:
    ```sh
    sudo tee /usr/local/bin/mint-gen >/dev/null << 'EOF'
    #!/usr/bin/env sh
-   go -C /usr/local/share/mint-interfaces run ./tools/mint-gen "$@"
-   status=$?
-   for bin in /usr/local/share/mint-interfaces/apps/*/*-mint; do
-       [ -x "$bin" ] && sudo ln -sf "$bin" /usr/local/bin/
-   done
-   exit $status
+   exec go -C /usr/local/share/mint-interfaces run ./tools/mint-gen "$@"
    EOF
    sudo chmod +x /usr/local/bin/mint-gen
    ```
@@ -65,13 +60,13 @@ Once installed, the 3 steps from any directory are:
    ```sh
    mint-gen --check nmap
    ```
-2. **Generate and compile:** Parse `man` and `--help`, build the static binary, and link `nmap-mint` into `/usr/local/bin`.
+2. **Generate and compile:** Parse `man` and `--help`, scaffold `apps/nmap/`, and compile the static binary.
    ```sh
    mint-gen --build nmap
    ```
-3. **Run your new interface:**
+3. **Run your new interface:** Launch the compiled `nmap` interface (building it first if needed).
    ```sh
-   nmap-mint
+   mint-gen --run nmap
    ```
 
 ## Prerequisites
@@ -423,9 +418,9 @@ python3 tools/check_catalogue.py
    - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
 
 3. **Run your new interface immediately**
-   Launch the compiled binary directly in your terminal (or load `apps/nmap/nmap-mint.el` and run `M-x nmap-mint` in Emacs):
+   Launch the compiled interface with `--run` (or run `./apps/nmap/nmap-mint` directly, or load `apps/nmap/nmap-mint.el` and run `M-x nmap-mint` in Emacs):
    ```bash
-   ./apps/nmap/nmap-mint
+   go run ./tools/mint-gen --run nmap
    ```
    You immediately get the full multi-screen interface: **Configure & Run** (target, presets, flags, collapsible sections, and output file naming), **Live / Last Output** (progress bar, live parsed `mint.Table`, collapsible large-text chunks, and full-screen `ViewLog` with `←`/`→` horizontal pan, `/` search, and `s` save), **Output Directory Browser**, and **Saved Runs History**.
 
