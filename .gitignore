@@ -1,5 +1,44 @@
-/demo
-/example-bin
-*.test
-__pycache__/
+# Scaffolded & compiled Mint apps
 /apps/
+*-mint
+/demo
+/example
+/example-bin
+/features
+/app
+/mint-gen
+/bin/
+/dist/
+
+# Go test, coverage & local workspace artifacts
+*.test
+*.out
+*.prof
+coverage.txt
+coverage.html
+go.work
+go.work.sum
+
+# Emacs byte-compilation & backups (emacs/mint.el)
+*.elc
+*~
+#*#
+.#*
+
+# Python (tools/check_catalogue.py)
+__pycache__/
+*.py[cod]
+
+# Local runtime cache & log exports
+termcaps.json
+*.log
+
+# Editor & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.env
+.env.*
