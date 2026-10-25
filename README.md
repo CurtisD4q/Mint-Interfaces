@@ -1,0 +1,490 @@
+# Mint Interfaces (Go)
+
+A zero-dependency terminal UI library, ported from the Lua original.
+
+The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded purple frame with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
+
+On top of the original, it adds dividers and spacing, text styles, collapsible sections, slider ranges and units, progress bars, number steppers, checkboxes, radio groups, toasts, status badges, a loading spinner, background jobs with live output, and a catalogue for building interfaces for command-line programs. See [Additions](#additions). Every app also gets standard command-line flags, emacs and vim key profiles, and can be launched from Emacs, matching its theme. See [Standalone binaries and flags](#standalone-binaries-and-flags), [Keys](#keys) and [Running from Emacs](#running-from-emacs-emacsmintel).
+
+The port was verified byte for byte against the Lua original before any additions were made: both versions were run in a pseudo-terminal with identical keys, clicks and resizes, and every frame matched.
+
+There is no settings logic and no system backend in the library. An app describes screens as structs and handles its own data.
+
+It uses only Go's standard library: no Charm, no tcell, and no `golang.org/x/...`. See [Prerequisites](#prerequisites) for what building, running and the Emacs integration need.
+
+```
+go run ./example            # the program below
+go run ./examples/demo      # every original widget and dialog
+go run ./examples/features  # the additions, including a background job
+```
+
+## Prerequisites
+
+**To run a Mint app:** nothing to install. Apps are single static binaries.
+
+- **Systems:** Linux, macOS and the BSDs. Windows is not supported natively; apps work inside WSL (Windows Subsystem for Linux), for example in Windows Terminal.
+- **Terminal:** any terminal with 256 colours and SGR mouse reporting, which is any modern terminal (GNOME Terminal, Konsole, kitty, Alacritty, iTerm2, Windows Terminal, tmux). 24-bit colour is used only for themes that ask for it.
+- **Font:** one with the box-drawing and symbol characters Mint draws (`╭─╮ ━ ● ▸ ☑ ◉`). Most monospace fonts have them.
+- **Locale:** a UTF-8 locale, which is the default almost everywhere.
+- **Programs the app wraps:** whatever it lists in `Require`. Missing ones are named on its home screen.
+
+**To build apps:**
+
+- **Go 1.21 or newer.** No C compiler or other tools: cross-compiling for another system or processor is just a setting.
+- **`sh`**, for jobs started with `runner.Cmd{Shell: ...}`. Every Unix system has it.
+- **Python 3**, only for `tools/check_catalogue.py`.
+
+**For the Emacs integration (`emacs/mint.el`):**
+
+- **Emacs 27.1 or newer.** Tested on Emacs 29.3.
+- **Terminal Emacs** (`emacs -nw`) for the recommended handover mode. Graphical Emacs falls back to the built-in `term` mode, with the limits listed under [Limitations in Emacs](#limitations-in-emacs).
+- **Go**, only if you use `M-x mint-run-source` or point `mint-define-app` at an app's source folder rather than a compiled binary.
+- Finding the terminal device for handover uses `/proc` on Linux and `ps` on macOS and the BSDs.
+
+## Build a screen
+
+Import `mint`, describe a home list in a `mint.App`, and call `Run`. A home item's `Open` returns a `*mint.Screen`.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
+)
+
+var brightness = 60
+
+func displayScreen() *mint.Screen {
+	return &mint.Screen{
+		Icon:  "▭",
+		Title: "Display",
+		Sections: []mint.Section{
+			{Name: "Brightness", Rows: []mint.Row{
+				mint.Note("How bright the panel should look."),
+				mint.Slider(mint.SliderOpts{
+					Label: "Adjust",
+					Get:   func() int { return brightness },
+					Set:   func(v int) { brightness = v },
+				}),
+				mint.Value(mint.ValueOpts{
+					Label: "Level",
+					Get:   func() string { return fmt.Sprintf("%d  (default 60)", brightness) },
+				}),
+				mint.Action(mint.ActionOpts{
+					Label:      "Reset to default",
+					Hint:       "reset",
+					OnActivate: func(*mint.Ctx) { brightness = 60 },
+				}),
+			}},
+		},
+	}
+}
+
+func main() {
+	app := &mint.App{
+		Title: "◈ Example",
+		Crumb: "Example", // breadcrumb shown on inner screens
+		Note:  "Optional line under the home title.",
+		Items: []mint.HomeItem{
+			{Icon: "▭", Label: "Display", Desc: "Brightness", Open: displayScreen},
+		},
+	}
+	app.Run()
+}
+```
+
+`Sections` is a list of `{Name, Rows}`. The heading style the settings manager uses (`┄ Heading`) is drawn for you. Returning a screen from `Open` pushes it, `b` pops it, and `q` quits.
+
+From a row callback, `ctx` can open another screen or a dialog:
+
+```go
+mint.Action(mint.ActionOpts{
+	Label: "Rename",
+	Hint:  "edit",
+	OnActivate: func(ctx *mint.Ctx) {
+		name, ok := ctx.Prompt("Name", "Shown in the title.", "untitled")
+		if ok && ctx.Confirm("Use this name?", name) {
+			ctx.Push(otherScreen(name))
+		}
+	},
+})
+```
+
+Dialogs: `ctx.Confirm`, `ctx.Message`, `ctx.Prompt`, `ctx.Choose`, `ctx.ChooseItem`, `ctx.Password` and `ctx.TypeToConfirm`. They use the same frame. `ctx.Push`, `ctx.Pop` and `ctx.Quit` change screens.
+
+### Row types
+
+| Constructor | What it draws | Keys |
+|---|---|---|
+| `mint.Value(mint.ValueOpts{Label, Value})` or `Get` | Label on the left, muted value on the right | Enter runs `OnActivate` when set |
+| `mint.Slider(mint.SliderOpts{Label, Get, Set})` | `━━━━●──── 60%`, range 0–100 unless set (see [More controls](#more-controls)) | ←→ by `Step` (default 5), click the track to jump |
+| `mint.Picker(mint.PickerOpts{Label, Options, Get, Set})` | `‹ value ›` | ←→ cycles, Enter steps forward |
+| `mint.Toggle(mint.ToggleOpts{Label, Get, Set})` | `● ON` or `OFF` | Space flips, → on, ← off |
+| `mint.Action(mint.ActionOpts{Label, Hint, OnActivate})` | Hint on the right (`reset`, `save`, `open`) | Enter or double-click runs it |
+| `mint.Text(mint.TextOpts{Label, Get, Set, Placeholder})` | Editable value | Enter edits, Enter saves, Esc cancels |
+| `mint.Note("…")` | Dim line, not selectable | |
+| `mint.Heading("…")` | Section header inside a row list | |
+| `mint.Progress(mint.ProgressOpts{Label, Get})` | `━━━━━─────── 42%`, read-only | not selectable |
+| `mint.Stepper(mint.StepperOpts{Label, Get, Set, Min, Max, Step})` | `− 8 +` | ←→ step, Enter types a number, click − or + |
+| `mint.Checkbox(mint.CheckboxOpts{Label, Get, Set})` | `☑ Label` or `☐ Label` | Space flips, → on, ← off, click the box |
+| `mint.Radio(mint.RadioOpts{Label, Options, Get, Set})` | one `◉`/`○` row per option | Space, Enter or → chooses, click the circle |
+| `mint.Label(style, "…")` | Wrapped text in an emphasis style | not selectable |
+| `mint.Divider()` / `mint.Divider("-")` | A line across the content | not selectable |
+| `mint.Spacer()` | A blank line | not selectable |
+
+`Get` and `Set` are ordinary functions. A slider's `Get` returns `0`–`100`. A picker's `Set` receives the next option string. Pass `Options` (or `OptionsFunc` for a list that changes), or leave them out and handle the raw `-1` / `0` / `1` direction yourself in `Step`. Every row also takes an optional `ID`.
+
+If a `Get` panics, the row shows the message in amber, or the last good value if there was one, exactly like a Lua `error()` inside `get`. Panics in `Set`, `OnActivate`, `Enter` and `Poll` are swallowed, as `pcall` does in the original.
+
+Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The defaults match the settings manager: `↑↓ move ⏎ open q quit` on the home list, and `↑↓ move ←→/Space change b home q quit` on a screen. With the emacs or vim [key profile](#keys) they show that profile's keys instead, unless the app has set its own. They are also exported as `mint.HomeHints`, `mint.ScreenHints` and `mint.EditHints`.
+
+### Live screens
+
+`Refresh(screen)` runs before each draw and may replace `screen.Sections`. If it panics, the error appears in the screen's `Banner`. `Poll(screen)` runs on idle (about ten times a second) and should return `true` when the next frame must be painted. Keep `Poll` non-blocking: do the slow work in another process or goroutine, and only read a file or a variable here. `eventcache` is the same pattern the settings manager uses for background streams: start a command, watch its output, and mark slices dirty.
+
+`Enter(screen)` runs once each time the screen is shown.
+
+### Colour
+
+The built-in palette is the original purple: 256-colour index 141 for the frame and titles, and a dim selection bar. `theme.Names` lists `default`, `terminal`, `nord`, `gruvbox`, `dracula`, `catppuccin` and `custom`. `mint.SetPalette(theme.Load(name))` applies one immediately. `theme.Set(name)` writes `~/.config/mint-interfaces/theme.conf`, the same file the Lua version reads, so both versions share a theme.
+
+The `MINT_PALETTE` environment variable overrides individual colours for one run, for example `MINT_PALETTE="accent=#ff5f87,selbg=236"`. Each value is a `#rrggbb` colour or a 256-colour number, and the roles are `accent`, `bright`, `text`, `muted`, `on`, `amber`, `err` and `selbg`. This is how Emacs passes its theme to the apps it launches.
+
+### Layout of the library
+
+```
+mint/doc.go                    package docs
+mint/home.go                   App, the home list, the screen stack, flags
+mint/screen.go                 Screen, Ctx, row widgets, editing, mouse
+mint/rows.go                   row constructors
+mint/dialogs.go                confirm, message, choose, prompt, password
+mint/footer.go                 status badges, toasts, the loading spinner
+mint/log.go                    the output view and full-screen viewer
+mint/keys.go                   key profiles (default, emacs, vim)
+mint/render.go                 palette, frame, title, footer, scrollbar, wrapping
+mint/term.go                   raw mode, terminal size, key and mouse decoding
+mint/term_linux.go, term_bsd.go    the termios ioctls per platform
+mint/theme/                    palettes and MINT_PALETTE
+mint/util/                     quoting, process spawn, JSON, width helpers
+mint/runner/                   background jobs, JobScreen
+mint/eventcache/               values refreshed by a stream of events
+mint/collapsible.go            inline foldable sections and large-text chunking
+mint/table.go                  aligned multi-column tables and CLI table parser
+mint/appkit/                   turnkey 4-screen CLI wrapper and output directory browser
+templates/app/                 starter for a new interface (main.go, cli.go, app.el)
+tools/mint-gen/                man-page & --help interface generator + TUI exclusion checker
+emacs/mint.el                  launching apps from Emacs
+emacs/mint-tests.el            tests for mint.el
+CATALOGUE.md                   how to build an interface for a program
+tools/check_catalogue.py       compiles every catalogue example
+tools/build.sh                 builds a standalone static binary (also for apps with their own go.mod)
+```
+
+`mint/util` is there so apps can shell out safely and encode JSON without another dependency. `util.Run(program, args...)` passes each argument as data, so no shell ever parses it. It is not a settings backend.
+
+### Lua → Go cheat sheet
+
+| Lua | Go |
+|---|---|
+| `mint.app({...}):run()` | `(&mint.App{...}).Run()` |
+| `{ "Heading", { rows } }` | `mint.Section{Name: "Heading", Rows: []mint.Row{...}}` |
+| `mint.section("…")` | `mint.Heading("…")` |
+| a bare string in a row list | `mint.Note("…")` |
+| `ctx:prompt(...)` returns `nil` on Esc | `v, ok := ctx.Prompt(...)` |
+| `ctx:choose(t, {{label=, value=}})` | `ctx.ChooseItem(t, []mint.Choice{{Label:, Value:}}, sub)` |
+| picker `set` receiving `-1/0/1` | `PickerOpts.Step` |
+| `mint.theme.palette(name)` | `theme.Load(name)` |
+| `mint.event_cache.new{...}` | `eventcache.New(eventcache.Options{...})` |
+
+Two behaviours differ from the Lua version on purpose. A double-click must land within 0.45 seconds (the Lua version measured CPU time, so a second click seconds later still counted). Backspace in the `Choose` filter and `TypeToConfirm` removes a whole character (Lua removed one byte, leaving half of a character like `é`). Unknown keys such as Delete or F5 are now ignored, where the Lua version treated them as Esc.
+
+## Additions
+
+None of these exist in the Lua version. All of them are off unless you use them, so existing screens look exactly as before. `examples/features` shows every one.
+
+### Dividers, spacing and text styles
+
+`mint.Divider()` draws a dim line across the content area. Pass another character for a different line: `mint.Divider("-")` gives `-----`, and `mint.Divider("┄")` a dotted rule. `mint.Spacer()` is one blank line.
+
+For a gap between every section, set `SectionSpacing` on the `App` (it applies to every screen) or on a single `Screen`. The value is the number of blank lines, and a negative value turns it off for one screen.
+
+A terminal can't change font size, so `mint.Label` gives text a hierarchy through colour and weight instead. Labels wrap across as many lines as they need.
+
+| Style | Looks like |
+|---|---|
+| `mint.StyleTitle` | accent colour, bold |
+| `mint.StyleHeading` | bright, bold |
+| `mint.StyleBody` | normal text |
+| `mint.StyleCaption` | muted |
+| `mint.StyleItalic` | italic |
+| `mint.StyleUnderline` | underlined |
+
+### Collapsible sections
+
+Set `Collapsible: true` on a `Section`. Its heading becomes `▾ Name`, and the cursor can stop on it. Enter, Space or a click on the arrow folds the section away to `▸ Name` with a count such as `3 hidden` on the right. → always expands and ← always collapses. `Collapsed: true` makes a section start folded. After that, the screen remembers what the user chose, even when `Refresh` rebuilds the sections.
+
+```go
+{Name: "Advanced", Collapsible: true, Collapsed: true, Rows: []mint.Row{...}}
+```
+
+### More controls
+
+**Sliders** take a range, a step and a unit. With none of them set, a slider behaves exactly as before (0–100, steps of 5, shown as a percentage).
+
+```go
+mint.Slider(mint.SliderOpts{Label: "Gain", Min: -24, Max: 12, Step: 3, Unit: "dB", Get: get, Set: set})
+// ━━━━━━●────── -6 dB
+```
+
+`Format` gives you full control of the number, which is how to show decimals: store tenths as an `int` and format them.
+
+```go
+Format: func(v int) string { return fmt.Sprintf("%.1f GHz", float64(v)/10) }
+```
+
+**Progress bars** are read-only and use the same style as sliders: `mint.Progress(mint.ProgressOpts{Label: "Download", Get: percent})`. Return `true` from the screen's `Poll` while the work runs so the bar repaints.
+
+**Steppers** are for exact whole numbers: `− 8 +`. ←→ change the value by `Step` (default 1), and clicking `−` or `+` does the same. Enter lets you type a value; only digits and a leading minus sign are accepted, and the result is clamped to `Min`–`Max`. Leave `Min` and `Max` at zero for no limits. At a limit, that end's `−` or `+` turns dim.
+
+**Checkboxes** (`☑`/`☐`) are independent on/off rows; use several for a multi-select list. A **radio group** expands into one row per option (`◉` chosen, `○` not), with an optional caption above them. For both, clicking the box or circle acts immediately, and double-clicking anywhere on the row does too.
+
+### Footer feedback
+
+The left side of the footer is used for, in order of priority: a loading spinner, then a toast, then status badges. Whatever doesn't fit beside the key hints is left out.
+
+**Loading spinner.** When a home item's `Open` or a screen's `Enter` takes longer than 150 ms, the footer shows `⠙ Loading Display…` until it finishes. Faster page changes show nothing, so there's no flicker. From a row callback, use:
+
+```go
+ctx.Open("Diagnostics", func() *mint.Screen { return buildSlowScreen() }) // spinner, then push
+ok := ctx.Busy("Saving…", func() { save() })                            // spinner for any slow work
+```
+
+The function you pass runs on a background goroutine while the spinner animates, so it must not open dialogs. Keys pressed during loading are ignored. If the function panics, the panic message appears as an error toast. Tune the delay with `mint.LoadingDelay`.
+
+**Toasts** flash a short message for two seconds (`mint.ToastDuration`): `ctx.Toast("Saved")` shows `✓ Saved`, `ctx.ToastWarn(...)` shows an amber `!`, and `ctx.ToastError(...)` a red `✕`. `mint.Toast` and its siblings are safe to call from any goroutine.
+
+**Status badges** are short live indicators such as `● running` or `○ v2.1`. Return them from `App.Status`, which covers the home list and every screen, or from `Screen.Status`, which overrides it for that screen.
+
+```go
+Status: func() []mint.Badge {
+	if running {
+		return []mint.Badge{{Text: "service running", Kind: mint.BadgeOK}}
+	}
+	return []mint.Badge{{Text: "service stopped", Kind: mint.BadgeError}}
+},
+```
+
+The kinds are `BadgeOK` (green), `BadgeWarn` (amber), `BadgeError` (red), `BadgeInfo` (accent) and `BadgeIdle` (muted `○`). The footer checks for changes about ten times a second and repaints only when a badge changes, so keep `Status` cheap: read a variable rather than running a command. Themes now include an optional red `Err` colour role; palettes without one use amber for errors.
+
+### Running programs in the background
+
+`mint/runner` runs a command-line program without freezing the interface. It captures the output line by line, tracks progress, state and elapsed time, and stops cleanly.
+
+```go
+job := runner.Start(runner.Cmd{
+	Name:     "rsync",
+	Args:     []string{"-a", "--info=progress2", src, dst},
+	Progress: runner.Percent, // reads "45%" from the output
+	Timeout:  time.Hour,
+})
+ctx.Push(runner.JobScreen("Sync", job)) // ready-made page: Stop, progress bar, live output, state in the footer
+```
+
+Or wire the pieces into your own screen:
+
+```go
+mint.Progress(mint.ProgressOpts{Label: "Copying", Get: job.Percent}),
+mint.Log(mint.LogOpts{Label: "Output", Lines: job.Lines, Height: 8}),
+Poll:   func(*mint.Screen) bool { return job.Changed() },
+Status: job.Badges, // ● rsync 45% · 0:42 → ● rsync done in 1:03 / failed (exit 23) / stopped
+```
+
+What the runner takes care of:
+
+- **Stopping everything.** `job.Stop()` and `Timeout` end the program *and every process it started*: SIGTERM first (or `Cmd.StopSignal`, such as `syscall.SIGINT` for programs that only clean up on Ctrl+C), then SIGKILL three seconds later for anything still alive. Call `runner.StopAll()` after `app.Run()` so nothing outlives the interface.
+- **Progress lines that redraw in place.** Programs like curl and rsync rewrite one line with a carriage return. The runner keeps that as a single updating line, shows each update immediately, and strips colour codes and other control characters.
+- **No terminal access.** Each job runs detached from the terminal, so it can never read the keyboard or draw over the interface. A program that insists on asking a question fails, rather than hanging the screen. Answer prompts with `Cmd.Input: true` and `job.SendLine(...)`, which is also how to pass a password (for example to `--password-stdin` or `sudo -S`) without it appearing on the command line.
+- **Bounded memory.** It keeps the newest 50,000 lines (`MaxLines`, configurable per `Cmd`), with `Job.TailLines(n)` and `Job.Slice(start, count)` for windowed inspection.
+- **Results.** `job.Output()` returns stdout once the job is done; `job.State()`, `ExitCode()`, `Err()` and `Elapsed()` describe how it ended; `OnExit` runs when it finishes (toasts are safe from there).
+
+`runner.Percent` and `runner.Fraction` (`12/80`, `3 of 7`) cover most progress formats; any `func(line string) (int, bool)` works.
+
+**The output view.** `mint.Log` shows the newest lines in a fixed-height box under a heading row such as `Output  128 lines · view`. Enter or a double-click on the heading opens the full output in a viewer that keeps following new lines until you scroll up. Errors are shown in amber. The viewer is also available directly as `mint.ViewLog(title, lines)` or `mint.ViewLogWith(mint.ViewLogOpts{...})` and supports horizontal panning (`←`/`→`, `0` to reset), case-insensitive search (`/`, `n`, `N`), and saving the full output to a named file (`s`). `mint.CleanLine` also resolves backspace overstrikes (`\b`) from `man` pages while preserving single-width Unicode box-drawing and Braille characters.
+
+**Slow work without a ctx.** `mint.Busy("Applying…", fn)` is `ctx.Busy` for code that has no `ctx`, such as a row's `Set`.
+
+### Building an interface for a program
+
+`CATALOGUE.md` is the guide for wrapping a command-line program. It covers how to read a program's help, the five common program shapes (settings, job, monitor, multi-command, lookup), which component fits each kind of option, and the rules every interface follows, such as never running a command inside a row's `Get` and sending secrets through standard input. `templates/app` is the starter every new interface copies.
+
+Every code example in the catalogue compiles. Check them after changing the library with:
+
+```
+python3 tools/check_catalogue.py
+```
+
+### Inline collapsible sections, large text, and formatted tables
+
+- **`mint.Collapsible` and `mint.CollapsibleText`**: place foldable groups (`▸ Title` / `▾ Title`) directly inside any `Section.Rows` slice. When `Lines` and `ChunkSize` are set, massive text outputs automatically split into nested collapsible chunks (`Lines 1–100`, `Lines 101–200`, …) alongside an action to open the full text in `mint.ViewLog`.
+- **`mint.Table` and `mint.ParseTable` (`mint.ParseColumns`)**: format multi-column data into aligned, selectable Mint rows, or parse whitespace-, tab-, pipe-, and box-drawing-aligned CLI tables (`ps`, `df`, `ss`, `ls -l`, `nmap`) automatically.
+
+### Turnkey CLI apps (`mint/appkit`) and automated scaffolding (`tools/mint-gen`)
+
+`mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **8 Composable Mixins**, and **28 Template Types (`T01`–`T28`)** (see [`templates/README.md`](templates/README.md)):
+
+- **6 Base Archetypes** (`templates/config`, `templates/runner`, `templates/scanner`, `templates/monitor`, `templates/explorer`, `templates/suite`):
+  - `config` (`ArchetypeConfig` — `T01`–`T04`): System, dotfile, hardware, and firewall rule-table configurators.
+  - `runner` (`ArchetypeRunner` — `T05`–`T07`, `T10`–`T11`, `T15`–`T16`): Batch runners, media transcoders, downloaders, build/test runners, benchmarks, security auditors, and crypto/hash utilities.
+  - `scanner` (`ArchetypeScanner` — `T12`–`T14`): Network/port scanners, packet analysers, and OSINT/recon gatherers with live parsed tables + collapsible logs.
+  - `monitor` (`ArchetypeMonitor` — `T17`–`T20`): Live system resource monitors, service/daemon controllers, process inspectors, and journal/log analysers.
+  - `explorer` (`ArchetypeExplorer` — `T24`–`T27`): Disk/filesystem inspectors, file/content searchers, structured data (`jq`/`yq`/`sqlite3`) explorers, and documentation browsers.
+  - `suite` (`ArchetypeSuite` — `T08`–`T09`, `T21`–`T23`, `T28`): Multi-subcommand suites for archives, backups, VCS (`git`/`gh`), containers (`docker`/`kubectl`), package managers, and cron/timers.
+- **8 Composable Mixins**: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
+
+`tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output:
+
+```sh
+go run ./tools/mint-gen --list-templates          # list all 28 templates, 6 archetypes & 8 mixins
+go run ./tools/mint-gen --check nmap              # verify TUI compatibility
+go run ./tools/mint-gen --build nmap              # auto-detect template (T12) & build static binary
+go run ./tools/mint-gen --template T25 --build rg # override template explicitly
+```
+
+### Icons
+
+The library counts every character as one column, as the original does. Emoji such as `⚡` take two columns in most terminals and push the right border out of line, so use single-width symbols like `◆ ▤ ◧ ◷ ≡` for icons.
+
+## Standalone binaries and flags
+
+Every Mint app compiles into a single, statically linked binary that runs on any Linux machine without Go or Emacs installed:
+
+```sh
+./tools/build.sh ./templates/app ./mytool
+./mytool
+```
+
+Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tools/build.sh ./apps/<tool> ./<tool>-mint`.
+
+`mint.App` handles a few things at startup, before taking over the terminal:
+
+- **Flags.** The first argument may be one of Mint's flags:
+  - `--help` (`-h`) lists the app's screens and usage.
+  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 0.1.0)`, using `App.Version`.
+  - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
+  - `--screen NAME` opens that home item directly, and Back returns to the home list.
+
+  Only the first argument is checked, so `mytool somefile -v` is left alone. An app that parses its own arguments sets `NoFlags: true` to turn these off.
+- **Required programs.** `Require: []string{"rsync"}` checks `PATH`, and any missing program is named at the top of the home list, ahead of the app's own `Note`.
+- **No terminal.** Started without one (input redirected, or launched from a non-terminal tool), the app explains that it needs a terminal and exits with status 2, instead of spinning.
+- **Lost terminal.** If the terminal disappears while the app runs (window closed, Emacs killed), `Run` returns so the app can clean up (for example `runner.StopAll()`), rather than lingering.
+
+## Keys
+
+Arrow keys, Enter, Space, Esc, `b` and `q` always work. Home, End, Page Up and Page Down jump and page through lists; other keys Mint doesn't use, such as Delete or F5, are ignored.
+
+A key profile adds a familiar set on top:
+
+| Profile | Move | Change | Back | First / last | Page |
+|---|---|---|---|---|---|
+| `default` | ↑ ↓ | ← → Space | Esc, b | Home, End | PgUp, PgDn |
+| `emacs` | `C-n` `C-p` | `C-f` `C-b` | `C-g` | `C-a`/`M-<`, `C-e`/`M->` | `M-v`, `C-v` |
+| `vim` | `j` `k` | `h` `l` | Esc, b | `g`, `G` | `C-u`/`C-b`, `C-d`/`C-f` |
+
+The person running the app chooses with the `MINT_KEYS` environment variable (`export MINT_KEYS=vim`). An app can set its own default with `App.Keys`. In the vim profile, letters only act as keys outside text fields, so typing still works. The footer hints follow the profile.
+
+## Running from Emacs (`emacs/mint.el`)
+
+`mint.el` launches Mint apps from Emacs using only what's built into Emacs.
+
+In terminal Emacs, the default is **handover**. Emacs steps aside, the app runs on the real terminal Emacs is using, and Emacs redraws itself when you quit the app. Nothing is emulated, so the app looks and behaves exactly as it does outside Emacs: colours, mouse, a single Esc to go back, and live animation. Emacs keeps running in the background meanwhile.
+
+Emacs also sets up each app it launches:
+
+- **Keys:** `mint-key-profile` (default `emacs`) gives every app Emacs keys. Set it to `vim` or `default`, or to `nil` to leave `MINT_KEYS` alone.
+- **Colours:** with `mint-match-theme` on (the default), apps take their colours from the current Emacs theme. `mint-theme-faces` says which face each colour comes from. On terminals without 24-bit colour, Emacs passes the same 256-colour approximations it uses itself, so the app matches what Emacs shows.
+
+Setup:
+
+```elisp
+(add-to-list 'load-path "/path/to/Mint-Interfaces/emacs")
+(require 'mint)
+(setq mint-app-directories '("~/mint-apps"))   ; optional: folders of compiled Mint apps
+```
+
+Commands:
+
+- `M-x mint` chooses an app, showing each one's description. With `C-u`, it also asks which screen to open.
+- `M-x mint-run` runs any compiled Mint binary.
+- `M-x mint-run-source` builds an app's Go folder if needed, then runs it. It rebuilds only when a `.go` file has changed.
+- `(mint-define-app mytool "mytool" "/path/to/mytool-ui/")` defines `M-x mytool` and adds the app to `M-x mint`. The starter's `templates/app/app.el` does this for a new interface.
+
+Hooks: `mint-before-launch-functions` runs with the app's name, and `mint-after-exit-functions` runs with the name and exit status. The exit hook is useful for refreshing buffers the app may have changed.
+
+**The other display mode.** `mint-display` can also be `term`, which runs the app in an Emacs buffer using the built-in terminal emulator, so it can sit beside other windows. Graphical Emacs has no terminal to hand over, so `auto` (the default) uses `term` there.
+
+Tests: `emacs -Q --batch -L emacs -l emacs/mint-tests.el -f ert-run-tests-batch-and-exit` (needs Go).
+
+### Limitations in Emacs
+
+**Handover (the default in terminal Emacs)**
+
+- The app takes over the whole terminal until you quit it. You can't see it beside other Emacs windows; use `term` mode or a terminal multiplexer such as tmux for that.
+- Emacs keeps running in the background (timers, processes, the Emacs server), but you can't see or type into Emacs until the app exits.
+- Terminal Emacs only, since graphical Emacs has no terminal to hand over.
+- Emacs's own key bindings don't apply while the app is open: every key goes to the app. With `mint-key-profile` set to `emacs`, the app understands the common movement keys and `C-g`.
+
+**`term` mode (built in; the default in graphical Emacs)**
+
+- Emacs's built-in terminal emulator has bugs that affect full-screen programs. `mint.el` works around the ones found in testing (characters split between chunks of output, and sideways scrolling), but very busy screens, such as fast-moving progress bars, can still occasionally draw a frame wrongly. Moving to another row redraws it.
+- It is slower than a real terminal on busy screens.
+- `C-x` is passed to Emacs (so window commands work) and never reaches the app.
+
+**General**
+
+- Tested on Emacs 29.3 in a terminal. Graphical Emacs has not been tested.
+- Themes are matched from the faces named in `mint-theme-faces`. If your theme leaves a face's colour unset (common for the default text colour in terminal Emacs), the app keeps its own colour for that role.
+
+## Running in Vim, Neovim and tmux
+
+Mint apps are ordinary terminal programs, so they work inside the terminals built into Vim and Neovim and inside tmux. Each of these was tested with Vim 9.1, Neovim 0.9.5 and tmux 3.4: drawing, colours, every key including a single Esc, mouse clicks, animation, resizing, and quitting.
+
+| Where | How | Notes |
+|---|---|---|
+| Neovim | `:terminal mytool`, then `i` (or `+startinsert`) | Keys go to the app in Terminal mode; `C-\ C-n` leaves it. |
+| Neovim, beside your work | `:vsplit \| terminal mytool` | The app redraws to fit the split. |
+| Neovim, floating | `termopen` in a floating window (below) | |
+| Vim | `:terminal mytool` (a split) or `:terminal ++curwin mytool` | `C-w` is Vim's terminal prefix and never reaches the app. |
+| Vim, full screen | `:!mytool` | Vim hands over the real terminal, like Emacs's handover. |
+| tmux | a pane, a window, or `tmux display-popup -E -w 80% -h 80% mytool` | |
+
+A floating Neovim window that closes when the app quits:
+
+```lua
+vim.keymap.set("n", "<leader>m", function()
+  local buf = vim.api.nvim_create_buf(false, true)
+  local w, h = math.floor(vim.o.columns * 0.8), math.floor(vim.o.lines * 0.8)
+  vim.api.nvim_open_win(buf, true, { relative = "editor", width = w, height = h,
+    row = math.floor((vim.o.lines - h) / 2), col = math.floor((vim.o.columns - w) / 2), border = "rounded" })
+  vim.wo.winhighlight = "NormalFloat:Normal"   -- keep the app's background, not the float colour
+  vim.fn.termopen("mytool", { on_exit = function() vim.cmd("close") end })
+  vim.cmd.startinsert()
+end)
+```
+
+Settings that matter:
+
+- **tmux: `set -g mouse on`** for mouse clicks to reach the app (and the popup), and **`set -sg escape-time 10`**, because tmux otherwise holds every Esc for half a second before passing it on.
+- **Vim: `set ttimeout ttimeoutlen=50`** (already set by Vim's `defaults.vim`, but not with `vim -u NONE`), or Esc waits a second. `set mouse=a` for clicks.
+- **Neovim** needs nothing: Esc is passed on at once, and mouse clicks work in Terminal mode.
+- **Key profiles:** tmux's prefix is `C-b`, which the emacs profile uses for ← and the vim profile for Page Up. Press `C-b C-b` to send it through, use the arrow keys, or change the tmux prefix.
+
+Limitations:
+
+- `:!mytool` in Neovim doesn't work: Neovim runs `:!` commands without a terminal, so the app says it needs one and exits. Use `:terminal`.
+- In a terminal split, the app gets only the split's size. Below about 48 columns or 12 rows it shows "Terminal too small" until the split is made bigger, as it would anywhere.
+
+## Licence
+
+The UI layer is derived from Terminal Settings Manager by Curtis and is under the Apache License 2.0. See `LICENSE`.

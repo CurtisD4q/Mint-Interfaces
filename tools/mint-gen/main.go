@@ -1,0 +1,373 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
+)
+
+func main() {
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+func runCLI(args []string) int {
+	fs := flag.NewFlagSet("mint-gen", flag.ContinueOnError)
+	var (
+		checkTarget   string
+		templateFlag  string
+		listTemplates bool
+		force         bool
+		buildBin      bool
+		outDir        string
+		repoRoot      string
+		tuiMode       bool
+	)
+	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
+	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
+	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and 8 Mixins")
+	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
+	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
+	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
+	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
+	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if listTemplates {
+		printTemplateCatalogue()
+		return 0
+	}
+
+	if repoRoot == "" {
+		repoRoot = detectRepoRoot()
+	}
+
+	if tuiMode {
+		target := ""
+		if fs.NArg() > 0 {
+			target = fs.Arg(0)
+		}
+		if err := runInteractiveTUI(target, repoRoot); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+
+	if checkTarget != "" {
+		rep := CheckCompatibility(checkTarget)
+		printCompatReport(rep)
+		if !rep.Compatible {
+			return 1
+		}
+		return 0
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--out <dir>] <program> [output-dir]")
+		return 2
+	}
+
+	program := fs.Arg(0)
+	if outDir == "" && fs.NArg() >= 2 {
+		outDir = fs.Arg(1)
+	}
+
+	rep := CheckCompatibility(program)
+	if !rep.Compatible && !force {
+		printCompatReport(rep)
+		fmt.Fprintf(os.Stderr, "\nRefusing to scaffold %q (excluded category: %s). Pass --force to override.\n", program, rep.Category)
+		return 1
+	}
+
+	spec, err := ParseProgram(program)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mint-gen: parse error: %v\n", err)
+		return 1
+	}
+
+	if templateFlag != "" {
+		tpl, ok := appkit.LookupTemplate(templateFlag)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "mint-gen: unknown template %q (run `mint-gen --list-templates` to see T01..T28)\n", templateFlag)
+			return 2
+		}
+		spec.Template = string(tpl.ID)
+		spec.Archetype = tpl.Archetype
+		tpl.ApplyTo(&spec)
+	}
+
+	res, err := ScaffoldApp(spec, outDir, repoRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mint-gen: scaffold error: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Scaffolded %s [template=%s archetype=%s] (%d flags, outputs_file=%v) in %s:\n",
+		spec.Name, spec.Template, spec.Archetype, len(spec.Flags), spec.OutputsFile, res.AppDir)
+	for _, f := range res.Files {
+		fmt.Printf("  - %s\n", f)
+	}
+
+	if buildBin {
+		if err := buildScaffoldedApp(res.AppDir, res.BinaryOut); err != nil {
+			fmt.Fprintf(os.Stderr, "mint-gen: build error: %v\n", err)
+			return 1
+		}
+		fmt.Printf("Built static binary: %s\n", res.BinaryOut)
+	}
+	return 0
+}
+
+func printTemplateCatalogue() {
+	fmt.Println("Mint-Interfaces — 6 Base Archetypes:")
+	fmt.Println("  config    State Editor (read live state -> edit controls/rules -> apply)")
+	fmt.Println("  runner    Task & Pipeline (target + flags + presets -> background job + progress -> output)")
+	fmt.Println("  scanner   Target -> Live Table + Log (live structured table + collapsible raw output)")
+	fmt.Println("  monitor   Live Poller & Controller (periodic Poll -> gauges & live table -> per-row actions)")
+	fmt.Println("  explorer  Query -> Results -> Detail (search/query bar -> parsed table/sections -> detail)")
+	fmt.Println("  suite     Multi-Subcommand Manager (subcommand selector -> per-mode flags/table/actions)")
+	fmt.Println()
+	fmt.Println("Mint-Interfaces — 8 Composable Mixins:")
+	for _, m := range appkit.AllMixins() {
+		fmt.Printf("  - %s\n", m)
+	}
+	fmt.Println()
+	fmt.Println("Mint-Interfaces — 28 Template Types (T01..T28):")
+	fmt.Printf("  %-4s  %-24s  %-9s  %-34s  %s\n", "ID", "SLUG", "ARCHETYPE", "NAME", "EXAMPLE TOOLS")
+	for _, tpl := range appkit.AllTemplates() {
+		examples := strings.Join(tpl.ExampleTools, ", ")
+		fmt.Printf("  %-4s  %-24s  %-9s  %-34s  %s\n",
+			tpl.ID, tpl.Slug, tpl.Archetype, tpl.Name, examples)
+	}
+}
+
+func printCompatReport(rep CompatReport) {
+	status := "COMPATIBLE"
+	if !rep.Compatible {
+		status = "EXCLUDED (" + string(rep.Category) + ")"
+	}
+	fmt.Printf("Program:     %s\n", rep.Program)
+	if rep.BinaryPath != "" {
+		fmt.Printf("Binary:      %s\n", rep.BinaryPath)
+	}
+	fmt.Printf("Status:      %s\n", status)
+	fmt.Printf("Reason:      %s\n", rep.Reason)
+	if rep.Alternative != "" {
+		fmt.Printf("Alternative: %s\n", rep.Alternative)
+	}
+	if rep.BatchHint != "" {
+		fmt.Printf("Batch flag:  %s\n", rep.BatchHint)
+	}
+	if len(rep.LinkedLibs) > 0 {
+		fmt.Printf("Libraries:   %s\n", strings.Join(rep.LinkedLibs, ", "))
+	}
+}
+
+func buildScaffoldedApp(appDir, binOut string) error {
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = appDir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		return fmt.Errorf("go mod tidy: %v\n%s", err, string(out))
+	}
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", binOut, ".")
+	cmd.Dir = appDir
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("go build: %v\n%s", err, string(out))
+	}
+	return nil
+}
+
+func detectRepoRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		if data, err := os.ReadFile(modPath); err == nil {
+			if strings.Contains(string(data), "module github.com/CurtisD4q/Mint-Interfaces") &&
+				!strings.Contains(string(data), "module github.com/CurtisD4q/Mint-Interfaces/apps/") {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "."
+}
+
+func runInteractiveTUI(initialProgram, repoRoot string) error {
+	prog := initialProgram
+	if prog == "" {
+		prog = "curl"
+	}
+	var (
+		rep       = CheckCompatibility(prog)
+		spec, _   = ParseProgram(prog)
+		openTable = true
+	)
+	reload := func(name string) {
+		prog = strings.TrimSpace(name)
+		rep = CheckCompatibility(prog)
+		spec, _ = ParseProgram(prog)
+	}
+
+	tplOptions := make([]string, len(appkit.AllTemplates()))
+	for i, tpl := range appkit.AllTemplates() {
+		tplOptions[i] = string(tpl.ID)
+	}
+
+	mainScr := func() *mint.Screen {
+		scr := &mint.Screen{
+			Icon:  "◈",
+			Title: "mint-gen",
+			Status: func() []mint.Badge {
+				if rep.Compatible {
+					return []mint.Badge{{Text: prog + " · " + spec.Template + " (" + string(spec.Archetype) + ")", Kind: mint.BadgeOK}}
+				}
+				return []mint.Badge{{Text: prog + " excluded", Kind: mint.BadgeError}}
+			},
+		}
+		scr.Refresh = func(s *mint.Screen) {
+			statusText := "Compatible"
+			if !rep.Compatible {
+				statusText = "Excluded (" + string(rep.Category) + ")"
+			}
+			var tableRows [][]string
+			for _, f := range spec.Flags {
+				adv := "no"
+				if f.Advanced {
+					adv = "yes"
+				}
+				tableRows = append(tableRows, []string{f.Flag, string(f.Kind), f.Section, adv, f.Label})
+			}
+			s.Sections = []mint.Section{
+				{
+					Name: "Target Program & Template Classification",
+					Rows: []mint.Row{
+						mint.Text(mint.TextOpts{
+							ID:          "program",
+							Label:       "Program binary",
+							Placeholder: "e.g. curl, nmap, tshark, systemctl",
+							Get:         func() string { return prog },
+							Set: func(v string) {
+								reload(v)
+							},
+						}),
+						mint.Picker(mint.PickerOpts{
+							ID:      "template",
+							Label:   "Template type (T01..T28)",
+							Options: tplOptions,
+							Get:     func() string { return spec.Template },
+							Set: func(v string) {
+								if tpl, ok := appkit.LookupTemplate(v); ok {
+									spec.Template = string(tpl.ID)
+									spec.Archetype = tpl.Archetype
+									tpl.ApplyTo(&spec)
+								}
+							},
+						}),
+						mint.Value(mint.ValueOpts{
+							ID:    "archetype",
+							Label: "Base archetype",
+							Get:   func() string { return string(spec.Archetype) },
+						}),
+						mint.Value(mint.ValueOpts{
+							ID:    "mixins",
+							Label: "Active mixins",
+							Get: func() string {
+								var names []string
+								for _, m := range spec.EnabledMixins().Names() {
+									names = append(names, string(m))
+								}
+								return strings.Join(names, ", ")
+							},
+						}),
+						mint.Value(mint.ValueOpts{
+							ID:    "compat",
+							Label: "TUI compatibility",
+							Get:   func() string { return statusText },
+						}),
+						mint.Action(mint.ActionOpts{
+							ID:    "scaffold",
+							Label: "Scaffold apps/" + sanitizeToolName(prog),
+							Hint:  "generate",
+							OnActivate: func(c *mint.Ctx) {
+								if !rep.Compatible {
+									c.ToastError("Excluded: " + rep.Reason)
+									return
+								}
+								res, err := ScaffoldApp(spec, "", repoRoot)
+								if err != nil {
+									c.ToastError("Error: " + err.Error())
+									return
+								}
+								mint.Toast("Scaffolded " + res.AppDir)
+							},
+						}),
+					},
+				},
+				{
+					Name: "Parsed Specification",
+					Rows: []mint.Row{
+						mint.Value(mint.ValueOpts{
+							ID:    "summary",
+							Label: "Summary",
+							Get:   func() string { return spec.Desc },
+						}),
+						mint.Value(mint.ValueOpts{
+							ID:    "target_label",
+							Label: "Target label",
+							Get:   func() string { return spec.TargetLabel },
+						}),
+						mint.Value(mint.ValueOpts{
+							ID:    "outputs_file",
+							Label: "Outputs file",
+							Get:   func() string { return fmt.Sprintf("%v (%s)", spec.OutputsFile, spec.OutputFlag) },
+						}),
+						mint.Collapsible(mint.CollapsibleOpts{
+							ID:    "parsed-flags",
+							Title: fmt.Sprintf("Parsed Flags (%d)", len(spec.Flags)),
+							Open:  &openTable,
+							Rows: []mint.Row{
+								mint.Table(mint.TableOpts{
+									ID:      "flags-table",
+									Headers: []string{"FLAG", "KIND", "SECTION", "COLLAPSED", "LABEL"},
+									Rows:    tableRows,
+									Empty:   "No flags parsed",
+								}),
+							},
+						}),
+					},
+				},
+			}
+		}
+		return scr
+	}
+
+	app := &mint.App{
+		Title: "◈ Mint Generator",
+		Crumb: "mint-gen",
+		Note:  "man-page & --help interface scaffolder (28 Templates · 6 Archetypes · 8 Mixins)",
+		Items: []mint.HomeItem{
+			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Auto-detect template T01..T28, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
+		},
+	}
+	app.Run()
+	return nil
+}
+
+var _ = appkit.FlagBool

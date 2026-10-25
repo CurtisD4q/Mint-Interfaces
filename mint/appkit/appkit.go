@@ -1,0 +1,1267 @@
+// Package appkit provides a declarative runtime for turning command-line
+// programs into Mint TUI applications using the 6 Base Archetypes, 8 Composable
+// Mixins, and 28 Template Types (T01..T28).
+package appkit
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/runner"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
+)
+
+// FlagKind identifies how a CLI option is edited in the TUI.
+type FlagKind string
+
+const (
+	FlagBool   FlagKind = "bool"
+	FlagText   FlagKind = "text"
+	FlagString FlagKind = "text" // alias for FlagText
+	FlagInt    FlagKind = "int"
+	FlagChoice FlagKind = "choice"
+	FlagFile   FlagKind = "file"
+	FlagDir    FlagKind = "dir"
+)
+
+// Choice represents a single selectable option for a FlagChoice flag.
+type Choice struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// FlagSpec describes a single command-line option exposed in the TUI.
+type FlagSpec struct {
+	Flag       string   `json:"flag"`
+	Join       string   `json:"join,omitempty"` // " " (default) or "="
+	Kind       FlagKind `json:"kind"`
+	Section    string   `json:"section,omitempty"`
+	Label      string   `json:"label"`
+	Hint       string   `json:"hint,omitempty"`
+	Default    string   `json:"default,omitempty"`
+	Choices    []Choice `json:"choices,omitempty"`
+	ChoicesCmd []string `json:"choices_cmd,omitempty"` // WithDynamicChoices: runtime command to populate Choices
+	Min        int      `json:"min,omitempty"`
+	Max        int      `json:"max,omitempty"`
+	Step       int      `json:"step,omitempty"`
+	Advanced   bool     `json:"advanced,omitempty"`
+}
+
+// ProfileSpec defines a named preset of flag values and extra arguments.
+type ProfileSpec struct {
+	Name      string            `json:"name"`
+	Desc      string            `json:"desc,omitempty"`
+	Flags     map[string]string `json:"flags,omitempty"`
+	ExtraArgs []string          `json:"extra_args,omitempty"`
+}
+
+// ToolSpec defines the metadata, template/archetype, mixins, flags, and presets
+// for a wrapped CLI program.
+type ToolSpec struct {
+	Name              string           `json:"name"`
+	Bin               string           `json:"bin,omitempty"`
+	Title             string           `json:"title,omitempty"`
+	Desc              string           `json:"desc,omitempty"`
+	Version           string           `json:"version,omitempty"`
+	Template          string           `json:"template,omitempty"`  // "T01".."T28" or template slug
+	Archetype         Archetype        `json:"archetype,omitempty"` // config, runner, scanner, monitor, explorer, suite
+	TargetLabel       string           `json:"target_label,omitempty"`
+	TargetPlaceholder string           `json:"target_placeholder,omitempty"`
+	TargetDefault     string           `json:"target_default,omitempty"`
+	OutputsFile       bool             `json:"outputs_file,omitempty"`       // Mixin: WithFileOutput
+	OutputFlag        string           `json:"output_flag,omitempty"`        // e.g. "-o" or "--output"; empty means stdout capture
+	DefaultExt        string           `json:"default_ext,omitempty"`        // e.g. "txt", "json", "pcap"
+	DefaultResultsDir string           `json:"default_results_dir,omitempty"`
+	TableOutput       bool             `json:"table_output,omitempty"`       // Mixin: WithTableOutput
+	TableColumns      []string         `json:"table_columns,omitempty"`      // Optional explicit column headers
+	CollapsibleOutput bool             `json:"collapsible_output,omitempty"` // Mixin: WithCollapsibleOutput
+	ChunkSize         int              `json:"chunk_size,omitempty"`         // Chunk size for collapsible output (default 100)
+	NeedsRoot         bool             `json:"needs_root,omitempty"`         // Mixin: WithRootAuth
+	ConfirmRun        bool             `json:"confirm_run,omitempty"`        // Mixin: WithConfirm
+	ConfirmPrompt     string           `json:"confirm_prompt,omitempty"`     // Custom confirmation prompt
+	KeepHistory       bool             `json:"keep_history,omitempty"`       // Mixin: WithHistory
+	StatusArgs        []string         `json:"status_args,omitempty"`        // Args for Config/Monitor live state query
+	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying Config
+	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // Poll interval for ArchetypeMonitor
+	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs for ArchetypeSuite
+	RowActions        []RowActionSpec  `json:"row_actions,omitempty"`        // Per-row actions for Monitor/Config tables
+	Profiles          []ProfileSpec    `json:"profiles,omitempty"`           // Mixin: WithProfiles
+	Flags             []FlagSpec       `json:"flags,omitempty"`
+}
+
+// BinaryName returns the executable name to invoke.
+func (s ToolSpec) BinaryName() string {
+	if s.Bin != "" {
+		return s.Bin
+	}
+	return s.Name
+}
+
+// EnabledMixins returns the Mixins struct reflecting which of the 8 mixins are active on s.
+func (s ToolSpec) EnabledMixins() Mixins {
+	hasDyn := false
+	for _, f := range s.Flags {
+		if len(f.ChoicesCmd) > 0 {
+			hasDyn = true
+			break
+		}
+	}
+	return Mixins{
+		WithFileOutput:        s.OutputsFile,
+		WithTableOutput:       s.TableOutput,
+		WithCollapsibleOutput: s.CollapsibleOutput,
+		WithProfiles:          len(s.Profiles) > 0,
+		WithDynamicChoices:    hasDyn,
+		WithRootAuth:          s.NeedsRoot,
+		WithConfirm:           s.ConfirmRun,
+		WithHistory:           s.KeepHistory,
+	}
+}
+
+// RunRecord stores a completed run in history.
+type RunRecord struct {
+	ID         string    `json:"id"`
+	Time       time.Time `json:"time"`
+	Target     string    `json:"target"`
+	Args       []string  `json:"args"`
+	CmdLine    string    `json:"cmd_line"`
+	OutputFile string    `json:"output_file,omitempty"`
+	State      string    `json:"state"`
+	DurationMs int64     `json:"duration_ms"`
+	LineCount  int       `json:"line_count"`
+}
+
+// FileEntry represents an entry inside ResultsDir.
+type FileEntry struct {
+	Name    string
+	Path    string
+	Size    int64
+	ModTime time.Time
+	IsDir   bool
+}
+
+// ToolApp holds the live runtime state for a ToolSpec.
+type ToolApp struct {
+	Spec             ToolSpec
+	Target           string
+	ExtraArgs        string
+	Profile          string
+	ActiveSubcommand string
+	Values           map[string]string
+	SaveToFile       bool
+	ResultsDir       string
+	OutputFile       string
+	ConfigDir        string
+	DataDir          string
+	UseSudo          bool
+	SudoPassword     string
+	MonitorPaused    bool
+	LastRefresh      time.Time
+	SnapshotLines    []string
+
+	mu        sync.Mutex
+	activeJob *runner.Job
+	lastOut   string
+	history   []RunRecord
+}
+
+// New creates and initializes a ToolApp from a ToolSpec, applying its Template
+// (T01..T28) and Archetype defaults automatically.
+func New(spec ToolSpec) *ToolApp {
+	if spec.Template != "" {
+		if tpl, ok := LookupTemplate(spec.Template); ok {
+			tpl.ApplyTo(&spec)
+		}
+	} else if tpl, ok := TemplateForTool(spec.BinaryName()); ok {
+		tpl.ApplyTo(&spec)
+	}
+
+	if spec.Archetype == "" {
+		spec.Archetype = ArchetypeRunner
+	}
+	if spec.Title == "" {
+		spec.Title = "◈ " + spec.Name
+	}
+	if spec.Desc == "" {
+		spec.Desc = "Configure and run " + spec.Name
+	}
+	if spec.TargetLabel == "" {
+		spec.TargetLabel = "Target / arguments"
+	}
+	if spec.TargetPlaceholder == "" {
+		spec.TargetPlaceholder = "arguments, file, or host"
+	}
+	if spec.DefaultExt == "" {
+		spec.DefaultExt = "txt"
+	}
+	if spec.ChunkSize <= 0 {
+		spec.ChunkSize = 100
+	}
+
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "."
+	}
+	resDir := spec.DefaultResultsDir
+	if resDir == "" {
+		resDir = filepath.Join(home, "mint-results", spec.Name)
+	}
+	cfgDir := filepath.Join(home, ".config", "mint-"+spec.Name)
+	dataDir := filepath.Join(home, ".local", "share", "mint-"+spec.Name)
+
+	values := make(map[string]string, len(spec.Flags))
+	for _, f := range spec.Flags {
+		if f.Default != "" {
+			values[f.Flag] = f.Default
+		} else if f.Kind == FlagBool {
+			values[f.Flag] = "false"
+		}
+	}
+
+	activeSub := ""
+	if len(spec.Subcommands) > 0 {
+		activeSub = spec.Subcommands[0].Name
+	}
+
+	a := &ToolApp{
+		Spec:             spec,
+		Target:           spec.TargetDefault,
+		ActiveSubcommand: activeSub,
+		Values:           values,
+		SaveToFile:       spec.OutputsFile,
+		ResultsDir:       resDir,
+		OutputFile:       DefaultOutputFilename(spec.Name, spec.DefaultExt),
+		ConfigDir:        cfgDir,
+		DataDir:          dataDir,
+	}
+
+	if len(spec.Profiles) > 0 {
+		a.ApplyProfile(spec.Profiles[0].Name)
+	}
+	a.ResolveDynamicChoices()
+	_ = a.LoadSettings()
+	a.loadHistory()
+	return a
+}
+
+// DefaultOutputFilename returns a clean timestamped filename for tool outputs.
+func DefaultOutputFilename(toolName, ext string) string {
+	clean := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, strings.ToLower(toolName))
+	if clean == "" {
+		clean = "mint-output"
+	}
+	ext = strings.TrimPrefix(ext, ".")
+	if ext == "" {
+		ext = "txt"
+	}
+	return fmt.Sprintf("%s-%s.%s", clean, time.Now().Format("20060102-150405"), ext)
+}
+
+// ApplyProfile applies the named preset to the current flag values and ExtraArgs.
+func (a *ToolApp) ApplyProfile(name string) bool {
+	for _, p := range a.Spec.Profiles {
+		if p.Name == name {
+			a.Profile = p.Name
+			for _, f := range a.Spec.Flags {
+				if f.Kind == FlagBool {
+					a.Values[f.Flag] = "false"
+				}
+			}
+			for k, v := range p.Flags {
+				a.Values[k] = v
+			}
+			if len(p.ExtraArgs) > 0 {
+				a.ExtraArgs = strings.Join(p.ExtraArgs, " ")
+			} else {
+				a.ExtraArgs = ""
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// ResolvedOutputPath returns the full output file path when file output is enabled.
+func (a *ToolApp) ResolvedOutputPath() string {
+	if !a.Spec.OutputsFile || !a.SaveToFile {
+		return ""
+	}
+	name := strings.TrimSpace(a.OutputFile)
+	if name == "" {
+		name = DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)
+	}
+	if filepath.IsAbs(name) {
+		return filepath.Clean(name)
+	}
+	dir := strings.TrimSpace(a.ResultsDir)
+	if dir == "" {
+		dir = "."
+	}
+	return filepath.Join(dir, name)
+}
+
+func (a *ToolApp) buildFlagAndTargetArgs() (args []string, outPath string) {
+	for _, f := range a.Spec.Flags {
+		val := strings.TrimSpace(a.Values[f.Flag])
+		switch f.Kind {
+		case FlagBool:
+			if val == "true" || val == "1" || val == "on" || val == "yes" {
+				args = append(args, f.Flag)
+			}
+		default:
+			if val != "" {
+				if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
+					flagTok := strings.TrimSuffix(f.Flag, "=")
+					args = append(args, flagTok+"="+val)
+				} else {
+					args = append(args, f.Flag, val)
+				}
+			}
+		}
+	}
+
+	outPath = a.ResolvedOutputPath()
+	if outPath != "" && a.Spec.OutputFlag != "" {
+		if strings.HasSuffix(a.Spec.OutputFlag, "=") {
+			args = append(args, a.Spec.OutputFlag+outPath)
+		} else {
+			args = append(args, a.Spec.OutputFlag, outPath)
+		}
+	}
+
+	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" {
+		args = append(args, splitShellWords(extra)...)
+	}
+
+	if target := strings.TrimSpace(a.Target); target != "" {
+		args = append(args, splitShellWords(target)...)
+	}
+	return args, outPath
+}
+
+// BuildArgs constructs the CLI argument list and resolved output path from the
+// current archetype, subcommand, flag values, output file settings, extra args, and target.
+func (a *ToolApp) BuildArgs() (args []string, outPath string) {
+	if a.Spec.Archetype == ArchetypeSuite && len(a.Spec.Subcommands) > 0 {
+		if sub := a.activeSubcommandSpec(); sub != nil {
+			args = append(args, sub.Args...)
+		}
+	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
+		args = append(args, a.Spec.ApplyArgs...)
+	}
+	flagArgs, outPath := a.buildFlagAndTargetArgs()
+	args = append(args, flagArgs...)
+	return args, outPath
+}
+
+// CommandPreview returns the full shell-like command preview string.
+func (a *ToolApp) CommandPreview() string {
+	args, outPath := a.BuildArgs()
+	parts := make([]string, 0, len(args)+3)
+	if a.Spec.NeedsRoot && a.UseSudo {
+		parts = append(parts, "sudo", "-S")
+	}
+	parts = append(parts, a.Spec.BinaryName())
+	for _, arg := range args {
+		if strings.ContainsAny(arg, " \t\"'") {
+			parts = append(parts, strconv.Quote(arg))
+		} else {
+			parts = append(parts, arg)
+		}
+	}
+	if outPath != "" && a.Spec.OutputFlag == "" {
+		parts = append(parts, ">", outPath)
+	}
+	return strings.Join(parts, " ")
+}
+
+func splitShellWords(s string) []string {
+	var out []string
+	var cur strings.Builder
+	var quote rune
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ' || r == '\t':
+			if cur.Len() > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+type persistedSettings struct {
+	Target           string            `json:"target"`
+	ExtraArgs        string            `json:"extra_args"`
+	Profile          string            `json:"profile"`
+	ActiveSubcommand string            `json:"active_subcommand,omitempty"`
+	Values           map[string]string `json:"values"`
+	SaveToFile       bool              `json:"save_to_file"`
+	ResultsDir       string            `json:"results_dir"`
+	OutputFile       string            `json:"output_file"`
+}
+
+func (a *ToolApp) settingsPath() string {
+	return filepath.Join(a.ConfigDir, "settings.json")
+}
+
+// SaveSettings writes current flag values and output paths to ConfigDir/settings.json.
+func (a *ToolApp) SaveSettings() error {
+	if a.ConfigDir == "" {
+		return nil
+	}
+	if err := util.Mkdir(a.ConfigDir); err != nil {
+		return err
+	}
+	st := persistedSettings{
+		Target:           a.Target,
+		ExtraArgs:        a.ExtraArgs,
+		Profile:          a.Profile,
+		ActiveSubcommand: a.ActiveSubcommand,
+		Values:           a.Values,
+		SaveToFile:       a.SaveToFile,
+		ResultsDir:       a.ResultsDir,
+		OutputFile:       a.OutputFile,
+	}
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(a.settingsPath(), b, 0o644)
+}
+
+// LoadSettings restores saved settings from ConfigDir/settings.json if present.
+func (a *ToolApp) LoadSettings() error {
+	b, err := os.ReadFile(a.settingsPath())
+	if err != nil {
+		return err
+	}
+	var st persistedSettings
+	if err := json.Unmarshal(b, &st); err != nil {
+		return err
+	}
+	if st.Target != "" {
+		a.Target = st.Target
+	}
+	a.ExtraArgs = st.ExtraArgs
+	if st.Profile != "" {
+		a.Profile = st.Profile
+	}
+	if st.ActiveSubcommand != "" {
+		a.ActiveSubcommand = st.ActiveSubcommand
+	}
+	for k, v := range st.Values {
+		a.Values[k] = v
+	}
+	a.SaveToFile = st.SaveToFile
+	if st.ResultsDir != "" {
+		a.ResultsDir = st.ResultsDir
+	}
+	if st.OutputFile != "" {
+		a.OutputFile = st.OutputFile
+	}
+	return nil
+}
+
+func (a *ToolApp) historyPath() string {
+	return filepath.Join(a.DataDir, "runs.json")
+}
+
+func (a *ToolApp) loadHistory() {
+	b, err := os.ReadFile(a.historyPath())
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(b, &a.history)
+}
+
+func (a *ToolApp) saveHistoryLocked() {
+	if a.DataDir == "" {
+		return
+	}
+	_ = util.Mkdir(a.DataDir)
+	b, err := json.MarshalIndent(a.history, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(a.historyPath(), b, 0o644)
+}
+
+// History returns a copy of the recorded runs for this tool.
+func (a *ToolApp) History() []RunRecord {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]RunRecord, len(a.history))
+	copy(out, a.history)
+	return out
+}
+
+// StartJob launches the configured command as a background runner.Job.
+func (a *ToolApp) StartJob() (*runner.Job, error) {
+	a.mu.Lock()
+	if a.activeJob != nil && a.activeJob.Running() {
+		a.activeJob.Stop()
+	}
+	a.mu.Unlock()
+
+	args, outPath := a.BuildArgs()
+	if outPath != "" {
+		if err := util.Mkdir(filepath.Dir(outPath)); err != nil {
+			return nil, err
+		}
+	}
+	_ = a.SaveSettings()
+
+	bin := a.Spec.BinaryName()
+	cmdArgs := args
+	useStdin := false
+	if a.Spec.NeedsRoot && a.UseSudo {
+		cmdArgs = append([]string{"-S", "-p", "", bin}, args...)
+		bin = "sudo"
+		useStdin = true
+	}
+
+	started := time.Now()
+	cmdLine := a.CommandPreview()
+
+	job := runner.Start(runner.Cmd{
+		Name:  bin,
+		Args:  cmdArgs,
+		Input: useStdin,
+		OnExit: func(j *runner.Job) {
+			lines := j.Lines()
+			if outPath != "" && a.Spec.OutputFlag == "" {
+				_ = mint.SaveLogLines(outPath, lines)
+			}
+			textLines := make([]string, len(lines))
+			for i, l := range lines {
+				textLines[i] = l.Text
+			}
+			rec := RunRecord{
+				ID:         started.Format("20060102-150405"),
+				Time:       started,
+				Target:     a.Target,
+				Args:       args,
+				CmdLine:    cmdLine,
+				OutputFile: outPath,
+				State:      j.State().String(),
+				DurationMs: j.Elapsed().Milliseconds(),
+				LineCount:  len(lines),
+			}
+			a.mu.Lock()
+			a.SnapshotLines = textLines
+			a.history = append([]RunRecord{rec}, a.history...)
+			if len(a.history) > 50 {
+				a.history = a.history[:50]
+			}
+			a.saveHistoryLocked()
+			a.mu.Unlock()
+		},
+	})
+
+	if useStdin {
+		if a.SudoPassword != "" {
+			_ = job.SendLine(a.SudoPassword)
+		}
+		job.CloseInput()
+	}
+
+	a.mu.Lock()
+	a.activeJob = job
+	a.lastOut = outPath
+	a.mu.Unlock()
+
+	return job, nil
+}
+
+// ActiveJob returns the currently running or most recently launched job.
+func (a *ToolApp) ActiveJob() *runner.Job {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.activeJob
+}
+
+// ListResultsDir returns all files and subdirectories inside ResultsDir.
+func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
+	dir := strings.TrimSpace(a.ResultsDir)
+	if dir == "" {
+		dir = "."
+	}
+	if err := util.Mkdir(dir); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []FileEntry
+	for _, e := range entries {
+		info, ierr := e.Info()
+		var sz int64
+		var mod time.Time
+		if ierr == nil {
+			sz = info.Size()
+			mod = info.ModTime()
+		}
+		out = append(out, FileEntry{
+			Name:    e.Name(),
+			Path:    filepath.Join(dir, e.Name()),
+			Size:    sz,
+			ModTime: mod,
+			IsDir:   e.IsDir(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IsDir != out[j].IsDir {
+			return out[i].IsDir
+		}
+		return out[i].ModTime.After(out[j].ModTime)
+	})
+	return out, nil
+}
+
+func (a *ToolApp) statusBadges() []mint.Badge {
+	job := a.ActiveJob()
+	if job == nil {
+		return nil
+	}
+	if job.Running() {
+		return []mint.Badge{{Text: "running", Kind: mint.BadgeOK}}
+	}
+	switch job.State() {
+	case runner.Done:
+		return []mint.Badge{{Text: "done", Kind: mint.BadgeOK}}
+	case runner.Failed:
+		return []mint.Badge{{Text: "failed", Kind: mint.BadgeError}}
+	default:
+		return []mint.Badge{{Text: job.State().String(), Kind: mint.BadgeIdle}}
+	}
+}
+
+func (a *ToolApp) targetAndPresetSection(secName string) mint.Section {
+	rows := []mint.Row{
+		mint.Text(mint.TextOpts{
+			ID:          "target",
+			Label:       a.Spec.TargetLabel,
+			Placeholder: a.Spec.TargetPlaceholder,
+			Get:         func() string { return a.Target },
+			Set:         func(v string) { a.Target = strings.TrimSpace(v) },
+		}),
+	}
+	if len(a.Spec.Profiles) > 0 {
+		opts := make([]string, len(a.Spec.Profiles))
+		for i, p := range a.Spec.Profiles {
+			opts[i] = p.Name
+		}
+		rows = append(rows, mint.Picker(mint.PickerOpts{
+			ID:      "profile",
+			Label:   "Preset profile",
+			Options: opts,
+			Get:     func() string { return a.Profile },
+			Set:     func(v string) { a.ApplyProfile(v) },
+		}))
+	}
+	rows = append(rows, mint.Text(mint.TextOpts{
+		ID:          "extra_args",
+		Label:       "Extra arguments",
+		Placeholder: "optional CLI flags",
+		Get:         func() string { return a.ExtraArgs },
+		Set:         func(v string) { a.ExtraArgs = v },
+	}))
+	return mint.Section{
+		Name: secName,
+		Rows: rows,
+	}
+}
+
+func (a *ToolApp) flagSections() []mint.Section {
+	var sections []mint.Section
+	sectionOrder := []string{}
+	primary := map[string][]mint.Row{}
+	advanced := map[string][]mint.Row{}
+
+	for _, f := range a.Spec.Flags {
+		secName := f.Section
+		if secName == "" {
+			secName = "Options"
+		}
+		if _, seen := primary[secName]; !seen {
+			if _, seenAdv := advanced[secName]; !seenAdv {
+				sectionOrder = append(sectionOrder, secName)
+			}
+		}
+		row := a.flagRow(f)
+		if f.Advanced {
+			advanced[secName] = append(advanced[secName], row)
+		} else {
+			primary[secName] = append(primary[secName], row)
+		}
+	}
+
+	for _, secName := range sectionOrder {
+		pRows := primary[secName]
+		aRows := advanced[secName]
+		if len(pRows) == 0 && len(aRows) > 0 {
+			sections = append(sections, mint.CollapsibleSection(secName+" (Advanced)", true, aRows...))
+			continue
+		}
+		rows := append([]mint.Row(nil), pRows...)
+		if len(aRows) > 0 {
+			rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
+				ID:        "adv:" + secName,
+				Title:     "More " + secName + " options",
+				Badge:     fmt.Sprintf("%d options", len(aRows)),
+				Collapsed: true,
+				Rows:      aRows,
+			}))
+		}
+		sections = append(sections, mint.Section{
+			Name: secName,
+			Rows: rows,
+		})
+	}
+	return sections
+}
+
+func (a *ToolApp) outputFileSection() mint.Section {
+	return mint.Section{
+		Name: "Output File (WithFileOutput)",
+		Rows: []mint.Row{
+			mint.Toggle(mint.ToggleOpts{
+				ID:    "out:enable",
+				Label: "Save output to file",
+				Get:   func() bool { return a.SaveToFile },
+				Set:   func(v bool) { a.SaveToFile = v },
+			}),
+			mint.Text(mint.TextOpts{
+				ID:          "out:dir",
+				Label:       "Save directory",
+				Placeholder: "/path/to/results",
+				Get:         func() string { return a.ResultsDir },
+				Set: func(v string) {
+					if strings.TrimSpace(v) != "" {
+						a.ResultsDir = strings.TrimSpace(v)
+					}
+				},
+			}),
+			mint.Text(mint.TextOpts{
+				ID:          "out:file",
+				Label:       "File name",
+				Placeholder: "output." + a.Spec.DefaultExt,
+				Get:         func() string { return a.OutputFile },
+				Set: func(v string) {
+					if strings.TrimSpace(v) != "" {
+						a.OutputFile = strings.TrimSpace(v)
+					}
+				},
+			}),
+			mint.Value(mint.ValueOpts{
+				Label: "Full output path",
+				Get: func() string {
+					p := a.ResolvedOutputPath()
+					if p == "" {
+						return "(disabled)"
+					}
+					return p
+				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Generate fresh timestamped filename",
+				Hint:  "rename",
+				OnActivate: func(c *mint.Ctx) {
+					a.OutputFile = DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)
+					c.Toast("Output filename: " + a.OutputFile)
+				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Browse output directory…",
+				Hint:  "files",
+				OnActivate: func(c *mint.Ctx) {
+					c.Push(a.DirectoryScreen())
+				},
+			}),
+		},
+	}
+}
+
+func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
+	key := f.Flag
+	label := f.Label
+	if label == "" {
+		label = f.Flag
+	}
+
+	switch f.Kind {
+	case FlagBool:
+		return mint.Checkbox(mint.CheckboxOpts{
+			ID:    "flag:" + key,
+			Label: label,
+			Get:   func() bool { return a.Values[key] == "true" },
+			Set: func(v bool) {
+				if v {
+					a.Values[key] = "true"
+				} else {
+					a.Values[key] = "false"
+				}
+			},
+		})
+	case FlagChoice:
+		opts := make([]string, len(f.Choices))
+		for i, c := range f.Choices {
+			opts[i] = c.Value
+		}
+		if len(opts) == 0 {
+			opts = []string{""}
+		}
+		return mint.Picker(mint.PickerOpts{
+			ID:      "flag:" + key,
+			Label:   label,
+			Options: opts,
+			Get:     func() string { return a.Values[key] },
+			Set:     func(v string) { a.Values[key] = v },
+		})
+	case FlagInt:
+		step := f.Step
+		if step <= 0 {
+			step = 1
+		}
+		return mint.Stepper(mint.StepperOpts{
+			ID:    "flag:" + key,
+			Label: label,
+			Min:   f.Min,
+			Max:   f.Max,
+			Step:  step,
+			Get: func() int {
+				v, _ := strconv.Atoi(a.Values[key])
+				return v
+			},
+			Set: func(v int) {
+				a.Values[key] = strconv.Itoa(v)
+			},
+		})
+	default:
+		hint := f.Hint
+		if hint == "" {
+			hint = "value"
+		}
+		return mint.Text(mint.TextOpts{
+			ID:          "flag:" + key,
+			Label:       label,
+			Placeholder: hint,
+			Get:         func() string { return a.Values[key] },
+			Set:         func(v string) { a.Values[key] = strings.TrimSpace(v) },
+		})
+	}
+}
+
+// MainScreen dispatches to the primary screen for the tool's configured Archetype
+// (ConfigScreen, RunnerScreen, ScannerScreen, MonitorScreen, ExplorerScreen, or SuiteScreen).
+func (a *ToolApp) MainScreen() *mint.Screen {
+	switch a.Spec.Archetype {
+	case ArchetypeConfig:
+		return a.ConfigScreen()
+	case ArchetypeScanner:
+		return a.ScannerScreen()
+	case ArchetypeMonitor:
+		return a.MonitorScreen()
+	case ArchetypeExplorer:
+		return a.ExplorerScreen()
+	case ArchetypeSuite:
+		return a.SuiteScreen()
+	default:
+		return a.RunnerScreen()
+	}
+}
+
+// RunnerScreen builds the ArchetypeRunner ("runner") Task & Pipeline screen.
+func (a *ToolApp) RunnerScreen() *mint.Screen {
+	s := &mint.Screen{
+		Icon:  "▸",
+		Title: a.Spec.Name,
+		Status: func() []mint.Badge {
+			return a.statusBadges()
+		},
+	}
+	s.Refresh = func(scr *mint.Screen) {
+		var sections []mint.Section
+		sections = append(sections, a.targetAndPresetSection("Target & Preset"))
+		sections = append(sections, a.flagSections()...)
+		if a.Spec.OutputsFile {
+			sections = append(sections, a.outputFileSection())
+		}
+		if rootSec := a.rootAuthSection(); rootSec != nil {
+			sections = append(sections, *rootSec)
+		}
+		sections = append(sections, mint.Section{
+			Name: "Execute",
+			Rows: []mint.Row{
+				mint.Value(mint.ValueOpts{
+					Label: "Command preview",
+					Get:   func() string { return a.CommandPreview() },
+				}),
+				mint.Action(mint.ActionOpts{
+					Label: "Run " + a.Spec.Name,
+					Hint:  "run",
+					OnActivate: func(c *mint.Ctx) {
+						a.executeFromUI(c)
+					},
+				}),
+			},
+		})
+		scr.Sections = sections
+	}
+	s.Refresh(s)
+	return s
+}
+
+// RunScreen builds the live job monitor, progress bar, table/collapsible output, and file actions screen.
+func (a *ToolApp) RunScreen() *mint.Screen {
+	s := &mint.Screen{
+		Icon:  "◧",
+		Title: a.Spec.Name + " — Live Run",
+		Status: func() []mint.Badge {
+			return a.statusBadges()
+		},
+		Poll: func(scr *mint.Screen) bool {
+			job := a.ActiveJob()
+			return job != nil && job.Changed()
+		},
+	}
+	s.Refresh = func(scr *mint.Screen) {
+		job := a.ActiveJob()
+		var statusRows []mint.Row
+		statusRows = append(statusRows,
+			mint.Value(mint.ValueOpts{
+				Label: "Command",
+				Get:   func() string { return a.CommandPreview() },
+			}),
+			mint.Progress(mint.ProgressOpts{
+				ID:    "run:progress",
+				Label: "Job progress",
+				Get: func() int {
+					j := a.ActiveJob()
+					if j == nil {
+						return 0
+					}
+					if p := j.Percent(); p >= 0 {
+						return p
+					}
+					if j.Running() {
+						return 50
+					}
+					return 100
+				},
+				Format: func(pct int) string {
+					j := a.ActiveJob()
+					if j == nil {
+						return "idle"
+					}
+					_, total := j.TailLines(1)
+					return fmt.Sprintf("%s · %s · %d lines", j.State(), j.Elapsed().Round(100*time.Millisecond), total)
+				},
+			}),
+			mint.Value(mint.ValueOpts{
+				Label: "Output file",
+				Get: func() string {
+					a.mu.Lock()
+					out := a.lastOut
+					a.mu.Unlock()
+					if out == "" {
+						return "(not saving to file)"
+					}
+					if info, err := os.Stat(out); err == nil {
+						return fmt.Sprintf("%s (%d bytes)", out, info.Size())
+					}
+					return out + " (pending)"
+				},
+			}),
+		)
+
+		var actRows []mint.Row
+		actRows = append(actRows,
+			mint.Action(mint.ActionOpts{
+				Label: "Open full log viewer (search / horizontal scroll / save)…",
+				Hint:  "log",
+				OnActivate: func(c *mint.Ctx) {
+					j := a.ActiveJob()
+					if j == nil {
+						c.ToastWarn("No job output yet")
+						return
+					}
+					c.Push(mint.ViewLog(a.Spec.Name+" output", j.Lines))
+				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Save captured output to file…",
+				Hint:  "save",
+				OnActivate: func(c *mint.Ctx) {
+					j := a.ActiveJob()
+					if j == nil {
+						c.ToastWarn("No job output yet")
+						return
+					}
+					def := a.ResolvedOutputPath()
+					if def == "" {
+						def = filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt))
+					}
+					dest, ok := c.Prompt("Save Output", "Destination file path", def)
+					if !ok || strings.TrimSpace(dest) == "" {
+						return
+					}
+					if err := mint.SaveLogLines(strings.TrimSpace(dest), j.Lines()); err != nil {
+						c.ToastError("Save failed: " + err.Error())
+						return
+					}
+					c.Toast("Saved to " + dest)
+				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Browse output directory…",
+				Hint:  "files",
+				OnActivate: func(c *mint.Ctx) {
+					c.Push(a.DirectoryScreen())
+				},
+			}),
+		)
+		if job != nil && job.Running() {
+			actRows = append(actRows, mint.Action(mint.ActionOpts{
+				Label: "Stop running job",
+				Hint:  "stop",
+				OnActivate: func(c *mint.Ctx) {
+					if j := a.ActiveJob(); j != nil {
+						j.Stop()
+						c.ToastWarn("Stopped job")
+					}
+				},
+			}))
+		}
+
+		scr.Sections = []mint.Section{
+			{Name: "Run Status", Rows: statusRows},
+			{Name: "Actions", Rows: actRows},
+			a.buildOutputDisplaySection("Captured Output"),
+		}
+	}
+	s.Refresh(s)
+	return s
+}
+
+// DirectoryScreen builds an interactive browser for ResultsDir so users can
+// verify output files, switch directories, or open any saved file inside ViewLog.
+func (a *ToolApp) DirectoryScreen() *mint.Screen {
+	s := &mint.Screen{
+		Icon:  "▤",
+		Title: "Output Directory Browser",
+	}
+	s.Refresh = func(scr *mint.Screen) {
+		entries, err := a.ListResultsDir()
+		dirRows := []mint.Row{
+			mint.Text(mint.TextOpts{
+				ID:          "browser:dir",
+				Label:       "Current directory",
+				Placeholder: "/path/to/results",
+				Get:         func() string { return a.ResultsDir },
+				Set: func(v string) {
+					if strings.TrimSpace(v) != "" {
+						a.ResultsDir = strings.TrimSpace(v)
+						_ = a.SaveSettings()
+					}
+				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label: "Parent directory (..)",
+				Hint:  "up",
+				OnActivate: func(c *mint.Ctx) {
+					a.ResultsDir = filepath.Dir(a.ResultsDir)
+				},
+			}),
+		}
+
+		var fileRows []mint.Row
+		if err != nil {
+			fileRows = append(fileRows, mint.Note("  Cannot read directory: "+err.Error()))
+		} else if len(entries) == 0 {
+			fileRows = append(fileRows, mint.Note("  No files in "+a.ResultsDir))
+		} else {
+			for _, e := range entries {
+				entry := e
+				if entry.IsDir {
+					fileRows = append(fileRows, mint.Action(mint.ActionOpts{
+						Label: "▸ " + entry.Name + "/",
+						Hint:  "dir",
+						OnActivate: func(c *mint.Ctx) {
+							a.ResultsDir = entry.Path
+						},
+					}))
+				} else {
+					fileRows = append(fileRows, mint.Action(mint.ActionOpts{
+						Label: entry.Name,
+						Hint:  fmt.Sprintf("%d B", entry.Size),
+						OnActivate: func(c *mint.Ctx) {
+							b, err := os.ReadFile(entry.Path)
+							if err != nil {
+								c.ToastError("Cannot read: " + err.Error())
+								return
+							}
+							raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+							lines := make([]mint.LogLine, len(raw))
+							for i, l := range raw {
+								lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
+							}
+							c.Push(mint.ViewLog(entry.Name, func() []mint.LogLine { return lines }))
+						},
+					}))
+				}
+			}
+		}
+
+		scr.Sections = []mint.Section{
+			{Name: "Directory", Rows: dirRows},
+			{Name: fmt.Sprintf("Files (%d)", len(entries)), Rows: fileRows},
+		}
+	}
+	s.Refresh(s)
+	return s
+}
+
+// HistoryScreen displays past runs recorded for this tool.
+func (a *ToolApp) HistoryScreen() *mint.Screen {
+	s := &mint.Screen{
+		Icon:  "◷",
+		Title: "Run History",
+	}
+	s.Refresh = func(scr *mint.Screen) {
+		hist := a.History()
+		var rows []mint.Row
+		if len(hist) == 0 {
+			rows = append(rows, mint.Note("  No runs recorded yet."))
+		} else {
+			for _, rec := range hist {
+				r := rec
+				rows = append(rows, mint.Action(mint.ActionOpts{
+					Label: fmt.Sprintf("[%s] %s", r.Time.Format("15:04:05"), r.CmdLine),
+					Hint:  fmt.Sprintf("%s · %d lines", r.State, r.LineCount),
+					OnActivate: func(c *mint.Ctx) {
+						if r.OutputFile != "" {
+							if b, err := os.ReadFile(r.OutputFile); err == nil {
+								raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+								lines := make([]mint.LogLine, len(raw))
+								for i, l := range raw {
+									lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
+								}
+								c.Push(mint.ViewLog(filepath.Base(r.OutputFile), func() []mint.LogLine { return lines }))
+								return
+							}
+						}
+						c.Message("Run Details", fmt.Sprintf("Command: %s\nState: %s\nLines: %d", r.CmdLine, r.State, r.LineCount))
+					},
+				}))
+			}
+		}
+		scr.Sections = []mint.Section{{Name: "Recent Runs", Rows: rows}}
+	}
+	s.Refresh(s)
+	return s
+}
+
+// BuildApp returns a configured *mint.App ready for Run().
+func (a *ToolApp) BuildApp() *mint.App {
+	primaryLabel := "Configure & Run"
+	primaryIcon := "▸"
+	switch a.Spec.Archetype {
+	case ArchetypeConfig:
+		primaryLabel = "State & Configuration"
+		primaryIcon = "⚙"
+	case ArchetypeScanner:
+		primaryLabel = "Target & Live Scanner"
+		primaryIcon = "◎"
+	case ArchetypeMonitor:
+		primaryLabel = "Live Monitor & Control"
+		primaryIcon = "◧"
+	case ArchetypeExplorer:
+		primaryLabel = "Search & Query Explorer"
+		primaryIcon = "⌕"
+	case ArchetypeSuite:
+		primaryLabel = "Subcommand Suite"
+		primaryIcon = "❖"
+	}
+
+	items := []mint.HomeItem{
+		{
+			Icon:  primaryIcon,
+			Label: primaryLabel,
+			Desc:  a.Spec.Desc,
+			Open:  a.MainScreen,
+		},
+		{
+			Icon:  "◧",
+			Label: "Live Run & Output",
+			Desc:  "Monitor active job, search output, or save log",
+			Open:  a.RunScreen,
+		},
+	}
+
+	if a.Spec.OutputsFile {
+		items = append(items, mint.HomeItem{
+			Icon:  "▤",
+			Label: "Output Directory",
+			Desc:  "Browse saved output files and configure results folder",
+			Open:  a.DirectoryScreen,
+		})
+	}
+
+	items = append(items, mint.HomeItem{
+		Icon:  "◷",
+		Label: "Run History",
+		Desc:  "Inspect previous commands and saved output files",
+		Open:  a.HistoryScreen,
+	})
+
+	return &mint.App{
+		Title:          a.Spec.Title,
+		Crumb:          a.Spec.Name,
+		Require:        []string{a.Spec.BinaryName()},
+		Version:        a.Spec.Version,
+		SectionSpacing: 1,
+		Items:          items,
+	}
+}
+
+// MintApp is an alias for BuildApp.
+func (a *ToolApp) MintApp() *mint.App {
+	return a.BuildApp()
+}
+
+// Run creates a ToolApp from spec and runs the interactive Mint interface.
+func Run(spec ToolSpec) {
+	app := New(spec)
+	app.BuildApp().Run()
+	runner.StopAll()
+}
