@@ -21,18 +21,18 @@ import (
 	"time"
 )
 
-// luaSpace is Lua's %s class: space, \t, \n, \v, \f, \r.
-const luaSpace = " \t\n\v\f\r"
+// asciiSpace is ASCII whitespace: space, \t, \n, \v, \f, \r.
+const asciiSpace = " \t\n\v\f\r"
 
-// Trim removes leading and trailing whitespace (Lua %s).
-func Trim(s string) string { return strings.Trim(s, luaSpace) }
+// Trim removes leading and trailing ASCII whitespace.
+func Trim(s string) string { return strings.Trim(s, asciiSpace) }
 
 // TrimLeft and TrimRight are the one-sided versions of Trim.
-func TrimLeft(s string) string  { return strings.TrimLeft(s, luaSpace) }
-func TrimRight(s string) string { return strings.TrimRight(s, luaSpace) }
+func TrimLeft(s string) string  { return strings.TrimLeft(s, asciiSpace) }
+func TrimRight(s string) string { return strings.TrimRight(s, asciiSpace) }
 
-// IsSpace reports whether a single character is Lua %s whitespace.
-func IsSpace(ch string) bool { return len(ch) == 1 && strings.IndexByte(luaSpace, ch[0]) >= 0 }
+// IsSpace reports whether a single character is ASCII whitespace.
+func IsSpace(ch string) bool { return len(ch) == 1 && strings.IndexByte(asciiSpace, ch[0]) >= 0 }
 
 // ShQuote POSIX single-quotes s. The one shell-escaping helper in this tree.
 func ShQuote(s string) string {
@@ -477,7 +477,7 @@ func decodeValidUTF8(s string) (rune, int) {
 
 // Chars splits s into characters (grapheme clusters: lead UTF-8 rune plus any
 // attached 0-width combining marks or ZWJ sequences). Invalid continuation
-// bytes are skipped just as in the original Lua pattern.
+// bytes are skipped.
 func Chars(s string) []string {
 	var out []string
 	i := 0
