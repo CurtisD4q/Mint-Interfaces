@@ -294,3 +294,18 @@ func TestTailLinesAndSlice(t *testing.T) {
 		t.Fatalf("Slice(2,4) = %+v, kept=%d", slice, kept)
 	}
 }
+
+// A slow line handler must not lose the end of the output: the program
+// exits with up to a pipe's worth of output still unread.
+func TestSlowReaderKeepsAllOutput(t *testing.T) {
+	slow := func(line string) (int, bool) {
+		for end := time.Now().Add(30 * time.Microsecond); time.Now().Before(end); {
+		}
+		return Percent(line)
+	}
+	j := Start(Cmd{Shell: "seq 1 30000", Progress: slow})
+	waitOrFail(t, j, 30*time.Second)
+	if total, last := j.Total(), j.Tail(1)[0].Text; total != 30000 || last != "30000" {
+		t.Fatalf("got %d lines, last %q; want 30000 lines ending \"30000\"", total, last)
+	}
+}
