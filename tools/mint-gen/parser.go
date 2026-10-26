@@ -20,13 +20,33 @@ var (
 )
 
 // ParseProgramIO is ParseProgram, also returning the input/output model
-// (for --explain).
+// (for --explain). The model lists the help that was read and the notes
+// on help that could not be, instead of printing them.
 func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 	name := filepath.Base(strings.TrimSpace(bin))
 	srcs, notes := CollectHelpNotes(bin)
-	printHelpNotes(notes)
 	manText, helpText := manAndHelp(srcs)
-	return ParseManAndHelpIO(name, manText, helpText)
+	spec, model := ParseManAndHelpIO(name, manText, helpText)
+	model.HelpRead = describeHelpSources(srcs)
+	model.HelpNotes = notes
+	return spec, model
+}
+
+// describeHelpSources names each piece of help read, and why when it was
+// read because the help pointed to it.
+func describeHelpSources(srcs []HelpSource) []string {
+	var out []string
+	for _, s := range srcs {
+		d := s.Name
+		if s.Name == "man" {
+			d = "man page"
+		}
+		if s.Why != "" {
+			d += " (" + s.Why + ")"
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // ParseProgram reads the program's man page, its --help (or -h) and any
@@ -80,13 +100,17 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// 3. Parse flags from both man page and --help, deduplicating by canonical flag
 	var flags []appkit.FlagSpec
 	seen := map[string]bool{}
+	at := map[string]int{} // flag -> index in flags
+	// In a program with subcommands, one option can mean different things
+	// in different commands (hg's -f), so the first definition stays.
+	suite := hasSubcommands(manText, helpText, manLines, helpLines)
 
 	outputDesc := "" // the output option's description, for chooseExtension
 	knownMain, hasKnownMain := KnownOption{}, false
 	if kt, ok := KnownToolIO(name); ok {
 		knownMain, hasKnownMain = kt.mainOutput()
 	}
-	addFlags := func(parsed []appkit.FlagSpec) {
+	addFlags := func(parsed []appkit.FlagSpec, optional map[string]bool) {
 		for _, f := range parsed {
 			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
 				continue
@@ -101,18 +125,26 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 				continue
 			}
 			if seen[f.Flag] {
+				// A short help table often leaves out an option's value
+				// ("-t  Use this anacrontab"); a definition that shows
+				// the value ("-t anacrontab") replaces it, in place. An
+				// optional value ("--json[=false]") is still a switch.
+				if i, ok := at[f.Flag]; ok && !suite && flags[i].Kind == appkit.FlagBool && f.Kind != appkit.FlagBool && !optional[f.Flag] {
+					flags[i] = f
+				}
 				continue
 			}
 			seen[f.Flag] = true
+			at[f.Flag] = len(flags)
 			flags = append(flags, f)
 		}
 	}
 
 	if len(helpLines) > 0 {
-		addFlags(parseFlagsFromLines(helpLines, false))
+		addFlags(parseFlagLines(helpLines, false))
 	}
 	if len(manLines) > 0 {
-		addFlags(parseFlagsFromLines(manLines, true))
+		addFlags(parseFlagLines(manLines, true))
 	}
 
 	// Mark flags beyond the first 12 (or in non-primary sections) as Advanced so
@@ -447,7 +479,15 @@ func applyTargetFromSynopsis(spec *appkit.ToolSpec, syn string) {
 }
 
 func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
+	out, _ := parseFlagLines(lines, isMan)
+	return out
+}
+
+// parseFlagLines is parseFlagsFromLines, also returning the options whose
+// value is optional ("--json[=false]", "--list-catalog [ID...]").
+func parseFlagLines(lines []string, isMan bool) ([]appkit.FlagSpec, map[string]bool) {
 	var out []appkit.FlagSpec
+	optional := map[string]bool{}
 	section := "Options"
 	inIgnoreSection := false
 
@@ -549,6 +589,9 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			label := cleanFlagLabel(canonFlag, secondFlag, desc)
 			hint := enrichRepeatableHint(cleanArgHint(arg), desc)
 
+			if arg != "" && ParsePlaceholder(arg).Optional {
+				optional[canonFlag] = true
+			}
 			out = append(out, appkit.FlagSpec{
 				Flag:    canonFlag,
 				Join:    join,
@@ -563,7 +606,7 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			})
 		}
 	}
-	return out
+	return out, optional
 }
 
 func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice, int, int) {
