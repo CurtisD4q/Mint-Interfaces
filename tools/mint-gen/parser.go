@@ -133,7 +133,124 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
 	appkit.ApplySafetyDefaults(&spec)
+	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec
+}
+
+var (
+	// reEnvName finds an environment variable name, with or without $ or
+	// backticks: GH_TOKEN, $RESTIC_PASSWORD, `PGPASSWORD`.
+	reEnvName = regexp.MustCompile("`?\\$?\\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)\\b`?")
+	// envSecretParts mark a variable that holds a secret itself.
+	envSecretParts = []string{"PASSWORD", "PASSWD", "PASSPHRASE", "PASS", "TOKEN", "SECRET", "APIKEY", "API_KEY", "CREDENTIAL"}
+	// envNotSecret are variables naming where a secret is, not the secret.
+	envNotSecret = []string{"_FILE", "_COMMAND", "_CMD", "_PATH", "_DIR", "_HELPER", "_PROMPT"}
+)
+
+func envNameLooksSecret(name string) bool {
+	for _, suffix := range envNotSecret {
+		if strings.HasSuffix(name, suffix) {
+			return false
+		}
+	}
+	for _, p := range envSecretParts {
+		if strings.Contains(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractEnvSecrets finds environment variables that carry a secret, from
+// the man page's ENVIRONMENT section and any line of the man page or help
+// that talks about environment variables.
+func extractEnvSecrets(manLines, helpLines []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	scan := func(lines []string, isMan bool) {
+		inEnv := false
+		for _, l := range lines {
+			if isMan && isManSectionHeader(l) {
+				inEnv = strings.HasPrefix(strings.TrimSpace(l), "ENVIRONMENT")
+				continue
+			}
+			if !inEnv && !strings.Contains(strings.ToLower(l), "environment") {
+				continue
+			}
+			for _, m := range reEnvName.FindAllStringSubmatch(l, -1) {
+				name := m[1]
+				if len(name) >= 4 && !seen[name] && envNameLooksSecret(name) {
+					seen[name] = true
+					out = append(out, name)
+				}
+			}
+		}
+	}
+	scan(manLines, true)
+	scan(helpLines, false)
+	return out
+}
+
+// secretClass groups secrets by what they are, so a variable is only
+// matched to an option holding the same kind of secret.
+func secretClass(text string) string {
+	t := strings.ToLower(text)
+	switch {
+	case strings.Contains(t, "pass"):
+		return "password"
+	case strings.Contains(t, "token"):
+		return "token"
+	case strings.Contains(t, "key"):
+		return "key"
+	case strings.Contains(t, "secret"):
+		return "secret"
+	}
+	return ""
+}
+
+// attachEnvSecrets routes command-line secrets through environment
+// variables found in the documentation. A variable replaces an option only
+// when exactly one option holds the same kind of secret; otherwise it is
+// added as its own secret entry, so nothing is guessed wrongly.
+func attachEnvSecrets(spec *appkit.ToolSpec, names []string) {
+	for _, name := range names {
+		if hasSecretEnv(spec, name) {
+			continue
+		}
+		class := secretClass(name)
+		match := -1
+		for i, f := range spec.Flags {
+			if f.Kind == appkit.FlagSecret && f.SecretRoute() == appkit.RouteArgument &&
+				class != "" && secretClass(f.Flag+" "+f.Label) == class {
+				if match >= 0 {
+					match = -2 // more than one: don't guess
+					break
+				}
+				match = i
+			}
+		}
+		if match >= 0 {
+			spec.Flags[match].SecretEnv = name
+			continue
+		}
+		spec.Flags = append(spec.Flags, appkit.FlagSpec{Kind: appkit.FlagSecret, Section: "Credentials",
+			Label: envLabel(name), SecretEnv: name})
+	}
+}
+
+func hasSecretEnv(spec *appkit.ToolSpec, name string) bool {
+	for _, f := range spec.Flags {
+		if f.SecretEnv == name {
+			return true
+		}
+	}
+	return false
+}
+
+// envLabel turns RESTIC_PASSWORD into "Restic password ($RESTIC_PASSWORD)".
+func envLabel(name string) string {
+	words := strings.Fields(strings.ToLower(strings.ReplaceAll(name, "_", " ")))
+	return capitalizeFirst(strings.Join(words, " ")) + " ($" + name + ")"
 }
 
 // markSecretFlags turns options whose value is a password, token or key into

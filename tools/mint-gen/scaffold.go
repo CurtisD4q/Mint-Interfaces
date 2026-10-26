@@ -308,6 +308,12 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 			if f.SecretStdin {
 				buf.WriteString("\t\t\t\tSecretStdin: true,\n")
 			}
+			if f.SecretEnv != "" {
+				fmt.Fprintf(&buf, "\t\t\t\tSecretEnv: %q,\n", f.SecretEnv)
+			}
+			if f.EnvFlag != "" {
+				fmt.Fprintf(&buf, "\t\t\t\tEnvFlag: %q,\n", f.EnvFlag)
+			}
 			buf.WriteString("\t\t\t},\n")
 		}
 		buf.WriteString("\t\t},\n")

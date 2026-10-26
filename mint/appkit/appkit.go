@@ -61,6 +61,24 @@ type FlagSpec struct {
 	// standard input, as with --password-stdin. The flag is passed on its
 	// own and the value goes to stdin, never onto the command line.
 	SecretStdin bool `json:"secret_stdin,omitempty"`
+	// SecretEnv (FlagSecret only): the program reads the secret from this
+	// environment variable (RESTIC_PASSWORD, PGPASSWORD…). The value is set
+	// in the program's environment, which only you and root can read, and
+	// the option itself is not passed. Flag may be empty for a secret with
+	// no option at all. SecretStdin, when also set, takes precedence.
+	SecretEnv string `json:"secret_env,omitempty"`
+	// EnvFlag is passed on its own when the secret goes through SecretEnv,
+	// for programs that need to be told to read it (sshpass -e).
+	EnvFlag string `json:"env_flag,omitempty"`
+}
+
+// SecretKey identifies a FlagSecret option: its flag, or "$NAME" for a
+// secret that has only an environment variable.
+func (f FlagSpec) SecretKey() string {
+	if f.Flag == "" && f.SecretEnv != "" {
+		return "$" + f.SecretEnv
+	}
+	return f.Flag
 }
 
 // ProfileSpec defines a named preset of flag values and extra arguments.
@@ -348,13 +366,23 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		val := strings.TrimSpace(a.Values[f.Flag])
 		switch f.Kind {
 		case FlagSecret:
-			sec := a.secret(f.Flag)
+			sec := a.secret(f.SecretKey())
 			if sec == "" {
 				continue
 			}
-			if f.SecretStdin {
-				args = append(args, f.Flag)
+			switch f.SecretRoute() {
+			case RouteStdin:
+				if f.Flag != "" {
+					args = append(args, f.Flag)
+				}
 				stdin = append(stdin, sec)
+				continue
+			case RouteEnv:
+				// The value goes in the environment (secretEnv); only a
+				// "read it from the environment" switch is passed.
+				if f.EnvFlag != "" {
+					args = append(args, f.EnvFlag)
+				}
 				continue
 			}
 			if mask {
@@ -410,6 +438,32 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 	return args, outPath, stdin
 }
 
+// secretEnv returns NAME=value for every secret passed through the
+// environment (NAME=•••••• with mask, for previews).
+func (a *ToolApp) secretEnv(mask bool) []string {
+	var env []string
+	for _, f := range a.Spec.Flags {
+		if f.Kind != FlagSecret || f.SecretRoute() != RouteEnv {
+			continue
+		}
+		if sec := a.secret(f.SecretKey()); sec != "" {
+			if mask {
+				sec = secretMask
+			}
+			env = append(env, f.SecretEnv+"="+sec)
+		}
+	}
+	return env
+}
+
+func (a *ToolApp) envNames() []string {
+	var names []string
+	for _, kv := range a.secretEnv(true) {
+		names = append(names, strings.SplitN(kv, "=", 2)[0])
+	}
+	return names
+}
+
 func (a *ToolApp) secret(flag string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -432,7 +486,7 @@ func (a *ToolApp) SetSecret(flag, value string) {
 func (a *ToolApp) argvSecrets() []string {
 	var out []string
 	for _, f := range a.Spec.Flags {
-		if f.Kind == FlagSecret && !f.SecretStdin && a.secret(f.Flag) != "" {
+		if f.Kind == FlagSecret && f.SecretRoute() == RouteArgument && a.secret(f.SecretKey()) != "" {
 			label := f.Label
 			if label == "" {
 				label = f.Flag
@@ -467,9 +521,14 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 func (a *ToolApp) CommandPreview() string {
 	args, outPath, _ := a.buildArgs(true)
 	parts := make([]string, 0, len(args)+3)
+	env := a.secretEnv(true)
 	if a.Spec.NeedsRoot && a.UseSudo {
 		parts = append(parts, "sudo", "-S")
+		if len(env) > 0 {
+			parts = append(parts, "--preserve-env="+strings.Join(a.envNames(), ","))
+		}
 	}
+	parts = append(parts, env...)
 	parts = append(parts, a.Spec.BinaryName())
 	for _, arg := range args {
 		if strings.ContainsAny(arg, " \t\"'") {
@@ -640,8 +699,14 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	bin := a.Spec.BinaryName()
 	cmdArgs := args
 	var stdinLines []string
+	env := a.secretEnv(false)
 	if a.Spec.NeedsRoot && a.UseSudo {
-		cmdArgs = append([]string{"-S", "-p", "", bin}, args...)
+		sudoArgs := []string{"-S", "-p", ""}
+		if len(env) > 0 {
+			// sudo clears the environment unless told to keep these.
+			sudoArgs = append(sudoArgs, "--preserve-env="+strings.Join(a.envNames(), ","))
+		}
+		cmdArgs = append(append(sudoArgs, bin), args...)
 		bin = "sudo"
 		stdinLines = append(stdinLines, a.SudoPassword) // sudo reads the first line
 	}
@@ -654,6 +719,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	job := runner.Start(runner.Cmd{
 		Name:  bin,
 		Args:  cmdArgs,
+		Env:   env,
 		Input: useStdin,
 		OnExit: func(j *runner.Job) {
 			lines := j.Lines()
@@ -919,6 +985,9 @@ func (a *ToolApp) outputFileSection() mint.Section {
 
 func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 	key := f.Flag
+	if f.Kind == FlagSecret {
+		key = f.SecretKey()
+	}
 	label := f.Label
 	if label == "" {
 		label = f.Flag

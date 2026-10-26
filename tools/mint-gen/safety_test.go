@@ -142,3 +142,50 @@ Options:
 		}
 	}
 }
+
+func TestEnvironmentSecretsFromManPage(t *testing.T) {
+	man := `NAME
+       vault - store things
+
+OPTIONS
+       --password PASS
+              password for the store
+       --api-token TOKEN
+              API token
+
+ENVIRONMENT
+       VAULT_PASSWORD
+              Password for the store, instead of --password.
+       VAULT_PASSWORD_FILE
+              File holding the password.
+       VAULT_HOME
+              Where the store lives.
+`
+	help := "Usage: vault [options]\n\nThe token can also be given in the environment variable `VAULT_TOKEN`.\n"
+	spec := ParseManAndHelp("vault", man, help)
+	byEnv := map[string]appkit.FlagSpec{}
+	for _, f := range spec.Flags {
+		if f.SecretEnv != "" {
+			byEnv[f.SecretEnv] = f
+		}
+	}
+	if f, ok := byEnv["VAULT_PASSWORD"]; !ok || f.Flag != "--password" {
+		t.Errorf("VAULT_PASSWORD should replace --password: %+v", byEnv)
+	}
+	if f, ok := byEnv["VAULT_TOKEN"]; !ok || f.Flag != "--api-token" {
+		t.Errorf("VAULT_TOKEN should replace --api-token: %+v", byEnv)
+	}
+	for _, name := range []string{"VAULT_PASSWORD_FILE", "VAULT_HOME"} {
+		if _, ok := byEnv[name]; ok {
+			t.Errorf("%s is not a secret", name)
+		}
+	}
+	var b strings.Builder
+	printSafetyReport(&b, spec)
+	if out := b.String(); !strings.Contains(out, "environment variable VAULT_PASSWORD (man page)") {
+		t.Errorf("report:\n%s", out)
+	}
+	if src, _ := renderSpecGo(spec); !strings.Contains(string(src), `SecretEnv: "VAULT_PASSWORD"`) {
+		t.Errorf("spec.go lost SecretEnv:\n%s", src)
+	}
+}

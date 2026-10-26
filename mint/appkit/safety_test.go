@@ -225,3 +225,57 @@ func TestSafetyReport(t *testing.T) {
 		t.Errorf("ps running %q", ps.Running)
 	}
 }
+
+func TestEnvironmentSecrets(t *testing.T) {
+	bin, log := fakeTool(t, "backup", `echo "env: $BACKUP_PASSWORD" >> "$(dirname "$0")/runs.log"`)
+	a := newTestApp(t, ToolSpec{Name: "backup", Bin: bin, Flags: []FlagSpec{
+		{Flag: "--password", Kind: FlagSecret, SecretEnv: "BACKUP_PASSWORD", Label: "Password"},
+		{Kind: FlagSecret, SecretEnv: "OTHER_TOKEN", Label: "Token"},
+	}})
+	a.SetSecret("--password", "hunter2")
+	if got := a.argvSecrets(); len(got) != 0 {
+		t.Fatalf("environment secrets reported as command-line ones: %q", got)
+	}
+	args, _ := a.BuildArgs()
+	if strings.Contains(strings.Join(args, " "), "hunter2") || strings.Contains(strings.Join(args, " "), "--password") {
+		t.Fatalf("secret or its option on the command line: %q", args)
+	}
+	if p := a.CommandPreview(); !strings.Contains(p, "BACKUP_PASSWORD=••••••") || strings.Contains(p, "hunter2") {
+		t.Fatalf("preview %q", p)
+	}
+	job, err := a.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	got := runs(log)
+	if !strings.Contains(got, "env: hunter2") || strings.Contains(strings.SplitN(got, "\n", 2)[0], "hunter2") {
+		t.Fatalf("secret should arrive in the environment only:\n%s", got)
+	}
+	a.Spec.NeedsRoot, a.UseSudo = true, true
+	if p := a.CommandPreview(); !strings.Contains(p, "--preserve-env=BACKUP_PASSWORD") {
+		t.Fatalf("sudo would drop the variable: %q", p)
+	}
+}
+
+func TestKnownSecretEnvs(t *testing.T) {
+	s := ToolSpec{Name: "restic"}
+	ApplySafetyDefaults(&s)
+	ApplySafetyDefaults(&s) // applying twice must not add it twice
+	if len(s.Flags) != 1 || s.Flags[0].SecretEnv != "RESTIC_PASSWORD" || s.Flags[0].Flag != "" || s.Flags[0].SecretKey() != "$RESTIC_PASSWORD" {
+		t.Fatalf("restic: %+v", s.Flags)
+	}
+	p := ToolSpec{Name: "sshpass", Flags: []FlagSpec{{Flag: "-p", Kind: FlagText, Label: "Provide password as argument"}}}
+	ApplySafetyDefaults(&p)
+	if f := p.Flags[0]; len(p.Flags) != 1 || f.Kind != FlagSecret || f.SecretEnv != "SSHPASS" || f.EnvFlag != "-e" {
+		t.Fatalf("sshpass: %+v", p.Flags)
+	}
+	a := newTestApp(t, p)
+	a.SetSecret("-p", "pw")
+	if args, _ := a.BuildArgs(); strings.Join(args, " ") != "-e" {
+		t.Fatalf("sshpass args %q, want just -e", args)
+	}
+	if r := s.SafetyReport(); len(r.Secrets) != 1 || r.Secrets[0].Route != RouteEnv || r.Secrets[0].Env != "RESTIC_PASSWORD" {
+		t.Fatalf("report %+v", r.Secrets)
+	}
+}
