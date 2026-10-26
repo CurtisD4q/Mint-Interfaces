@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
@@ -19,26 +16,14 @@ var (
 	reTargetHint = regexp.MustCompile(`(?i)\b(target|host|url|uri|domain|address|file|path|pattern|dir|directory|archive|input|interface|device|package|image|container)\b`)
 )
 
-// ParseProgram reads `man -P cat <bin>` and `<bin> --help` (falling back to `-h`)
-// and returns a populated appkit.ToolSpec.
+// ParseProgram reads the program's man page, its --help (or -h) and any
+// fuller help it points to (see CollectHelp), and returns a populated
+// appkit.ToolSpec.
 func ParseProgram(bin string) (appkit.ToolSpec, error) {
 	name := filepath.Base(strings.TrimSpace(bin))
-	manText := runCapture(3*time.Second, "man", "-P", "cat", name)
-	helpText := runCapture(2*time.Second, bin, "--help")
-	if strings.TrimSpace(helpText) == "" {
-		helpText = runCapture(2*time.Second, bin, "-h")
-	}
+	manText, helpText := manAndHelp(CollectHelp(bin))
 	spec := ParseManAndHelp(name, manText, helpText)
 	return spec, nil
-}
-
-func runCapture(timeout time.Duration, name string, args ...string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(cmd.Environ(), "MANWIDTH=100", "LC_ALL=C", "COLUMNS=100")
-	out, _ := cmd.CombinedOutput()
-	return string(out)
 }
 
 // ParseManAndHelp extracts a ToolSpec from raw man-page text and/or --help text.
@@ -415,10 +400,23 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			continue
 		}
 
-		m := reOptLine.FindStringSubmatch(line)
-		if m == nil {
+		var groups [][]string // [whole, first flag, second flag, argument, description]
+		if m := reOptLine.FindStringSubmatch(line); m != nil {
+			groups = append(groups, m)
+		} else {
+			// Lower-case placeholders and slash groups (see scanOptionLine).
+			for _, o := range scanOptionLine(line) {
+				second := ""
+				if len(o.Names) > 1 {
+					second = o.Names[1]
+				}
+				groups = append(groups, []string{line, o.Names[0], second, o.Placeholder.Raw, o.Desc})
+			}
+		}
+		if len(groups) == 0 {
 			continue
 		}
+		m := groups[0]
 
 		firstFlag := strings.TrimSpace(m[1])
 		secondFlag := strings.TrimSpace(m[2])
@@ -437,7 +435,7 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 		for j := i + 1; j < len(lines) && j <= i+2; j++ {
 			next := lines[j]
 			nextTrim := strings.TrimSpace(next)
-			if nextTrim == "" || isManSectionHeader(next) || reOptLine.MatchString(next) {
+			if nextTrim == "" || isManSectionHeader(next) || looksLikeOptionLine(next) {
 				break
 			}
 			if strings.HasPrefix(next, "     ") || strings.HasPrefix(next, "\t") {
@@ -452,28 +450,36 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			}
 		}
 
-		join := " "
-		if strings.HasPrefix(argPart, "=") {
-			join = "="
-			argPart = strings.TrimPrefix(argPart, "=")
+		// A slash group (-oN/-oX/-oG <file>) gives one option per name,
+		// sharing the description.
+		for gi, g := range groups {
+			if gi > 0 {
+				canonFlag, secondFlag, argPart = strings.TrimSpace(g[1]), strings.TrimSpace(g[2]), strings.TrimSpace(g[3])
+			}
+			join := " "
+			arg := argPart
+			if strings.HasPrefix(arg, "=") {
+				join = "="
+				arg = strings.TrimPrefix(arg, "=")
+			}
+
+			kind, choices, minVal, maxVal := classifyFlag(canonFlag, arg, desc)
+			label := cleanFlagLabel(canonFlag, secondFlag, desc)
+			hint := enrichRepeatableHint(cleanArgHint(arg), desc)
+
+			out = append(out, appkit.FlagSpec{
+				Flag:    canonFlag,
+				Join:    join,
+				Kind:    kind,
+				Section: section,
+				Label:   label,
+				Hint:    hint,
+				Choices: choices,
+				Min:     minVal,
+				Max:     maxVal,
+				Step:    1,
+			})
 		}
-
-		kind, choices, minVal, maxVal := classifyFlag(canonFlag, argPart, desc)
-		label := cleanFlagLabel(canonFlag, secondFlag, desc)
-		hint := enrichRepeatableHint(cleanArgHint(argPart), desc)
-
-		out = append(out, appkit.FlagSpec{
-			Flag:    canonFlag,
-			Join:    join,
-			Kind:    kind,
-			Section: section,
-			Label:   label,
-			Hint:    hint,
-			Choices: choices,
-			Min:     minVal,
-			Max:     maxVal,
-			Step:    1,
-		})
 	}
 	return out
 }
@@ -500,12 +506,25 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 		}
 	}
 
-	combined := strings.ToLower(argClean + " " + desc)
-	if strings.Contains(combined, "dir") || strings.Contains(combined, "directory") || strings.Contains(combined, "folder") {
-		return appkit.FlagDir, nil, 0, 0
-	}
-	if strings.Contains(combined, "file") || strings.Contains(combined, "path") || strings.Contains(combined, "config") {
+	// A placeholder that clearly is a path settles it. One that clearly is
+	// not (URL, PATTERN, FORMAT, SECONDS…) rules out a file picker, however
+	// the description reads ("File format…"); numbers are still checked below.
+	ph := ParsePlaceholder(argClean)
+	if ph.IsFile() {
+		if reDirWord.MatchString(ph.Word) || reDirWord.MatchString(lastWordPart(ph.Word)) {
+			return appkit.FlagDir, nil, 0, 0
+		}
 		return appkit.FlagFile, nil, 0, 0
+	}
+
+	combined := strings.ToLower(argClean + " " + desc)
+	if !ph.IsNotFile() {
+		if strings.Contains(combined, "dir") || strings.Contains(combined, "directory") || strings.Contains(combined, "folder") {
+			return appkit.FlagDir, nil, 0, 0
+		}
+		if strings.Contains(combined, "file") || strings.Contains(combined, "path") || strings.Contains(combined, "config") {
+			return appkit.FlagFile, nil, 0, 0
+		}
 	}
 	if strings.Contains(argClean, "0-5") {
 		return appkit.FlagInt, nil, 0, 5
@@ -543,7 +562,7 @@ var (
 	// A value that names a file or folder.
 	reFileArg = regexp.MustCompile(`(?i)^(?:file|files|filename|fname|outfile|out_?file|output_?file|out|path|filepath|dir|directory|folder|archive|dest|destination|target_?file)s?$`)
 	// A value that is something else: a number, time, size, format, name…
-	reNonFileArg = regexp.MustCompile(`(?i)^(?:n|num|number|int|integer|count|cols|columns|width|height|size|bytes|lines|sec|secs|seconds|ms|millis|minutes|time|timeout|duration|delay|wait|level|depth|port|format|fmt|template|string|str|text|pattern|regex|regexp|name|user|host|hostname|url|uri|id|key|lang|locale|color|colour|mode|type|when|rate|limit|percent|charset|encoding)$`)
+	reNonFileArg = regexp.MustCompile(`(?i)^(?:n|num|number|int|integer|count|cols|columns|width|height|size|bytes|lines|sec|secs|seconds|ms|millis|minutes|time|timeout|duration|delay|wait|level|depth|port|format|fmt|template|string|str|text|pattern|regex|regexp|name|user|host|hostname|url|uri|id|key|lang|locale|color|colour|mode|type|when|rate|limit|percent|charset|encoding|suffix|suf|ext|extension|method|signal|control|policy|style|algorithm|cipher|ciphers|list)$`)
 	// Description words for a path, and for things that are not paths.
 	reFileWords    = regexp.MustCompile(`(?i)\b(?:file|files|filename|path|directory|folder)\b`)
 	reNonFileWords = regexp.MustCompile(`(?i)\b(?:width|columns|seconds|wait|number of|format|level|count|size|timeout|delay|limit)\b`)
@@ -553,27 +572,16 @@ var (
 	reNotMainOut   = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
 )
 
-// argWord is an option's value placeholder as one word: "<file>" → "file",
-// "COLS" → "cols", "" when the help text gives none.
-func argWord(hint string) string {
-	h := strings.Trim(strings.TrimSpace(hint), "=[]<>(){}")
-	if h == "" || h == "value" {
-		return ""
-	}
-	return strings.ToLower(h)
-}
-
 // argIsFile reports whether an option's value is a file or folder path:
-// from its placeholder (FILE, <file>, PATH, OUTFILE…), or, when the
+// from its placeholder (FILE, <file>, PATH, identity_file…), or, when the
 // placeholder says nothing either way, from its description.
 func argIsFile(hint, desc string) bool {
-	if w := argWord(hint); w != "" {
-		if reFileArg.MatchString(w) {
-			return true
-		}
-		if reNonFileArg.MatchString(w) {
-			return false
-		}
+	p := ParsePlaceholder(hint)
+	if p.IsFile() {
+		return true
+	}
+	if p.IsNotFile() {
+		return false
 	}
 	return reFileWords.MatchString(desc) && !reNonFileWords.MatchString(desc)
 }
@@ -582,13 +590,12 @@ func argIsFile(hint, desc string) bool {
 // number, time, size, width, format, name… (ls -w COLS, wget -w SECONDS,
 // curl -w <format>).
 func argIsNotFile(hint, desc string) bool {
-	if w := argWord(hint); w != "" {
-		if reNonFileArg.MatchString(w) {
-			return true
-		}
-		if reFileArg.MatchString(w) {
-			return false
-		}
+	p := ParsePlaceholder(hint)
+	if p.IsNotFile() {
+		return true
+	}
+	if p.IsFile() {
+		return false
 	}
 	return reNonFileWords.MatchString(desc) && !reFileWords.MatchString(desc)
 }
