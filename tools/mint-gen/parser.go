@@ -78,8 +78,8 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
 				continue
 			}
-			// Detect dedicated output file flag (-o, --output, -w, -oN)
-			if isOutputFileFlag(f) && !spec.OutputsFile {
+			// The option that writes the tool's output to a file (see isOutputFileFlag)
+			if !spec.OutputsFile && isOutputFileFlag(name, f) {
 				spec.OutputsFile = true
 				spec.OutputFlag = f.Flag
 				spec.DefaultExt = guessExtension(name, f.Label+" "+f.Hint)
@@ -525,16 +525,102 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	return appkit.FlagText, nil, 0, 0
 }
 
-func isOutputFileFlag(f appkit.FlagSpec) bool {
-	switch f.Flag {
-	case "-o", "--output", "--output-file", "-oN", "-w":
-		if f.Kind != appkit.FlagBool {
+// knownOutputFlags are output options the help text alone cannot settle.
+var knownOutputFlags = map[string]string{
+	"tcpdump": "-w", "tshark": "-w", "dumpcap": "-w", // raw packet capture files
+	"nmap": "-oN",
+}
+
+// outputFlagNames are the usual names of an output-file option. One of these
+// is accepted when its value is a file; any other option only when its
+// description says the tool's output is written to the file.
+var outputFlagNames = map[string]bool{
+	"-o": true, "-O": true, "--output": true, "--output-file": true, "--output-document": true,
+	"--out": true, "--outfile": true, "--out-file": true, "-w": true, "--write": true, "-oN": true,
+}
+
+var (
+	// A value that names a file or folder.
+	reFileArg = regexp.MustCompile(`(?i)^(?:file|files|filename|fname|outfile|out_?file|output_?file|out|path|filepath|dir|directory|folder|archive|dest|destination|target_?file)s?$`)
+	// A value that is something else: a number, time, size, format, name…
+	reNonFileArg = regexp.MustCompile(`(?i)^(?:n|num|number|int|integer|count|cols|columns|width|height|size|bytes|lines|sec|secs|seconds|ms|millis|minutes|time|timeout|duration|delay|wait|level|depth|port|format|fmt|template|string|str|text|pattern|regex|regexp|name|user|host|hostname|url|uri|id|key|lang|locale|color|colour|mode|type|when|rate|limit|percent|charset|encoding)$`)
+	// Description words for a path, and for things that are not paths.
+	reFileWords    = regexp.MustCompile(`(?i)\b(?:file|files|filename|path|directory|folder)\b`)
+	reNonFileWords = regexp.MustCompile(`(?i)\b(?:width|columns|seconds|wait|number of|format|level|count|size|timeout|delay|limit)\b`)
+	// Writing the tool's main output, as opposed to reading input or a log.
+	reWritesOutput = regexp.MustCompile(`(?i)\b(?:write|writes|save|saves|place|places|store|dump|output)\b`)
+	reMainOutput   = regexp.MustCompile(`(?i)\b(?:write|save|place|store)s?\s+(?:the\s+)?(?:output|result|results|documents?|data)\s+(?:to|into|in)\b`)
+	reNotMainOut   = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
+)
+
+// argWord is an option's value placeholder as one word: "<file>" → "file",
+// "COLS" → "cols", "" when the help text gives none.
+func argWord(hint string) string {
+	h := strings.Trim(strings.TrimSpace(hint), "=[]<>(){}")
+	if h == "" || h == "value" {
+		return ""
+	}
+	return strings.ToLower(h)
+}
+
+// argIsFile reports whether an option's value is a file or folder path:
+// from its placeholder (FILE, <file>, PATH, OUTFILE…), or, when the
+// placeholder says nothing either way, from its description.
+func argIsFile(hint, desc string) bool {
+	if w := argWord(hint); w != "" {
+		if reFileArg.MatchString(w) {
 			return true
 		}
+		if reNonFileArg.MatchString(w) {
+			return false
+		}
 	}
-	lower := strings.ToLower(f.Label)
-	return (f.Flag == "-o" || f.Flag == "--output") &&
-		(strings.Contains(lower, "file") || strings.Contains(lower, "output") || strings.Contains(lower, "write"))
+	return reFileWords.MatchString(desc) && !reNonFileWords.MatchString(desc)
+}
+
+// argIsNotFile reports whether an option's value is clearly not a path: a
+// number, time, size, width, format, name… (ls -w COLS, wget -w SECONDS,
+// curl -w <format>).
+func argIsNotFile(hint, desc string) bool {
+	if w := argWord(hint); w != "" {
+		if reNonFileArg.MatchString(w) {
+			return true
+		}
+		if reFileArg.MatchString(w) {
+			return false
+		}
+	}
+	return reNonFileWords.MatchString(desc) && !reFileWords.MatchString(desc)
+}
+
+// isOutputFileFlag reports whether f is the option that writes tool's main
+// output to a file (so the app passes its output path there). The value
+// must be a file, the description must be about writing output (not a log
+// or an input), and the option must have a usual output name or say so
+// plainly ("write result to FILE").
+func isOutputFileFlag(tool string, f appkit.FlagSpec) bool {
+	if f.Kind == appkit.FlagBool {
+		return false
+	}
+	if known, ok := knownOutputFlags[tool]; ok {
+		return f.Flag == known
+	}
+	desc := stripFlagSuffix(f.Label, f.Flag)
+	if argIsNotFile(f.Hint, desc) || !argIsFile(f.Hint, desc) {
+		return false
+	}
+	if reNotMainOut.MatchString(desc) && !reMainOutput.MatchString(desc) {
+		return false // "log messages to FILE", "read input from FILE"
+	}
+	if outputFlagNames[f.Flag] {
+		return desc == "" || reWritesOutput.MatchString(desc)
+	}
+	return reMainOutput.MatchString(desc)
+}
+
+// stripFlagSuffix drops the " (-x)" mint-gen adds to labels.
+func stripFlagSuffix(label, flag string) string {
+	return strings.TrimSpace(strings.TrimSuffix(label, "("+flag+")"))
 }
 
 func guessExtension(binName, desc string) string {
