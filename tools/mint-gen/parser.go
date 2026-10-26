@@ -120,6 +120,7 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 		}
 	}
 
+	markSecretFlags(flags)
 	spec.Flags = flags
 	tpl := DetectTemplate(name, spec, manText, helpText)
 	tpl.ApplyTo(&spec)
@@ -131,7 +132,28 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 	if len(spec.Profiles) == 0 {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
+	appkit.ApplySafetyDefaults(&spec)
 	return spec
+}
+
+// markSecretFlags turns options whose value is a password, token or key into
+// FlagSecret, so the interface asks for them with a password dialog and never
+// saves them. A bare --password-stdin style option becomes a secret sent on
+// standard input. Options naming a file (such as --password-file) are left as
+// paths: the file name itself is not secret.
+func markSecretFlags(flags []appkit.FlagSpec) {
+	for i := range flags {
+		f := &flags[i]
+		if !appkit.LooksSecret(f.Flag, f.Label, f.Hint) {
+			continue
+		}
+		switch {
+		case f.Kind == appkit.FlagBool && strings.HasSuffix(f.Flag, "-stdin"):
+			f.Kind, f.SecretStdin = appkit.FlagSecret, true
+		case f.Kind == appkit.FlagText || f.Kind == appkit.FlagInt:
+			f.Kind, f.Choices, f.Min, f.Max = appkit.FlagSecret, nil, 0, 0
+		}
+	}
 }
 
 func cleanLines(raw string) []string {

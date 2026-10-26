@@ -239,7 +239,7 @@ tools/check_catalogue.py       compiles every catalogue example
 tools/build.sh                 builds a standalone static binary (also for apps with their own go.mod)
 ```
 
-`mint/util` is there so apps can shell out safely and encode JSON without another dependency. `util.Run(program, args...)` passes each argument as data, so no shell ever parses it. It is not a settings backend.
+`mint/util` is there so apps can shell out safely and encode JSON without another dependency. `util.Run(program, args...)` passes each argument as data, so no shell ever parses it. `util.RunTimeout(limit, program, args...)` does the same with a time limit, detached from the terminal; `util.StopAll()` ends any still running when the app closes. It is not a settings backend.
 
 ### Lua → Go cheat sheet
 
@@ -401,6 +401,14 @@ python3 tools/check_catalogue.py
 - **8 Composable Mixins**: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
 
 `tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
+
+#### Safety rules every generated interface follows
+
+- **Nothing runs unless you ask, except commands that only read.** A monitor polls, and a settings screen shows "Refresh live state", only when the tool has a read-only way to show its state: `StatusArgs` (for example `systemctl list-units`, `ufw status`, `sysctl -a`), or a tool that only reports (`ReadOnly`, such as `ps`, `df` or `journalctl`). Common tools get these automatically. For anything else, such as `pkill` or `kill`, the monitor becomes an ordinary screen with a Run action and the usual confirmations.
+- **Commands appkit runs itself have time limits and run in the background.** Polling never freezes the screen (a `tail -f` that never ends is stopped after 15 seconds), row actions and refreshes show the loading spinner, and anything still running when the app closes is stopped.
+- **Irreversible tools need the target typed to confirm.** `dd`, `shred`, `rm`, `wipefs`, `mkfs.*`, `kill`, `pkill`, `killall` and similar are marked `Irreversible`.
+- **Secrets stay secret.** Options whose value is a password, token or key are `FlagSecret`: asked for with a password dialog, kept for the session only (never in settings, presets or history), and masked in the command preview. A `--password-stdin` style option sends the secret on standard input. If a tool only accepts the secret on its command line, where other users can see it with `ps`, the app says so and asks before running. Settings and history files are readable only by you.
+- **`mint-gen` only touches folders it created.** It refuses to scaffold into a folder that already has other files, and `--remove` deletes only the files it generated (listed in the folder's `.mint-gen` file), leaving anything else in place. Options may come before or after the program name.
 
 #### Step-by-step: generating and running a Mint interface for any installed CLI program
 

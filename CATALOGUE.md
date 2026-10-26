@@ -672,7 +672,7 @@ func appkitExample() appkit.ToolSpec {
 4. **Secrets go through standard input** (B3), never into arguments or environment variables.
 5. **Irreversible actions need `TypeToConfirm`** with a phrase naming the target (B4). Disruptive but reversible ones need `Confirm`, which defaults to No.
 6. **Nothing may wait for an answer.** Jobs have no terminal, so a program that stops to ask "[y/N]" will hang until its timeout. Pass `-y`, `--yes`, `--assume-yes`, `--non-interactive`, `--batch` or `--no-input`, or answer through `Input` and `SendLine`.
-7. **Every job gets a timeout and a way to stop.** `runner.JobScreen` provides Stop, and the starter calls `runner.StopAll()` on exit. If the program only cleans up on Ctrl+C, set `StopSignal: syscall.SIGINT` (A2). A background service may have no timeout, but needs an off switch.
+7. **Every job gets a timeout and a way to stop.** `runner.JobScreen` provides Stop, and the starter calls `runner.StopAll()` on exit. If the program only cleans up on Ctrl+C, set `StopSignal: syscall.SIGINT` (A2). A background service may have no timeout, but needs an off switch. A quick read that runs on the screen's own thread (in `Enter`, an action or `Poll`) uses `util.RunTimeout`, so a command that hangs cannot freeze the interface.
 8. **Report failures with the program's own words.** `apply` returns the program's last message line; show it with `mint.ToastError`. After any change, reload, so the screen shows what the program actually did.
 9. **Label things in plain words**, such as "Show hidden files" rather than `--all`. The flag can go in a `Note` underneath if it helps.
 10. **Expose the common tasks, not every flag.** Rarely used options go in a collapsed "Advanced" section (B6), and plumbing commands are left out.

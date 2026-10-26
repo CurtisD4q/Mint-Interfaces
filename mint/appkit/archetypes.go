@@ -1,6 +1,7 @@
 package appkit
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -109,7 +110,7 @@ func (a *ToolApp) ResolveDynamicChoices() {
 		if len(f.ChoicesCmd) == 0 {
 			continue
 		}
-		out, err := util.Run(f.ChoicesCmd[0], f.ChoicesCmd[1:]...)
+		out, err := util.RunTimeout(choicesTimeout, f.ChoicesCmd[0], f.ChoicesCmd[1:]...)
 		if err != nil || strings.TrimSpace(out) == "" {
 			continue
 		}
@@ -133,23 +134,110 @@ func (a *ToolApp) ResolveDynamicChoices() {
 	}
 }
 
-// RefreshState executes the tool's read/status/query command synchronously and
-// updates SnapshotLines for Config, Monitor, Explorer, and Suite screens.
-func (a *ToolApp) RefreshState(extraArgs ...string) {
-	bin := a.Spec.BinaryName()
-	var args []string
-	if len(extraArgs) > 0 {
-		args = append(args, extraArgs...)
-	} else if len(a.Spec.StatusArgs) > 0 {
-		args = append(args, a.Spec.StatusArgs...)
-		flagArgs, _ := a.buildFlagAndTargetArgs()
-		args = append(args, flagArgs...)
-	} else {
-		args, _ = a.BuildArgs()
-	}
+// ErrNoStatusCommand is returned by RefreshState when the tool has no
+// read-only way to show its state (no StatusArgs, and not ReadOnly).
+var ErrNoStatusCommand = errors.New("no read-only status command is set for this tool (StatusArgs)")
 
-	out, _ := util.Run(bin, args...)
+// statusArgs returns the arguments of the command that only reads state:
+// StatusArgs (plus the view flags and target for monitors; a config tool's
+// flags are changes, so they are left out), or the tool's own command line
+// when the tool is ReadOnly. ok is false when there is no such command, and
+// then nothing may run without the user asking.
+func (a *ToolApp) statusArgs() (args []string, ok bool) {
+	switch {
+	case len(a.Spec.StatusArgs) > 0:
+		args = append(args, a.Spec.StatusArgs...)
+		if a.Spec.Archetype != ArchetypeConfig {
+			flagArgs, _ := a.buildFlagAndTargetArgs()
+			args = append(args, flagArgs...)
+		}
+		return args, true
+	case a.Spec.ReadOnly:
+		args, _ = a.BuildArgs()
+		return args, true
+	}
+	return nil, false
+}
+
+// RefreshState runs the tool's read-only status command (or extraArgs, when
+// given) with a time limit and stores its output in SnapshotLines. It never
+// falls back to the tool's main command, which may change things.
+func (a *ToolApp) RefreshState(extraArgs ...string) error {
+	args := extraArgs
+	if len(args) == 0 {
+		var ok bool
+		if args, ok = a.statusArgs(); !ok {
+			return ErrNoStatusCommand
+		}
+	}
+	return a.runStatus(args)
+}
+
+func (a *ToolApp) runStatus(args []string) error {
+	out, err := util.RunTimeout(statusTimeout, a.Spec.BinaryName(), args...)
 	a.SetSnapshotText(out)
+	if errors.Is(err, util.ErrTimeout) {
+		return fmt.Errorf("%s did not finish within %s", a.Spec.Name, statusTimeout)
+	}
+	return err
+}
+
+// refreshAsync reads the state in the background so a slow (or never-ending)
+// status command cannot freeze the screen. The arguments are worked out here,
+// on the screen's goroutine; only the command runs in the background.
+func (a *ToolApp) refreshAsync() {
+	args, ok := a.statusArgs()
+	if !ok {
+		return
+	}
+	a.mu.Lock()
+	if a.refreshing {
+		a.mu.Unlock()
+		return
+	}
+	a.refreshing = true
+	a.mu.Unlock()
+	go func() {
+		err := a.runStatus(args)
+		a.mu.Lock()
+		a.refreshing, a.refreshed = false, true
+		a.refreshErr = ""
+		if err != nil {
+			a.refreshErr = err.Error()
+		}
+		a.mu.Unlock()
+	}()
+}
+
+// takeRefreshed reports whether a background refresh finished since the last
+// call, so the screen knows to repaint.
+func (a *ToolApp) takeRefreshed() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.refreshed
+	a.refreshed = false
+	return r
+}
+
+// refreshRow is the "read the state now" action, or a note saying why there
+// is none.
+func (a *ToolApp) refreshRow(label string) mint.Row {
+	if !a.Spec.CanReadState() {
+		return mint.Note("No read-only status command is set for " + a.Spec.Name + " (StatusArgs), so its state is not read.")
+	}
+	return mint.Action(mint.ActionOpts{
+		Label: label,
+		Hint:  "refresh",
+		OnActivate: func(c *mint.Ctx) {
+			var err error
+			c.Busy("Reading "+a.Spec.Name+" state…", func() { err = a.RefreshState() })
+			if err != nil {
+				c.ToastError(err.Error())
+				return
+			}
+			c.Toast("Refreshed")
+		},
+	})
 }
 
 // SetSnapshotText stores raw multi-line command output into SnapshotLines.
@@ -270,7 +358,7 @@ func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []s
 			Label: act.Label,
 			Hint:  act.Hint,
 			OnActivate: func(c *mint.Ctx) {
-				if act.Confirm {
+				if act.Confirm || a.Spec.Irreversible {
 					if !c.Confirm("Confirm "+act.Label, fmt.Sprintf("Run %s on %s?", act.Label, summary)) {
 						return
 					}
@@ -287,7 +375,11 @@ func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []s
 				if target != "" {
 					cmdArgs = append(cmdArgs, target)
 				}
-				out, err := util.Run(a.Spec.BinaryName(), cmdArgs...)
+				var out string
+				var err error
+				c.Busy(act.Label+"…", func() {
+					out, err = util.RunTimeout(actionTimeout, a.Spec.BinaryName(), cmdArgs...)
+				})
 				if err != nil {
 					c.ToastError(fmt.Sprintf("%s failed: %v", act.Label, err))
 				} else {
@@ -349,7 +441,18 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 			needConfirm = true
 		}
 	}
-	if needConfirm {
+	switch {
+	case a.Spec.Irreversible:
+		// Destroys data or processes: make the user type what is affected.
+		phrase := strings.TrimSpace(a.Target)
+		if phrase == "" {
+			phrase = a.Spec.BinaryName()
+		}
+		if !c.TypeToConfirm("Run "+a.Spec.Name+"?", "This cannot be undone: "+a.CommandPreview(), phrase) {
+			c.ToastWarn("Cancelled")
+			return
+		}
+	case needConfirm:
 		prompt := a.Spec.ConfirmPrompt
 		if prompt == "" {
 			prompt = "Execute: " + a.CommandPreview()
@@ -358,6 +461,14 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 			c.ToastWarn("Cancelled")
 			return
 		}
+	}
+	if labels := a.argvSecrets(); len(labels) > 0 && !a.argvOK {
+		if !c.Confirm("Put the secret on the command line?", a.Spec.Name+" only accepts "+strings.Join(labels, ", ")+
+			" as a command-line argument, where other users on this computer can see it (for example with ps) while it runs.") {
+			c.ToastWarn("Cancelled")
+			return
+		}
+		a.argvOK = true
 	}
 	if a.Spec.NeedsRoot && a.UseSudo && a.SudoPassword == "" {
 		pw, ok := c.Password("Sudo Password", "Required for sudo -S "+a.Spec.BinaryName())
@@ -404,14 +515,7 @@ func (a *ToolApp) ConfigScreen() *mint.Screen {
 						a.executeFromUI(c)
 					},
 				}),
-				mint.Action(mint.ActionOpts{
-					Label: "Refresh live state",
-					Hint:  "refresh",
-					OnActivate: func(c *mint.Ctx) {
-						a.RefreshState()
-						c.Toast("Refreshed state")
-					},
-				}),
+				a.refreshRow("Refresh live state"),
 			},
 		})
 		sections = append(sections, a.buildOutputDisplaySection("Current State"))
@@ -436,53 +540,65 @@ func (a *ToolApp) ScannerScreen() *mint.Screen {
 }
 
 // MonitorScreen builds the ArchetypeMonitor ("monitor") Live Poller & Controller screen.
+//
+// It polls only when the tool has a read-only way to show its state
+// (StatusArgs, or a ReadOnly tool such as ps or df). For anything else
+// (pkill, kill, killall…) polling would repeat an action every few seconds,
+// so the screen becomes a normal run screen with the usual confirmations.
+// Polling runs in the background, so a slow command never freezes the screen.
 func (a *ToolApp) MonitorScreen() *mint.Screen {
 	interval := a.Spec.PollInterval
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
+	canPoll := a.Spec.CanReadState()
 	var lastPoll time.Time
 
 	s := &mint.Screen{
 		Icon:  "◧",
 		Title: a.Spec.Name + " — Live Monitor",
 		Status: func() []mint.Badge {
-			if a.MonitorPaused {
+			switch {
+			case !canPoll:
+				return a.statusBadges()
+			case a.MonitorPaused:
 				return []mint.Badge{{Text: "paused", Kind: mint.BadgeWarn}}
+			}
+			a.mu.Lock()
+			errText := a.refreshErr
+			a.mu.Unlock()
+			if errText != "" {
+				return []mint.Badge{{Text: "last poll failed", Kind: mint.BadgeError}}
 			}
 			return []mint.Badge{{Text: "polling " + interval.String(), Kind: mint.BadgeOK}}
 		},
 		Enter: func(scr *mint.Screen) {
-			if len(a.SnapshotLines) == 0 && !a.MonitorPaused {
-				a.RefreshState()
+			if canPoll && !a.MonitorPaused {
+				a.refreshAsync()
 				lastPoll = time.Now()
 			}
 		},
 		Poll: func(scr *mint.Screen) bool {
-			if a.MonitorPaused {
-				return false
-			}
-			if time.Since(lastPoll) >= interval {
+			if canPoll && !a.MonitorPaused && time.Since(lastPoll) >= interval {
 				lastPoll = time.Now()
-				a.RefreshState()
-				return true
+				a.refreshAsync()
 			}
-			return false
+			return a.takeRefreshed()
 		},
 	}
 
 	s.Refresh = func(scr *mint.Screen) {
-		var sections []mint.Section
-		sections = append(sections, mint.Section{
-			Name: "Monitor Controls",
-			Rows: []mint.Row{
-				mint.Text(mint.TextOpts{
-					ID:          "monitor:target",
-					Label:       a.Spec.TargetLabel,
-					Placeholder: a.Spec.TargetPlaceholder,
-					Get:         func() string { return a.Target },
-					Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-				}),
+		controls := []mint.Row{
+			mint.Text(mint.TextOpts{
+				ID:          "monitor:target",
+				Label:       a.Spec.TargetLabel,
+				Placeholder: a.Spec.TargetPlaceholder,
+				Get:         func() string { return a.Target },
+				Set:         func(v string) { a.Target = strings.TrimSpace(v) },
+			}),
+		}
+		if canPoll {
+			controls = append(controls,
 				mint.Toggle(mint.ToggleOpts{
 					ID:    "monitor:pause",
 					Label: "Pause live polling",
@@ -498,22 +614,33 @@ func (a *ToolApp) MonitorScreen() *mint.Screen {
 					Get: func() string {
 						a.mu.Lock()
 						defer a.mu.Unlock()
-						if a.LastRefresh.IsZero() {
+						switch {
+						case a.refreshErr != "":
+							return a.refreshErr
+						case a.LastRefresh.IsZero():
 							return "never"
 						}
 						return a.LastRefresh.Format("15:04:05")
 					},
 				}),
-				mint.Action(mint.ActionOpts{
-					Label: "Poll now",
-					Hint:  "refresh",
-					OnActivate: func(c *mint.Ctx) {
-						a.RefreshState()
-						c.Toast("Polled " + a.Spec.Name)
-					},
+				a.refreshRow("Poll now"),
+			)
+		} else {
+			controls = append(controls,
+				mint.Note(a.Spec.Name+" changes things when it runs, so it is not polled. Run it when you choose."),
+				mint.Value(mint.ValueOpts{
+					Label: "Command preview",
+					Get:   func() string { return a.CommandPreview() },
 				}),
-			},
-		})
+				mint.Action(mint.ActionOpts{
+					Label:      "Run " + a.Spec.Name,
+					Hint:       "run",
+					OnActivate: func(c *mint.Ctx) { a.executeFromUI(c) },
+				}),
+			)
+		}
+		var sections []mint.Section
+		sections = append(sections, mint.Section{Name: "Monitor Controls", Rows: controls})
 		sections = append(sections, a.flagSections()...)
 		if a.Spec.OutputsFile {
 			sections = append(sections, a.outputFileSection())

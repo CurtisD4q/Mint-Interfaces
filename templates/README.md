@@ -27,8 +27,8 @@ Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archety
 | `WithCollapsibleOutput` | `CollapsibleOutput`, `ChunkSize` | Automatically splits section-headed or long output into foldable `mint.Collapsible` blocks |
 | `WithProfiles` | `Profiles []ProfileSpec` | Adds a preset selector (`Default`, `Quick`, `Intense`, etc.) that populates flags and extra args |
 | `WithDynamicChoices` | `FlagSpec.ChoicesCmd []string` | Populates `FlagChoice` options at runtime by running a command (e.g., `ip -o link`, `lsblk -dn -o NAME`) |
-| `WithRootAuth` | `NeedsRoot` | Adds a `Run as root (sudo -S)` toggle and `mint.Secret` password prompt piped via `runner.Cmd{Input: true}` |
-| `WithConfirm` | `ConfirmRun`, `ConfirmPrompt` | Wraps destructive actions (`Delete`, `Kill`, `Remove`, `Flush`) in `mint.Confirm` |
+| `WithRootAuth` | `NeedsRoot` | Adds a `Run as root (sudo -S)` toggle and a `mint.Password` prompt; the password is sent to `sudo -S` on standard input |
+| `WithConfirm` | `ConfirmRun`, `ConfirmPrompt` | Asks before running (`mint.Confirm`). Tools marked `Irreversible` (`dd`, `shred`, `rm`, `kill`, `pkill`…) need the target typed instead (`mint.TypeToConfirm`) |
 | `WithHistory` | `KeepHistory` | Saves past runs, command lines, durations, and output paths to `~/.local/share/mint-<tool>/runs.json` |
 
 ---

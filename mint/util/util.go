@@ -80,6 +80,15 @@ func RunTimeout(timeout time.Duration, program string, args ...string) (string, 
 	if err := cmd.Start(); err != nil {
 		return "", errors.New("cannot spawn")
 	}
+	pid := cmd.Process.Pid
+	liveMu.Lock()
+	live[pid] = true
+	liveMu.Unlock()
+	defer func() {
+		liveMu.Lock()
+		delete(live, pid)
+		liveMu.Unlock()
+	}()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var timer <-chan time.Time
@@ -102,6 +111,22 @@ func RunTimeout(timeout time.Duration, program string, args ...string) (string, 
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		<-done
 		return out.String(), ErrTimeout
+	}
+}
+
+var (
+	liveMu sync.Mutex
+	live   = map[int]bool{} // process groups started by RunTimeout and still running
+)
+
+// StopAll kills every command RunTimeout started that is still running,
+// with everything it started. Call it when the interface closes, as with
+// runner.StopAll, so no command outlives the app.
+func StopAll() {
+	liveMu.Lock()
+	defer liveMu.Unlock()
+	for pid := range live {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
 	}
 }
 

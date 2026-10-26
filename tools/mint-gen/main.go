@@ -43,7 +43,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
 		return 2
 	}
 
@@ -164,6 +164,48 @@ func runCLI(args []string) int {
 	return 0
 }
 
+// flagsFirst moves options written after the program name (as in
+// `mint-gen --remove nmap --out dir`) in front of it, because the flag
+// package stops at the first plain argument. Arguments after "--", and
+// everything after the program name when --run is given, are left alone.
+func flagsFirst(fs *flag.FlagSet, args []string) []string {
+	var flags, plain []string
+	run := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			plain = append(plain, args[i:]...)
+			break
+		}
+		if run && len(plain) > 0 {
+			plain = append(plain, a)
+			continue
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			plain = append(plain, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		if name == "run" {
+			run = true
+		}
+		// Options that take a value consume the next argument.
+		if f := fs.Lookup(name); f != nil {
+			if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); !ok || !bf.IsBoolFlag() {
+				if i+1 < len(args) {
+					i++
+					flags = append(flags, args[i])
+				}
+			}
+		}
+	}
+	return append(flags, plain...)
+}
+
 func printTemplateCatalogue() {
 	fmt.Println("Mint-Interfaces — 6 Base Archetypes:")
 	fmt.Println("  config    State Editor (read live state -> edit controls/rules -> apply)")
@@ -229,25 +271,25 @@ func removeScaffoldedApp(program, outDir, repoRoot string) int {
 		fmt.Fprintf(os.Stderr, "mint-gen: no build found for %q at %s\n", program, absDir)
 		return 1
 	}
-	// Ensure target looks like a scaffolded app directory before removing.
-	hasMarker := false
-	for _, marker := range []string{tool + "-mint", "spec.go", "main.go", "go.mod"} {
-		if _, err := os.Stat(filepath.Join(absDir, marker)); err == nil {
-			hasMarker = true
-			break
+	// Only a folder mint-gen created, and only the files it created: anything
+	// else in the folder is left alone.
+	if !isScaffold(absDir, tool) {
+		fmt.Fprintf(os.Stderr, "mint-gen: refusing to remove %s: mint-gen did not create it\n", absDir)
+		return 1
+	}
+	for _, name := range scaffoldFiles(tool) {
+		if err := os.Remove(filepath.Join(absDir, name)); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "mint-gen: remove error: %v\n", err)
+			return 1
 		}
 	}
-	if !hasMarker {
-		fmt.Fprintf(os.Stderr, "mint-gen: refusing to remove %s (does not appear to be a scaffolded Mint app)\n", absDir)
-		return 1
+	if err := os.Remove(absDir); err != nil {
+		fmt.Printf("Removed the generated files of %s; kept %s because it holds other files\n", tool, absDir)
+		return 0
 	}
-	if err := os.RemoveAll(absDir); err != nil {
-		fmt.Fprintf(os.Stderr, "mint-gen: remove error: %v\n", err)
-		return 1
-	}
-	// Best-effort cleanup of any matching /usr/local/bin/<tool>-mint symlink.
+	// Remove a /usr/local/bin/<tool>-mint link only if it pointed at this app.
 	symlinkPath := filepath.Join("/usr/local/bin", tool+"-mint")
-	if lst, err := os.Lstat(symlinkPath); err == nil && lst.Mode()&os.ModeSymlink != 0 {
+	if dest, err := os.Readlink(symlinkPath); err == nil && filepath.Clean(dest) == filepath.Join(absDir, tool+"-mint") {
 		_ = os.Remove(symlinkPath)
 	}
 	fmt.Printf("Removed %s (%s)\n", tool, absDir)

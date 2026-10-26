@@ -33,6 +33,11 @@ func ScaffoldApp(spec appkit.ToolSpec, outDir, repoRoot string) (ScaffoldResult,
 	if err != nil {
 		return ScaffoldResult{}, err
 	}
+	// Never write go.mod and main.go over somebody's project: only an empty
+	// (or new) folder, or one mint-gen made, may be used.
+	if entries, err := os.ReadDir(absOut); err == nil && len(entries) > 0 && !isScaffold(absOut, tool) {
+		return ScaffoldResult{}, fmt.Errorf("%s already has files that mint-gen did not create; choose an empty folder with --out", absOut)
+	}
 	if err := os.MkdirAll(absOut, 0o755); err != nil {
 		return ScaffoldResult{}, err
 	}
@@ -67,12 +72,48 @@ func ScaffoldApp(spec appkit.ToolSpec, outDir, repoRoot string) (ScaffoldResult,
 	if err := os.WriteFile(elispPath, []byte(renderElisp(tool, spec.Desc)), 0o644); err != nil {
 		return ScaffoldResult{}, err
 	}
+	if err := os.WriteFile(filepath.Join(absOut, scaffoldMarker), []byte(markerText(tool)), 0o644); err != nil {
+		return ScaffoldResult{}, err
+	}
 
 	return ScaffoldResult{
 		AppDir:    absOut,
 		Files:     []string{goModPath, mainGoPath, specGoPath, elispPath},
 		BinaryOut: filepath.Join(absOut, tool+"-mint"),
 	}, nil
+}
+
+// scaffoldMarker is written into every folder mint-gen creates. --remove and
+// re-scaffolding only touch folders that have it (or an older scaffold's
+// exact files).
+const scaffoldMarker = ".mint-gen"
+
+func markerText(tool string) string {
+	return "Created by mint-gen. `mint-gen --remove " + tool + "` deletes only these files:\n" +
+		strings.Join(scaffoldFiles(tool), "\n") + "\n"
+}
+
+// scaffoldFiles are the only files mint-gen creates in an app folder.
+func scaffoldFiles(tool string) []string {
+	return []string{"go.mod", "go.sum", "main.go", "spec.go", tool + "-mint.el", tool + "-mint", scaffoldMarker}
+}
+
+// isScaffold reports whether dir was made by mint-gen for tool: it has the
+// marker, or (scaffolds made before the marker existed) its main.go and
+// spec.go are exactly the generated kind.
+func isScaffold(dir, tool string) bool {
+	if _, err := os.Stat(filepath.Join(dir, scaffoldMarker)); err == nil {
+		return true
+	}
+	mainSrc, err1 := os.ReadFile(filepath.Join(dir, "main.go"))
+	specSrc, err2 := os.ReadFile(filepath.Join(dir, "spec.go"))
+	mod, err3 := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err1 != nil || err2 != nil || err3 != nil {
+		return false
+	}
+	return strings.TrimSpace(string(mainSrc)) == strings.TrimSpace(renderMainGo()) &&
+		strings.Contains(string(specSrc), "func ToolSpec() appkit.ToolSpec") &&
+		strings.Contains(string(mod), "github.com/CurtisD4q/Mint-Interfaces")
 }
 
 func sanitizeToolName(name string) string {
@@ -176,6 +217,22 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.KeepHistory {
 		buf.WriteString("\t\tKeepHistory:       true,\n")
 	}
+	if spec.ReadOnly {
+		buf.WriteString("\t\tReadOnly:          true,\n")
+	}
+	if spec.Irreversible {
+		buf.WriteString("\t\tIrreversible:      true,\n")
+	}
+	if len(spec.StatusArgs) > 0 {
+		buf.WriteString("\t\tStatusArgs:        []string{")
+		for i, a := range spec.StatusArgs {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%q", a)
+		}
+		buf.WriteString("},\n")
+	}
 	if len(spec.Subcommands) > 0 {
 		buf.WriteString("\t\tSubcommands: []appkit.SubcommandSpec{\n")
 		for _, sub := range spec.Subcommands {
@@ -248,6 +305,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 			if f.Advanced {
 				buf.WriteString("\t\t\t\tAdvanced: true,\n")
 			}
+			if f.SecretStdin {
+				buf.WriteString("\t\t\t\tSecretStdin: true,\n")
+			}
 			buf.WriteString("\t\t\t},\n")
 		}
 		buf.WriteString("\t\t},\n")
@@ -276,6 +336,8 @@ func flagKindIdent(k appkit.FlagKind) string {
 		return "FlagFile"
 	case appkit.FlagDir:
 		return "FlagDir"
+	case appkit.FlagSecret:
+		return "FlagSecret"
 	default:
 		return "FlagBool"
 	}
