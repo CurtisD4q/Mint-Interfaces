@@ -263,3 +263,25 @@ func TestListApps(t *testing.T) {
 		t.Fatalf("got %q (%d)", out.String(), code)
 	}
 }
+
+// The Emacs launcher uses mint.el's real API and stays a valid file.
+func TestRenderElisp(t *testing.T) {
+	el := renderElisp("nmap", strings.Repeat("Network exploration tool and security / port scanner. ", 3)+`with "quotes"`)
+	for _, gone := range []string{"mint-start", "mint-register"} {
+		if strings.Contains(el, gone) {
+			t.Fatalf("uses %s, which mint.el does not define", gone)
+		}
+	}
+	if !strings.Contains(el, "(mint-define-app nmap-mint \"nmap\" nmap-mint-binary") || !strings.Contains(el, "(ansi-term nmap-mint-binary") {
+		t.Fatalf("launcher or fallback missing:\n%s", el)
+	}
+	if strings.Count(el, "(") != strings.Count(el, ")") {
+		t.Fatal("unbalanced parentheses")
+	}
+	doc := elispDocDesc(strings.Repeat("word ", 40))
+	for _, line := range strings.Split(doc, `\n`) {
+		if len(line) > 79 {
+			t.Fatalf("docstring line too wide (%d): %q", len(line), line)
+		}
+	}
+}
