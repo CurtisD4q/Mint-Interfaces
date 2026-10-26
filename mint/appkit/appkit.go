@@ -191,8 +191,6 @@ type ToolApp struct {
 	OutputFile       string
 	ConfigDir        string
 	DataDir          string
-	UseSudo          bool
-	SudoPassword     string
 	MonitorPaused    bool
 	LastRefresh      time.Time
 	SnapshotLines    []string
@@ -202,6 +200,7 @@ type ToolApp struct {
 	lastOut   string
 	history   []RunRecord
 
+	owner      *invoker        // the user behind `sudo app`, who gets the files
 	store      *secure.Store   // FlagSecret values: encrypted, locked memory, never on disk
 	secretSet  map[string]bool // which secrets the user entered (names only), to notice expiry
 	argvOK     bool            // user accepted secrets on the command line this session
@@ -245,6 +244,12 @@ func New(spec ToolSpec) *ToolApp {
 	}
 
 	home, _ := os.UserHomeDir()
+	owner := sudoInvoker()
+	if owner != nil {
+		// Started with sudo: keep settings, history and results in the
+		// user's own home, not root's.
+		home = owner.home
+	}
 	if home == "" {
 		home = "."
 	}
@@ -280,6 +285,7 @@ func New(spec ToolSpec) *ToolApp {
 		ConfigDir:        cfgDir,
 		DataDir:          dataDir,
 		secretSet:        map[string]bool{},
+		owner:            owner,
 	}
 
 	if len(spec.Profiles) > 0 {
@@ -463,14 +469,6 @@ func (a *ToolApp) secretEnv(mask bool) []string {
 	return env
 }
 
-func (a *ToolApp) envNames() []string {
-	var names []string
-	for _, kv := range a.secretEnv(true) {
-		names = append(names, strings.SplitN(kv, "=", 2)[0])
-	}
-	return names
-}
-
 // hasSecret reports whether a secret is stored (and not expired).
 func (a *ToolApp) hasSecret(key string) bool {
 	a.mu.Lock()
@@ -637,14 +635,7 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 func (a *ToolApp) CommandPreview() string {
 	args, outPath, _ := a.buildArgs(true)
 	parts := make([]string, 0, len(args)+3)
-	env := a.secretEnv(true)
-	if a.Spec.NeedsRoot && a.UseSudo {
-		parts = append(parts, "sudo", "-S")
-		if len(env) > 0 {
-			parts = append(parts, "--preserve-env="+strings.Join(a.envNames(), ","))
-		}
-	}
-	parts = append(parts, env...)
+	parts = append(parts, a.secretEnv(true)...)
 	parts = append(parts, a.Spec.BinaryName())
 	for _, arg := range args {
 		if strings.ContainsAny(arg, " \t\"'") {
@@ -726,7 +717,11 @@ func (a *ToolApp) SaveSettings() error {
 		return err
 	}
 	// Settings hold targets and option values, so keep them private.
-	return os.WriteFile(a.settingsPath(), b, 0o600)
+	if err := os.WriteFile(a.settingsPath(), b, 0o600); err != nil {
+		return err
+	}
+	a.giveBack(a.settingsPath())
+	return nil
 }
 
 // LoadSettings restores saved settings from ConfigDir/settings.json if present.
@@ -783,7 +778,9 @@ func (a *ToolApp) saveHistoryLocked() {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(a.historyPath(), b, 0o600)
+	if os.WriteFile(a.historyPath(), b, 0o600) == nil {
+		a.giveBack(a.historyPath())
+	}
 }
 
 // History returns a copy of the recorded runs for this tool.
@@ -812,24 +809,14 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		if err := util.Mkdir(filepath.Dir(outPath)); err != nil {
 			return nil, err
 		}
+		a.giveBack(filepath.Dir(outPath))
 	}
 	_ = a.SaveSettings()
 
 	bin := a.Spec.BinaryName()
 	cmdArgs := args
-	var stdinLines []string
 	env := a.secretEnv(false)
-	if a.Spec.NeedsRoot && a.UseSudo {
-		sudoArgs := []string{"-S", "-p", ""}
-		if len(env) > 0 {
-			// sudo clears the environment unless told to keep these.
-			sudoArgs = append(sudoArgs, "--preserve-env="+strings.Join(a.envNames(), ","))
-		}
-		cmdArgs = append(append(sudoArgs, bin), args...)
-		bin = "sudo"
-		stdinLines = append(stdinLines, a.SudoPassword) // sudo reads the first line
-	}
-	useStdin := len(stdinLines) > 0 || len(stdinSecrets) > 0
+	useStdin := len(stdinSecrets) > 0
 
 	started := time.Now()
 	cmdLine := a.CommandPreview()
@@ -843,6 +830,10 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			lines := j.Lines()
 			if outPath != "" && a.Spec.OutputFlag == "" {
 				_ = mint.SaveLogLines(outPath, lines)
+			}
+			a.giveBack(outPath) // the tool, running as root, may have written it
+			if j.State() == runner.Failed && !runningAsRoot() && looksLikeNeedsRoot(j.LastError()) {
+				mint.ToastError(needsRootMessage(a.Spec.Name))
 			}
 			textLines := make([]string, len(lines))
 			for i, l := range lines {
@@ -871,9 +862,6 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	})
 
 	if useStdin {
-		for _, line := range stdinLines {
-			_ = job.SendLine(line)
-		}
 		// Secrets go from the store's protected memory straight to the
 		// program's standard input, without an ordinary copy.
 		a.mu.Lock()
@@ -914,6 +902,7 @@ func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
 	if dir == "" {
 		dir = "."
 	}
+	defer a.giveBack(dir)
 	if err := util.Mkdir(dir); err != nil {
 		return nil, err
 	}
@@ -1589,6 +1578,7 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 						c.ToastError("Save failed: " + err.Error())
 						return
 					}
+					a.giveBack(util.ExpandUser(strings.TrimSpace(dest)))
 					c.Toast("Saved to " + dest)
 				},
 			}),

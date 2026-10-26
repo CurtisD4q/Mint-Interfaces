@@ -219,10 +219,9 @@ func TestMixinsAndDynamicChoicesAndSplitSections(t *testing.T) {
 		t.Fatalf("unexpected enabled mixins for T12 + ChoicesCmd: %+v (%v)", enabled, names)
 	}
 
-	app.UseSudo = true
-	preview := app.CommandPreview()
-	if !strings.HasPrefix(preview, "sudo -S echo") {
-		t.Fatalf("expected sudo -S prefix in CommandPreview, got %q", preview)
+	// Mint never wraps commands in sudo: root comes from starting the app with sudo.
+	if preview := app.CommandPreview(); strings.Contains(preview, "sudo") {
+		t.Fatalf("CommandPreview should not add sudo, got %q", preview)
 	}
 
 	rows := SplitSections([]string{

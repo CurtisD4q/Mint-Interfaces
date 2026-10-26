@@ -189,3 +189,60 @@ ENVIRONMENT
 		t.Errorf("spec.go lost SecretEnv:\n%s", src)
 	}
 }
+
+func TestStartAsRootQuestion(t *testing.T) {
+	oldEuid, oldTTY, oldIn, oldOut := genEuid, stdinIsTTY, promptIn, promptOut
+	defer func() { genEuid, stdinIsTTY, promptIn, promptOut = oldEuid, oldTTY, oldIn, oldOut }()
+	genEuid = func() int { return 1000 }
+	stdinIsTTY = func() bool { return true }
+	var out strings.Builder
+	promptOut = &out
+
+	ask := func(answer, program string, root, noRoot bool) bool {
+		promptIn = strings.NewReader(answer)
+		out.Reset()
+		return startAsRoot(program, nil, root, noRoot)
+	}
+	if !ask("y\n", "tcpdump", false, false) || !strings.Contains(out.String(), "tcpdump usually needs root access. Start it with sudo? [y/N]") {
+		t.Fatalf("yes: %q", out.String())
+	}
+	if ask("\n", "tcpdump", false, false) {
+		t.Fatal("the default answer must be no")
+	}
+	if ask("y\n", "curl", false, false) || out.String() != "" {
+		t.Fatalf("curl does not need root, so no question: %q", out.String())
+	}
+	if !ask("", "curl", true, false) || ask("y\n", "tcpdump", false, true) {
+		t.Fatal("--sudo and --no-sudo decide without asking")
+	}
+	stdinIsTTY = func() bool { return false }
+	if ask("y\n", "tcpdump", false, false) || out.String() != "" {
+		t.Fatal("no question without a terminal")
+	}
+	stdinIsTTY = func() bool { return true }
+	genEuid = func() int { return 0 }
+	if ask("y\n", "tcpdump", false, false) || out.String() != "" {
+		t.Fatal("no question when already root")
+	}
+}
+
+func TestLaunchThroughSudo(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "sudo"), "#!/bin/sh\n")
+	os.Chmod(filepath.Join(dir, "sudo"), 0o755)
+	t.Setenv("PATH", dir)
+	cmd, err := launchCommand("/apps/tcpdump/tcpdump-mint", []string{"--screen", "Run"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{filepath.Join(dir, "sudo"), "--", "/apps/tcpdump/tcpdump-mint", "--screen", "Run"}; strings.Join(cmd.Args, " ") != strings.Join(want, " ") {
+		t.Fatalf("args %q", cmd.Args)
+	}
+	if cmd, _ := launchCommand("/apps/x/x-mint", nil, false); cmd.Args[0] != "/apps/x/x-mint" {
+		t.Fatalf("without root: %q", cmd.Args)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, err := launchCommand("/apps/x/x-mint", nil, true); err == nil {
+		t.Fatal("missing sudo should be an error")
+	}
+}

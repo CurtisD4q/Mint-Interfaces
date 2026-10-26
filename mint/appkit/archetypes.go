@@ -403,35 +403,19 @@ func (a *ToolApp) rootAuthSection() *mint.Section {
 	if !a.Spec.NeedsRoot {
 		return nil
 	}
-	return &mint.Section{
-		Name: "Privilege Escalation (WithRootAuth)",
-		Rows: []mint.Row{
-			mint.Toggle(mint.ToggleOpts{
-				ID:    "sudo:enable",
-				Label: "Run as root (sudo -S)",
-				Get:   func() bool { return a.UseSudo },
-				Set:   func(v bool) { a.UseSudo = v },
-			}),
-			mint.Action(mint.ActionOpts{
-				ID:    "sudo:pw",
-				Label: "Set sudo password…",
-				Hint:  "password",
-				Get: func() string {
-					if a.SudoPassword != "" {
-						return "•••••••• (set)"
-					}
-					return "(prompt on run)"
-				},
-				OnActivate: func(c *mint.Ctx) {
-					pw, ok := c.Password("Sudo Password", "Password for sudo -S "+a.Spec.BinaryName())
-					if ok {
-						a.SudoPassword = pw
-						c.Toast("Sudo password updated")
-					}
-				},
-			}),
-		},
+	var rows []mint.Row
+	if runningAsRoot() {
+		rows = append(rows, mint.Note("Running as root: commands run with full rights."))
+		if a.owner != nil {
+			rows = append(rows, mint.Note("Settings, history and results are kept in your home and belong to you."))
+		}
+	} else {
+		rows = append(rows,
+			mint.Label(mint.StyleCaption, a.Spec.Name+" may need root for some actions. Mint never asks for your password: to run as root, quit and start the app with sudo, and sudo will ask."),
+			mint.Value(mint.ValueOpts{Label: "Start as root with", Value: restartHint()}),
+		)
 	}
+	return &mint.Section{Name: "Root access", Rows: rows}
 }
 
 func (a *ToolApp) executeFromUI(c *mint.Ctx) {
@@ -469,14 +453,6 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 			return
 		}
 		a.argvOK = true
-	}
-	if a.Spec.NeedsRoot && a.UseSudo && a.SudoPassword == "" {
-		pw, ok := c.Password("Sudo Password", "Required for sudo -S "+a.Spec.BinaryName())
-		if !ok {
-			c.ToastWarn("Cancelled")
-			return
-		}
-		a.SudoPassword = pw
 	}
 	if _, err := a.StartJob(); err != nil {
 		c.ToastError(err.Error())

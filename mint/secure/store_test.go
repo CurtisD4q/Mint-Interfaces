@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -258,5 +259,38 @@ func TestStoresDoNotShareKeys(t *testing.T) {
 	var got string
 	if err := b.Use("pw", func(s []byte) error { got = string(s); return nil }); err != nil || got != "from b" {
 		t.Fatalf("second store broken after closing the first: %q %v", got, err)
+	}
+}
+
+// Threads that existed before the store was opened must still reach the key.
+// (Linux keeps the process keyring per thread; a regression made such
+// threads see "permission denied", which looked like an expired key.)
+func TestKeyWorksFromEveryThread(t *testing.T) {
+	const n = 16
+	start := make(chan *Store)
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runtime.LockOSThread() // a thread created before the store
+			defer runtime.UnlockOSThread()
+			st := <-start
+			errs <- st.Use("pw", func([]byte) error { return nil })
+		}()
+	}
+	st, _ := OpenWithTimeout(0)
+	defer st.Close()
+	st.Put("pw", []byte("x"))
+	for i := 0; i < n; i++ {
+		start <- st
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("secret unreadable from another thread: %v (level %s)", err, st.Level())
+		}
 	}
 }
