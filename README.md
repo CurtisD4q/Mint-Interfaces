@@ -403,61 +403,6 @@ python3 tools/check_catalogue.py
 
 `tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
 
-#### Secure store (`mint/secure`)
-
-`mint/secure` keeps passwords, tokens and keys safe while an app runs:
-
-- Each secret is encrypted (AES-256-GCM) and held in **locked memory** outside Go's heap: never written to swap, **excluded from core dumps**, and wiped when removed.
-- The encryption key lives in the app's own **kernel keyring** on Linux: only this process can use it, the programs it starts do not inherit it, and the kernel deletes it when the app closes or the **idle timeout** passes.
-- Opening the store also **hardens the app**: core dumps off, and on Linux not dumpable, so other programs running as you cannot read its memory.
-- Secrets are decrypted only into locked memory, for the moment they are used, then wiped. Keep them as `[]byte` all the way to the program: a Go string makes copies nothing can wipe.
-
-```go
-st, _ := secure.Open()
-defer st.Close()
-st.Put("db-password", typed) // wipes typed
-st.Use("db-password", func(pw []byte) error {
-	_, err := stdin.Write(append(pw, '\n'))
-	return err
-})
-```
-
-**Idle timeout.** Each computer chooses its own: `$MINT_KEY_TIMEOUT` (`"5m"`, or `"0"` to keep the key until the app closes), then `~/.config/mint-interfaces/security.json`, then the administrator's `/etc/mint-interfaces/security.json` (both `{"key_timeout": "5m"}`), then 15 minutes. Each use restarts the countdown. When it passes, every secret is wiped; `Use` returns `ErrExpired` and the app asks again (`Renew` starts a fresh key).
-
-**Fallbacks.** `st.Level()` says how well secrets are protected, and `st.Notes()` why:
-
-| Level | When | What changes |
-|---|---|---|
-| full | Linux with the kernel keyring | nothing |
-| no kernel keyring | containers that block it (Docker's default profile does), macOS, the BSDs | the key is kept in its own locked page and the store enforces the timeout itself |
-| memory cannot be locked | the locked-memory limit is too low | secrets may reach swap; use encrypted swap |
-
-**In generated apps.** `appkit` keeps every secret option in this store from the moment it is entered. A secret read from standard input is written to the program straight from the store's protected memory. One passed as an environment variable or on the command line has to become an ordinary Go string at the moment the program starts, because that is the only form those take. When the idle timeout wipes a secret, its row shows "expired, enter again" and a run refuses to start without it rather than leaving it out silently.
-
-Limits: root, and anything with root's power, can still read the app's memory and the keyring. The password box hands over what was typed as a Go string, so a copy stays in ordinary memory until it is garbage-collected (core dumps are off). While a secret is being encrypted or decrypted, Go's AES keeps a copy of the expanded key in ordinary memory until it is garbage-collected; core dumps stay off, so this matters only if the system swaps that page.
-
-#### Safety rules every generated interface follows
-
-- **Nothing runs unless you ask, except commands that only read.** A monitor polls, and a settings screen shows "Refresh live state", only when the tool has a read-only way to show its state: `StatusArgs` (for example `systemctl list-units`, `ufw status`, `sysctl -a`), or a tool that only reports (`ReadOnly`, such as `ps`, `df` or `journalctl`). Common tools get these automatically. For anything else, such as `pkill` or `kill`, the monitor becomes an ordinary screen with a Run action and the usual confirmations.
-- **Commands appkit runs itself have time limits and run in the background.** Polling never freezes the screen (a `tail -f` that never ends is stopped after 15 seconds), row actions and refreshes show the loading spinner, and anything still running when the app closes is stopped.
-- **Irreversible tools need the target typed to confirm.** `dd`, `shred`, `rm`, `wipefs`, `mkfs.*`, `kill`, `pkill`, `killall` and similar are marked `Irreversible`.
-- **Secrets stay secret.** Options whose value is a password, token or key are `FlagSecret`: asked for with a password dialog, kept for the session only (never in settings, presets or history), and masked in the command preview. Each secret takes the safest route the tool offers: standard input for a `--password-stdin` style option (never visible), then an environment variable such as `RESTIC_PASSWORD`, `PGPASSWORD` or `GH_TOKEN` (only you and root can read a program's environment), and only as a last resort the command line, where other users can see it with `ps`; then the app says so and asks before running. Environment variables come from a built-in list of well-known tools (restic, borg, kopia, duplicity, rclone, psql and the pg_ tools, gh, glab, sshpass) and from the man page's ENVIRONMENT section. Settings and history files are readable only by you.
-- **Secrets are hidden in the output.** Every secret a run uses, and any typed into a text box, is replaced by `••••••` in the program's output before it is shown, saved or used in a message. So are well-known token formats (GitHub, GitLab, AWS, Slack, Google, `sk-…` keys, private keys), `Authorization:` and API-key header values (such as the `Basic` header `curl -v` prints), and passwords in URLs. Mint keeps only a salted fingerprint of each secret for this, not the secret itself. Secrets shorter than 4 characters are not hidden, since they would blank out ordinary words. A file the program writes itself (through its own output option) is not changed.
-- **Passwords typed into text boxes are caught.** Before a run, the Extra arguments and Target boxes are checked for passwords in URLs (`https://user:pass@host`), `--password=…` / `--token …` style options, the tool's own secret options typed by hand, `--user name:pass`, `Authorization:` and API-key headers, `PASSWORD=…` assignments and well-known token formats. If one is found, the app explains that it will be visible on the command line, points to the tool's own secret option if there is one, and asks before running. Such values are hidden in the command preview, settings and history and are never written to disk; in the next session the box shows `••••••` and the app asks you to type it again rather than running with it.
-- **Mint never asks for your sudo password.** A tool that needs root runs when the whole app is started with sudo (`sudo apps/tcpdump/tcpdump`), so the password goes to sudo's own prompt before Mint starts. `mint-gen --run` asks "Start it with sudo? [y/N]" for tools that usually need root (answer in advance with `--sudo` or `--no-sudo`). The app's "Root access" section shows whether it runs as root and, if not, the exact command to restart it with sudo; when a run fails with "permission denied" or similar, the app says the same. Started with sudo, the app still keeps its settings, history and results in your home and makes them belong to you, not to root.
-- **`mint-gen` only touches folders it created.** It refuses to scaffold into a folder that already has other files, and `--remove` deletes only the files it generated (listed in the folder's `.mint-gen` file), leaving anything else in place. Options may come before or after the program name.
-- **Check before you build.** `mint-gen --check <program>`, the summary after scaffolding, and the Safety section of `mint-gen --tui` all show a safety report: when the tool will run (automatically, only when asked, or only after the target is typed), each secret option and how its value is passed (standard input, which no one else can see; an environment variable, which only you and root can see, and whether it came from the built-in list or the man page; or the command line, which other users can see with `ps`), and the options that look destructive (`--force`, `--delete`, `-f` "never prompt"…). For example:
-
-  ```
-  Safety:
-    Running:     destroys data or processes: runs only when asked, and the target must be typed to confirm
-    Secrets:     none found
-    Destructive: 3 options to review (they delete, overwrite or skip a prompt)
-      -f                   Ignore nonexistent files and arguments, never prompt
-      --no-preserve-root   Do not treat '/' specially
-      -r                   Remove directories and their contents recursively
-  ```
-
 #### Step-by-step: generating and running a Mint interface for any installed CLI program
 
 1. **Check compatibility (optional)**
@@ -489,6 +434,76 @@ Limits: root, and anything with root's power, can still read the app's memory an
 ### Icons
 
 The library counts every character as one column, as the original does. Emoji such as `⚡` take two columns in most terminals and push the right border out of line, so use single-width symbols like `◆ ▤ ◧ ◷ ≡` for icons.
+
+## Security
+
+Generated interfaces are built to keep passwords, tokens and keys away from other users on the computer, off the disk and off the screen, and to stop commands that change or destroy things from running by accident. The rules below apply to every app built with `appkit` and `mint-gen`. The secure store underneath them can also be used on its own.
+
+### Safety rules every generated interface follows
+
+- **Nothing runs unless you ask, except commands that only read.** A monitor polls, and a settings screen shows "Refresh live state", only when the tool has a read-only way to show its state: `StatusArgs` (for example `systemctl list-units`, `ufw status`, `sysctl -a`), or a tool that only reports (`ReadOnly`, such as `ps`, `df` or `journalctl`). Common tools get these automatically. For anything else, such as `pkill` or `kill`, the monitor becomes an ordinary screen with a Run action and the usual confirmations.
+- **Commands appkit runs itself have time limits and run in the background.** Polling never freezes the screen (a `tail -f` that never ends is stopped after 15 seconds), row actions and refreshes show the loading spinner, and anything still running when the app closes is stopped.
+- **Irreversible tools need the target typed to confirm.** `dd`, `shred`, `rm`, `wipefs`, `mkfs.*`, `kill`, `pkill`, `killall` and similar are marked `Irreversible`.
+- **Secrets stay secret.** Options whose value is a password, token or key are `FlagSecret`: asked for with a password dialog, kept for the session only (never in settings, presets or history), and masked in the command preview. Each secret takes the safest route the tool offers: standard input for a `--password-stdin` style option (never visible), then an environment variable such as `RESTIC_PASSWORD`, `PGPASSWORD` or `GH_TOKEN` (only you and root can read a program's environment), and only as a last resort the command line, where other users can see it with `ps`; then the app says so and asks before running. Environment variables come from a built-in list of well-known tools (restic, borg, kopia, duplicity, rclone, psql and the pg_ tools, gh, glab, sshpass) and from the man page's ENVIRONMENT section. Settings and history files are readable only by you.
+- **Secrets are hidden in the output.** Every secret a run uses, and any typed into a text box, is replaced by `••••••` in the program's output before it is shown, saved or used in a message. So are well-known token formats (GitHub, GitLab, AWS, Slack, Google, `sk-…` keys, private keys), `Authorization:` and API-key header values (such as the `Basic` header `curl -v` prints), and passwords in URLs. Mint keeps only a salted fingerprint of each secret for this, not the secret itself. Secrets shorter than 4 characters are not hidden, since they would blank out ordinary words. A file the program writes itself (through its own output option) is not changed.
+- **Passwords typed into text boxes are caught.** Before a run, the Extra arguments and Target boxes are checked for passwords in URLs (`https://user:pass@host`), `--password=…` / `--token …` style options, the tool's own secret options typed by hand, `--user name:pass`, `Authorization:` and API-key headers, `PASSWORD=…` assignments and well-known token formats. If one is found, the app explains that it will be visible on the command line, points to the tool's own secret option if there is one, and asks before running. Such values are hidden in the command preview, settings and history and are never written to disk; in the next session the box shows `••••••` and the app asks you to type it again rather than running with it.
+- **Mint never asks for your sudo password.** A tool that needs root runs when the whole app is started with sudo (`sudo apps/tcpdump/tcpdump`), so the password goes to sudo's own prompt before Mint starts. `mint-gen --run` asks "Start it with sudo? [y/N]" for tools that usually need root (answer in advance with `--sudo` or `--no-sudo`). The app's "Root access" section shows whether it runs as root and, if not, the exact command to restart it with sudo; when a run fails with "permission denied" or similar, the app says the same. Started with sudo, the app still keeps its settings, history and results in your home and makes them belong to you, not to root.
+- **`mint-gen` only touches folders it created.** It refuses to scaffold into a folder that already has other files, and `--remove` deletes only the files it generated (listed in the folder's `.mint-gen` file), leaving anything else in place. Options may come before or after the program name.
+- **Check before you build.** `mint-gen --check <program>`, the summary after scaffolding, and the Safety section of `mint-gen --tui` all show a safety report: when the tool will run (automatically, only when asked, or only after the target is typed), each secret option and how its value is passed (standard input, which no one else can see; an environment variable, which only you and root can see, and whether it came from the built-in list or the man page; or the command line, which other users can see with `ps`), and the options that look destructive (`--force`, `--delete`, `-f` "never prompt"…). For example:
+
+  ```
+  Safety:
+    Running:     destroys data or processes: runs only when asked, and the target must be typed to confirm
+    Secrets:     none found
+    Destructive: 3 options to review (they delete, overwrite or skip a prompt)
+      -f                   Ignore nonexistent files and arguments, never prompt
+      --no-preserve-root   Do not treat '/' specially
+      -r                   Remove directories and their contents recursively
+  ```
+
+### Secure store (`mint/secure`)
+
+`mint/secure` keeps passwords, tokens and keys safe while an app runs:
+
+- Each secret is encrypted (AES-256-GCM) and held in **locked memory** outside Go's heap: never written to swap, **excluded from core dumps**, and wiped when removed.
+- The encryption key lives in the app's own **kernel keyring** on Linux: only this process can use it, the programs it starts do not inherit it, and the kernel deletes it when the app closes or the **idle timeout** passes.
+- Opening the store also **hardens the app**: core dumps off, and on Linux not dumpable, so other programs running as you cannot read its memory.
+- Secrets are decrypted only into locked memory, for the moment they are used, then wiped. Keep them as `[]byte` all the way to the program: a Go string makes copies nothing can wipe.
+
+```go
+st, _ := secure.Open()
+defer st.Close()
+st.Put("db-password", typed) // wipes typed
+st.Use("db-password", func(pw []byte) error {
+	_, err := stdin.Write(append(pw, '\n'))
+	return err
+})
+```
+
+**Idle timeout.** Each computer chooses its own: `$MINT_KEY_TIMEOUT` (`"5m"`, or `"0"` to keep the key until the app closes), then `~/.config/mint-interfaces/security.json`, then the administrator's `/etc/mint-interfaces/security.json` (both `{"key_timeout": "5m"}`), then 15 minutes. Each use restarts the countdown. When it passes, every secret is wiped; `Use` returns `ErrExpired` and the app asks again (`Renew` starts a fresh key).
+
+**Fallbacks.** `st.Level()` says how well secrets are protected, and `st.Notes()` why:
+
+| Level | When | What changes |
+|---|---|---|
+| full | Linux with the kernel keyring | nothing |
+| no kernel keyring | containers that block it (Docker's default profile does), macOS, the BSDs | the key is kept in its own locked page and the store enforces the timeout itself |
+| memory cannot be locked | the locked-memory limit is too low | secrets may reach swap; use encrypted swap |
+
+**In generated apps.** `appkit` keeps every secret option in this store from the moment it is entered. A secret read from standard input is written to the program straight from the store's protected memory. One passed as an environment variable or on the command line has to become an ordinary Go string at the moment the program starts, because that is the only form those take. When the idle timeout wipes a secret, its row shows "expired, enter again" and a run refuses to start without it rather than leaving it out silently.
+
+### Limits
+
+- **Root can see everything.** Root, and anything with root's power, can read the app's memory, its kernel keyring and the environment of the programs it starts.
+- **Some routes are visible to other users.** A secret that a tool accepts only on the command line, or one you type into Extra arguments or Target, can be seen by other users (for example with `ps`) while the program runs. Mint warns and asks first.
+- **Some copies sit in ordinary memory for a moment.** The password box hands over what was typed as a Go string, and a secret passed as an environment variable or argument must become one. Those copies stay in ordinary memory until they are garbage-collected. While a secret is encrypted or decrypted, Go's AES keeps the expanded key there too. Core dumps are off, so this matters only if the system swaps those pages.
+- **Weaker without the kernel keyring or locked memory.** In containers, on macOS and on the BSDs the key is kept in locked memory instead of the keyring. Without enough locked memory, secrets may reach swap, so use encrypted swap (see Fallbacks above).
+- **Masking has gaps.** Secrets shorter than 4 characters are not hidden in output. Files a tool writes through its own output option are not changed. The Extra arguments box still shows what you typed while you edit it.
+- **Detection depends on the help text.** `mint-gen` finds secret and destructive options from the man page and `--help`. A tool whose short help leaves options out (such as `curl`) may have secret options it does not know about. The text-box check still catches values typed by hand.
+
+### Conclusion
+
+On an ordinary Linux desktop, secrets typed into a Mint app stay in protected memory, are never saved, and are hidden wherever they would be shown. What remains open is anything with root's power and the routes the tool itself forces onto the command line, which Mint warns about before running.
 
 ## Standalone binaries and flags
 
