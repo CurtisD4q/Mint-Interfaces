@@ -30,6 +30,10 @@ const (
 	FlagChoice FlagKind = "choice"
 	FlagFile   FlagKind = "file"
 	FlagDir    FlagKind = "dir"
+	// FlagSecret is a password, token or key. It is asked for with a
+	// password dialog, kept in memory only (never saved to settings,
+	// presets or history) and masked in the command preview.
+	FlagSecret FlagKind = "secret"
 )
 
 // Choice represents a single selectable option for a FlagChoice flag.
@@ -53,6 +57,10 @@ type FlagSpec struct {
 	Max        int      `json:"max,omitempty"`
 	Step       int      `json:"step,omitempty"`
 	Advanced   bool     `json:"advanced,omitempty"`
+	// SecretStdin (FlagSecret only): the program reads the secret from
+	// standard input, as with --password-stdin. The flag is passed on its
+	// own and the value goes to stdin, never onto the command line.
+	SecretStdin bool `json:"secret_stdin,omitempty"`
 }
 
 // ProfileSpec defines a named preset of flag values and extra arguments.
@@ -76,9 +84,9 @@ type ToolSpec struct {
 	TargetLabel       string           `json:"target_label,omitempty"`
 	TargetPlaceholder string           `json:"target_placeholder,omitempty"`
 	TargetDefault     string           `json:"target_default,omitempty"`
-	OutputsFile       bool             `json:"outputs_file,omitempty"`       // Mixin: WithFileOutput
-	OutputFlag        string           `json:"output_flag,omitempty"`        // e.g. "-o" or "--output"; empty means stdout capture
-	DefaultExt        string           `json:"default_ext,omitempty"`        // e.g. "txt", "json", "pcap"
+	OutputsFile       bool             `json:"outputs_file,omitempty"` // Mixin: WithFileOutput
+	OutputFlag        string           `json:"output_flag,omitempty"`  // e.g. "-o" or "--output"; empty means stdout capture
+	DefaultExt        string           `json:"default_ext,omitempty"`  // e.g. "txt", "json", "pcap"
 	DefaultResultsDir string           `json:"default_results_dir,omitempty"`
 	TableOutput       bool             `json:"table_output,omitempty"`       // Mixin: WithTableOutput
 	TableColumns      []string         `json:"table_columns,omitempty"`      // Optional explicit column headers
@@ -88,7 +96,9 @@ type ToolSpec struct {
 	ConfirmRun        bool             `json:"confirm_run,omitempty"`        // Mixin: WithConfirm
 	ConfirmPrompt     string           `json:"confirm_prompt,omitempty"`     // Custom confirmation prompt
 	KeepHistory       bool             `json:"keep_history,omitempty"`       // Mixin: WithHistory
-	StatusArgs        []string         `json:"status_args,omitempty"`        // Args for Config/Monitor live state query
+	StatusArgs        []string         `json:"status_args,omitempty"`        // Read-only command that shows current state (Config/Monitor)
+	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
+	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
 	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying Config
 	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // Poll interval for ArchetypeMonitor
 	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs for ArchetypeSuite
@@ -171,6 +181,12 @@ type ToolApp struct {
 	activeJob *runner.Job
 	lastOut   string
 	history   []RunRecord
+
+	secrets    map[string]string // FlagSecret values, never written to disk
+	argvOK     bool              // user accepted secrets on the command line this session
+	refreshing bool              // a background state refresh is running
+	refreshed  bool              // a refresh finished since the screen last looked
+	refreshErr string
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -184,6 +200,7 @@ func New(spec ToolSpec) *ToolApp {
 		tpl.ApplyTo(&spec)
 	}
 
+	ApplySafetyDefaults(&spec)
 	if spec.Archetype == "" {
 		spec.Archetype = ArchetypeRunner
 	}
@@ -241,6 +258,7 @@ func New(spec ToolSpec) *ToolApp {
 		OutputFile:       DefaultOutputFilename(spec.Name, spec.DefaultExt),
 		ConfigDir:        cfgDir,
 		DataDir:          dataDir,
+		secrets:          map[string]string{},
 	}
 
 	if len(spec.Profiles) > 0 {
@@ -314,9 +332,39 @@ func (a *ToolApp) ResolvedOutputPath() string {
 }
 
 func (a *ToolApp) buildFlagAndTargetArgs() (args []string, outPath string) {
+	args, outPath, _ = a.composeFlagArgs(false)
+	return args, outPath
+}
+
+// secretMask stands in for secret values wherever a command line is shown
+// or recorded.
+const secretMask = "••••••"
+
+// composeFlagArgs builds the flag, output and target arguments. With mask,
+// secret values are replaced by secretMask (for previews and history).
+// stdin holds secrets the program reads from standard input.
+func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, stdin []string) {
 	for _, f := range a.Spec.Flags {
 		val := strings.TrimSpace(a.Values[f.Flag])
 		switch f.Kind {
+		case FlagSecret:
+			sec := a.secret(f.Flag)
+			if sec == "" {
+				continue
+			}
+			if f.SecretStdin {
+				args = append(args, f.Flag)
+				stdin = append(stdin, sec)
+				continue
+			}
+			if mask {
+				sec = secretMask
+			}
+			if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
+				args = append(args, strings.TrimSuffix(f.Flag, "=")+"="+sec)
+			} else {
+				args = append(args, f.Flag, sec)
+			}
 		case FlagBool:
 			if val == "true" || val == "1" || val == "on" || val == "yes" {
 				args = append(args, f.Flag)
@@ -359,12 +407,50 @@ func (a *ToolApp) buildFlagAndTargetArgs() (args []string, outPath string) {
 	if target := strings.TrimSpace(a.Target); target != "" {
 		args = append(args, splitShellWords(target)...)
 	}
-	return args, outPath
+	return args, outPath, stdin
+}
+
+func (a *ToolApp) secret(flag string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.secrets[flag]
+}
+
+// SetSecret stores the value of a FlagSecret option for this session only.
+func (a *ToolApp) SetSecret(flag, value string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if value == "" {
+		delete(a.secrets, flag)
+	} else {
+		a.secrets[flag] = value
+	}
+}
+
+// argvSecrets lists the labels of secrets that are set and can only be
+// passed on the command line, where other users can see them in ps.
+func (a *ToolApp) argvSecrets() []string {
+	var out []string
+	for _, f := range a.Spec.Flags {
+		if f.Kind == FlagSecret && !f.SecretStdin && a.secret(f.Flag) != "" {
+			label := f.Label
+			if label == "" {
+				label = f.Flag
+			}
+			out = append(out, label)
+		}
+	}
+	return out
 }
 
 // BuildArgs constructs the CLI argument list and resolved output path from the
 // current archetype, subcommand, flag values, output file settings, extra args, and target.
 func (a *ToolApp) BuildArgs() (args []string, outPath string) {
+	args, outPath, _ = a.buildArgs(false)
+	return args, outPath
+}
+
+func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []string) {
 	if a.Spec.Archetype == ArchetypeSuite && len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			args = append(args, sub.Args...)
@@ -372,14 +458,14 @@ func (a *ToolApp) BuildArgs() (args []string, outPath string) {
 	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
 		args = append(args, a.Spec.ApplyArgs...)
 	}
-	flagArgs, outPath := a.buildFlagAndTargetArgs()
+	flagArgs, outPath, stdin := a.composeFlagArgs(mask)
 	args = append(args, flagArgs...)
-	return args, outPath
+	return args, outPath, stdin
 }
 
 // CommandPreview returns the full shell-like command preview string.
 func (a *ToolApp) CommandPreview() string {
-	args, outPath := a.BuildArgs()
+	args, outPath, _ := a.buildArgs(true)
 	parts := make([]string, 0, len(args)+3)
 	if a.Spec.NeedsRoot && a.UseSudo {
 		parts = append(parts, "sudo", "-S")
@@ -464,7 +550,8 @@ func (a *ToolApp) SaveSettings() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(a.settingsPath(), b, 0o644)
+	// Settings hold targets and option values, so keep them private.
+	return os.WriteFile(a.settingsPath(), b, 0o600)
 }
 
 // LoadSettings restores saved settings from ConfigDir/settings.json if present.
@@ -521,7 +608,7 @@ func (a *ToolApp) saveHistoryLocked() {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(a.historyPath(), b, 0o644)
+	_ = os.WriteFile(a.historyPath(), b, 0o600)
 }
 
 // History returns a copy of the recorded runs for this tool.
@@ -541,7 +628,8 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	}
 	a.mu.Unlock()
 
-	args, outPath := a.BuildArgs()
+	args, outPath, stdinSecrets := a.buildArgs(false)
+	shownArgs, _, _ := a.buildArgs(true)
 	if outPath != "" {
 		if err := util.Mkdir(filepath.Dir(outPath)); err != nil {
 			return nil, err
@@ -551,12 +639,14 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 
 	bin := a.Spec.BinaryName()
 	cmdArgs := args
-	useStdin := false
+	var stdinLines []string
 	if a.Spec.NeedsRoot && a.UseSudo {
 		cmdArgs = append([]string{"-S", "-p", "", bin}, args...)
 		bin = "sudo"
-		useStdin = true
+		stdinLines = append(stdinLines, a.SudoPassword) // sudo reads the first line
 	}
+	stdinLines = append(stdinLines, stdinSecrets...)
+	useStdin := len(stdinLines) > 0
 
 	started := time.Now()
 	cmdLine := a.CommandPreview()
@@ -578,7 +668,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 				ID:         started.Format("20060102-150405"),
 				Time:       started,
 				Target:     a.Target,
-				Args:       args,
+				Args:       shownArgs,
 				CmdLine:    cmdLine,
 				OutputFile: outPath,
 				State:      j.State().String(),
@@ -597,8 +687,8 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	})
 
 	if useStdin {
-		if a.SudoPassword != "" {
-			_ = job.SendLine(a.SudoPassword)
+		for _, line := range stdinLines {
+			_ = job.SendLine(line)
 		}
 		job.CloseInput()
 	}
@@ -880,6 +970,22 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 			},
 			Set: func(v int) {
 				a.Values[key] = strconv.Itoa(v)
+			},
+		})
+	case FlagSecret:
+		return mint.Action(mint.ActionOpts{
+			ID:    "flag:" + key,
+			Label: label,
+			Get: func() string {
+				if a.secret(key) != "" {
+					return "set (not saved)"
+				}
+				return "not set"
+			},
+			OnActivate: func(c *mint.Ctx) {
+				if v, ok := c.Password(label, "Kept for this session only; empty clears it"); ok {
+					a.SetSecret(key, v)
+				}
 			},
 		})
 	case FlagFile, FlagDir:
@@ -1525,4 +1631,5 @@ func Run(spec ToolSpec) {
 	app := New(spec)
 	app.BuildApp().Run()
 	runner.StopAll()
+	util.StopAll() // status commands still running in the background
 }

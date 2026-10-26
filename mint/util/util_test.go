@@ -38,3 +38,18 @@ func TestRunTimeoutNeverReadsTheKeyboard(t *testing.T) {
 		t.Fatalf("out %q err %v", out, err)
 	}
 }
+
+func TestStopAllEndsRunningCommands(t *testing.T) {
+	done := make(chan error, 1)
+	go func() {
+		_, err := RunTimeout(time.Minute, "sleep", "30")
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	StopAll()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("StopAll did not end the command")
+	}
+}
