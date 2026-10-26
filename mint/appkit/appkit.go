@@ -112,9 +112,11 @@ type ToolSpec struct {
 	TargetLabel       string           `json:"target_label,omitempty"`
 	TargetPlaceholder string           `json:"target_placeholder,omitempty"`
 	TargetDefault     string           `json:"target_default,omitempty"`
-	OutputsFile       bool             `json:"outputs_file,omitempty"` // Mixin: WithFileOutput
-	OutputFlag        string           `json:"output_flag,omitempty"`  // e.g. "-o" or "--output"; empty means stdout capture
-	DefaultExt        string           `json:"default_ext,omitempty"`  // e.g. "txt", "json", "pcap"
+	OutputsFile       bool             `json:"outputs_file,omitempty"`      // Mixin: WithFileOutput
+	OutputFlag        string           `json:"output_flag,omitempty"`       // e.g. "-o" or "--output"; empty means stdout capture
+	OutputPositional  bool             `json:"output_positional,omitempty"` // the tool writes its output to its last argument (ffmpeg)
+	StdoutKind        string           `json:"stdout_kind,omitempty"`       // what the tool prints: StdoutResults, StdoutLog, StdoutBinary or "" (unknown)
+	DefaultExt        string           `json:"default_ext,omitempty"`       // e.g. "txt", "json", "pcap"
 	DefaultResultsDir string           `json:"default_results_dir,omitempty"`
 	TableOutput       bool             `json:"table_output,omitempty"`       // Mixin: WithTableOutput
 	TableColumns      []string         `json:"table_columns,omitempty"`      // Optional explicit column headers
@@ -297,7 +299,7 @@ func New(spec ToolSpec) *ToolApp {
 		Target:           spec.TargetDefault,
 		ActiveSubcommand: activeSub,
 		Values:           values,
-		SaveToFile:       spec.OutputsFile,
+		SaveToFile:       spec.OutputsFile && (spec.StdoutKind != StdoutLog || spec.OutputFlag != "" || spec.OutputPositional),
 		ResultsDir:       resDir,
 		OutputFile:       DefaultOutputFilename(spec.Name, spec.DefaultExt),
 		ConfigDir:        cfgDir,
@@ -483,7 +485,37 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		}
 		args = append(args, splitShellWords(target)...)
 	}
+	if outPath != "" && a.Spec.OutputPositional {
+		// The tool writes to its last argument (ffmpeg … outfile). A path
+		// that starts with "-" would read as an option, so it never does.
+		if strings.HasPrefix(outPath, "-") {
+			outPath = "./" + outPath
+		}
+		args = append(args, outPath)
+	}
 	return args, outPath, stdin
+}
+
+// What a tool prints (ToolSpec.StdoutKind).
+const (
+	StdoutResults = "results" // its results: worth saving
+	StdoutLog     = "log"     // progress and messages; the real output goes to a file
+	StdoutBinary  = "binary"  // binary data, not text
+)
+
+// toolWritesOutput reports whether the tool writes the output file itself
+// (through its output option or its last argument), rather than Mint
+// saving what it prints.
+func (a *ToolApp) toolWritesOutput() bool {
+	return a.Spec.OutputFlag != "" || a.Spec.OutputPositional
+}
+
+// saveToggleLabel names the "save to file" switch for what will be saved.
+func (a *ToolApp) saveToggleLabel() string {
+	if !a.toolWritesOutput() && a.Spec.StdoutKind == StdoutLog {
+		return "Save the program's messages to a file"
+	}
+	return "Save output to file"
 }
 
 // secretFlagNames lists the tool's secret options, such as "-p".
@@ -751,7 +783,7 @@ func (a *ToolApp) CommandPreview() string {
 			parts = append(parts, arg)
 		}
 	}
-	if outPath != "" && a.Spec.OutputFlag == "" {
+	if outPath != "" && !a.toolWritesOutput() {
 		parts = append(parts, ">", outPath)
 	}
 	return strings.Join(parts, " ")
@@ -955,7 +987,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		Redact: masker.Redact,
 		OnExit: func(j *runner.Job) {
 			lines := j.Lines()
-			if outPath != "" && a.Spec.OutputFlag == "" {
+			if outPath != "" && !a.toolWritesOutput() {
 				_ = mint.SaveLogLines(outPath, lines)
 			}
 			level := runLevel
@@ -973,7 +1005,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			a.mu.Unlock()
 			if len(found) > 0 {
 				msg := "The output contained " + strings.Join(found, ", ") + "; it is hidden here."
-				if outPath != "" && a.Spec.OutputFlag != "" {
+				if outPath != "" && a.toolWritesOutput() {
 					msg += " " + filepath.Base(outPath) + " may still hold it: it is readable only by you, and \"Encrypt the output\" protects it."
 				}
 				mint.ToastWarn(msg)
@@ -1204,7 +1236,7 @@ func (a *ToolApp) outputFileSection() mint.Section {
 	rows := []mint.Row{
 		mint.Toggle(mint.ToggleOpts{
 			ID:    "out:enable",
-			Label: "Save output to file",
+			Label: a.saveToggleLabel(),
 			Get:   func() bool { return a.SaveToFile },
 			Set:   func(v bool) { a.SaveToFile = v },
 		}),

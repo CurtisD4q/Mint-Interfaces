@@ -22,6 +22,7 @@ func runCLI(args []string) int {
 	fs := flag.NewFlagSet("mint-gen", flag.ContinueOnError)
 	var (
 		checkTarget   string
+		explainTarget string
 		templateFlag  string
 		listTemplates bool
 		listApps      bool
@@ -37,6 +38,7 @@ func runCLI(args []string) int {
 		probeTerm     bool
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
+	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
 	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
 	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and 8 Mixins")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
@@ -89,6 +91,15 @@ func runCLI(args []string) int {
 		return 0
 	}
 
+	if explainTarget != "" {
+		spec, model := ParseProgramIO(explainTarget)
+		printIOModel(os.Stdout, model, spec)
+		fmt.Println()
+		explainOptions(os.Stdout, spec)
+		printKnownToolWarnings(os.Stderr)
+		return 0
+	}
+
 	if checkTarget != "" {
 		prof, _, cached := ensureTermProfile(false)
 		rep := CheckCompatibility(checkTarget)
@@ -106,7 +117,7 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-templates] [--explain <program>] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
 		return 2
 	}
 

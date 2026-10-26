@@ -27,8 +27,10 @@ type KnownTool struct {
 	// (progress and messages; the real output goes elsewhere), "binary",
 	// or "" (unknown).
 	Stdout string `json:"stdout,omitempty"`
-	// OutputPositional: the last argument is the file it writes (ffmpeg).
-	OutputPositional bool `json:"output_positional,omitempty"`
+	// OutputPositional: the last argument is the file it writes (ffmpeg),
+	// with OutputExt as the default extension (ffmpeg picks the format from it).
+	OutputPositional bool   `json:"output_positional,omitempty"`
+	OutputExt        string `json:"output_ext,omitempty"`
 }
 
 // KnownOption is one option of a KnownTool.
@@ -39,11 +41,11 @@ type KnownOption struct {
 	Main bool   `json:"main,omitempty"` // the tool's main output file (used for "Save output to file")
 }
 
-// Stdout values.
+// Stdout values (the same as appkit's).
 const (
-	StdoutResults = "results"
-	StdoutLog     = "log"
-	StdoutBinary  = "binary"
+	StdoutResults = appkit.StdoutResults
+	StdoutLog     = appkit.StdoutLog
+	StdoutBinary  = appkit.StdoutBinary
 )
 
 // builtinKnownTools are facts about common tools.
@@ -62,7 +64,7 @@ var builtinKnownTools = []KnownTool{
 		{Flag: "-oL", Role: "output-file", Ext: "txt", Main: true}, {Flag: "-oX", Role: "output-file", Ext: "xml"},
 		{Flag: "-oJ", Role: "output-file", Ext: "json"}, {Flag: "-oG", Role: "output-file", Ext: "gnmap"},
 		{Flag: "-iL", Role: "input-file"}, {Flag: "-c", Role: "config-file"}}},
-	{Name: "ffmpeg", Stdout: StdoutLog, OutputPositional: true, Options: []KnownOption{{Flag: "-i", Role: "input-file"}}},
+	{Name: "ffmpeg", Stdout: StdoutLog, OutputPositional: true, OutputExt: "mkv", Options: []KnownOption{{Flag: "-i", Role: "input-file"}}},
 	{Name: "curl", Stdout: StdoutResults, Options: []KnownOption{
 		{Flag: "-o", Role: "output-file", Main: true}, {Flag: "-D", Role: "output-file"}, {Flag: "-c", Role: "output-file"},
 		{Flag: "-b", Role: "input-file"}, {Flag: "-K", Role: "config-file"}, {Flag: "-T", Role: "input-file"}}},
@@ -120,6 +122,16 @@ func validKnownTool(t KnownTool) error {
 	case "", StdoutResults, StdoutLog, StdoutBinary:
 	default:
 		return fmt.Errorf("%s: stdout %q is not one of results, log, binary", t.Name, t.Stdout)
+	}
+	if t.OutputExt != "" && !reKnownExt.MatchString(t.OutputExt) {
+		return fmt.Errorf("%s: output extension %q is not allowed", t.Name, t.OutputExt)
+	}
+	if t.OutputPositional {
+		for _, o := range t.Options {
+			if o.Main {
+				return fmt.Errorf("%s: a main output option and an output argument cannot both be set", t.Name)
+			}
+		}
 	}
 	if len(t.Options) > maxKnownOptions {
 		return fmt.Errorf("%s: more than %d options", t.Name, maxKnownOptions)
