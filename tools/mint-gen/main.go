@@ -26,6 +26,8 @@ func runCLI(args []string) int {
 		buildBin      bool
 		runApp        bool
 		removeApp     bool
+		rootFlag      bool
+		noRootFlag    bool
 		outDir        string
 		repoRoot      string
 		tuiMode       bool
@@ -39,6 +41,8 @@ func runCLI(args []string) int {
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
 	fs.BoolVar(&runApp, "run", false, "Launch the compiled <tool>-mint interface (builds it first if missing)")
 	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
+	fs.BoolVar(&rootFlag, "sudo", false, "With --run: start the app with sudo without asking (sudo asks for the password)")
+	fs.BoolVar(&noRootFlag, "no-sudo", false, "With --run: start the app without sudo, without asking")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
@@ -112,7 +116,7 @@ func runCLI(args []string) int {
 	if runApp && !buildBin {
 		binPath := existingBinaryPath(program, outDir, repoRoot)
 		if st, err := os.Stat(binPath); err == nil && !st.IsDir() {
-			return runBuiltApp(binPath, appArgs)
+			return runBuiltApp(binPath, appArgs, startAsRoot(program, nil, rootFlag, noRootFlag))
 		}
 		buildBin = true
 	}
@@ -165,7 +169,7 @@ func runCLI(args []string) int {
 		fmt.Printf("Built static binary: %s\n", res.BinaryOut)
 	}
 	if runApp {
-		return runBuiltApp(res.BinaryOut, appArgs)
+		return runBuiltApp(res.BinaryOut, appArgs, startAsRoot(program, &spec, rootFlag, noRootFlag))
 	}
 	return 0
 }
@@ -318,8 +322,12 @@ func existingBinaryPath(program, outDir, repoRoot string) string {
 	return filepath.Join(dir, tool+"-mint")
 }
 
-func runBuiltApp(binPath string, appArgs []string) int {
-	cmd := exec.Command(binPath, appArgs...)
+func runBuiltApp(binPath string, appArgs []string, asRoot bool) int {
+	cmd, err := launchCommand(binPath, appArgs, asRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mint-gen: %v\n", err)
+		return 1
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
