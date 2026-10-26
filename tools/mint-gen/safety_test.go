@@ -285,3 +285,58 @@ func TestRenderElisp(t *testing.T) {
 		}
 	}
 }
+
+func TestArgIsFile(t *testing.T) {
+	cases := []struct {
+		hint, desc    string
+		file, notFile bool
+	}{
+		{"file", "write result to FILE instead of standard output", true, false},
+		{"<file>", "Place the output into <file>.", true, false},
+		{"outfile", "", true, false},
+		{"cols", "set output width to COLS. 0 means no limit", false, true},
+		{"seconds", "wait SECONDS between retrievals", false, true},
+		{"<format>", "Use output FORMAT after completion", false, true},
+		{"value", "Write packets to a file", true, false}, // no placeholder: the description decides
+		{"value", "number of lines to show", false, true}, // likewise
+		{"arg", "something unclear", false, false},        // neither
+	}
+	for _, c := range cases {
+		if got := argIsFile(c.hint, c.desc); got != c.file {
+			t.Errorf("argIsFile(%q, %q) = %v", c.hint, c.desc, got)
+		}
+		if got := argIsNotFile(c.hint, c.desc); got != c.notFile {
+			t.Errorf("argIsNotFile(%q, %q) = %v", c.hint, c.desc, got)
+		}
+	}
+}
+
+func TestIsOutputFileFlag(t *testing.T) {
+	text := appkit.FlagText
+	cases := []struct {
+		tool string
+		f    appkit.FlagSpec
+		want bool
+	}{
+		{"ls", appkit.FlagSpec{Flag: "-w", Kind: text, Hint: "cols", Label: "Set output width to COLS (-w)"}, false},
+		{"curl", appkit.FlagSpec{Flag: "-w", Kind: text, Hint: "format", Label: "Use output FORMAT after completion (-w)"}, false},
+		{"curl", appkit.FlagSpec{Flag: "-o", Kind: text, Hint: "file", Label: "Write to file instead of stdout (-o)"}, true},
+		{"wget", appkit.FlagSpec{Flag: "-o", Kind: text, Hint: "file", Label: "Log messages to FILE (-o)"}, false},
+		{"wget", appkit.FlagSpec{Flag: "-O", Kind: text, Hint: "file", Label: "Write documents to FILE (-O)"}, true},
+		{"wget", appkit.FlagSpec{Flag: "-w", Kind: text, Hint: "seconds", Label: "Wait SECONDS between retrievals (-w)"}, false},
+		{"sort", appkit.FlagSpec{Flag: "-o", Kind: text, Hint: "file", Label: "Write result to FILE instead of standard output (-o)"}, true},
+		{"gcc", appkit.FlagSpec{Flag: "-o", Kind: text, Hint: "file", Label: "Place the output into <file> (-o)"}, true},
+		{"tool", appkit.FlagSpec{Flag: "-i", Kind: text, Hint: "file", Label: "Read input from FILE (-i)"}, false},
+		{"tool", appkit.FlagSpec{Flag: "--log-file", Kind: text, Hint: "file", Label: "Write log to FILE (--log-file)"}, false},
+		{"tool", appkit.FlagSpec{Flag: "--report", Kind: text, Hint: "path", Label: "Save the results to PATH (--report)"}, true},
+		{"tool", appkit.FlagSpec{Flag: "-o", Kind: appkit.FlagBool, Label: "Output in octal (-o)"}, false},
+		{"tcpdump", appkit.FlagSpec{Flag: "-w", Kind: text, Hint: "file", Label: "Write the raw packets to file (-w)"}, true},
+		{"tcpdump", appkit.FlagSpec{Flag: "-o", Kind: text, Hint: "file", Label: "Write output to file (-o)"}, false}, // known: -w only
+		{"nmap", appkit.FlagSpec{Flag: "-oN", Kind: text, Hint: "file", Label: "Output scan in normal format (-oN)"}, true},
+	}
+	for _, c := range cases {
+		if got := isOutputFileFlag(c.tool, c.f); got != c.want {
+			t.Errorf("%s %s: %v, want %v", c.tool, c.f.Flag, got, c.want)
+		}
+	}
+}
