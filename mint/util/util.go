@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // luaSpace is Lua's %s class: space, \t, \n, \v, \f, \r.
@@ -57,6 +58,76 @@ func capture(cmd *exec.Cmd) (string, error) {
 // shell. It returns stdout and an error of the form "exit N" on failure.
 func Run(program string, args ...string) (string, error) {
 	return capture(exec.Command(program, args...))
+}
+
+// ErrTimeout is returned by RunTimeout when the program was stopped for
+// running too long.
+var ErrTimeout = errors.New("timed out")
+
+// MaxCapture is how much stdout RunTimeout keeps; the rest is discarded.
+const MaxCapture = 16 << 20
+
+// RunTimeout is Run with a time limit. The program runs in its own session,
+// with no terminal and stdin closed, so it can never wait for input or draw
+// over the interface; when the limit passes, it and every process it started
+// are killed and the output so far is returned with ErrTimeout.
+func RunTimeout(timeout time.Duration, program string, args ...string) (string, error) {
+	cmd := exec.Command(program, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.WaitDelay = time.Second
+	out := &limitedBuffer{max: MaxCapture}
+	cmd.Stdout = out
+	if err := cmd.Start(); err != nil {
+		return "", errors.New("cannot spawn")
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var timer <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		timer = t.C
+	}
+	select {
+	case err := <-done:
+		if err == nil || errors.Is(err, exec.ErrWaitDelay) {
+			return out.String(), nil
+		}
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return out.String(), fmt.Errorf("exit %d", ee.ExitCode())
+		}
+		return out.String(), err
+	case <-timer:
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-done
+		return out.String(), ErrTimeout
+	}
+}
+
+type limitedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+	max int
+}
+
+func (l *limitedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if room := l.max - l.buf.Len(); room > 0 {
+		if len(p) > room {
+			l.buf.Write(p[:room])
+		} else {
+			l.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (l *limitedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 // Shell runs a raw shell command. Quote interpolated values with ShQuote.

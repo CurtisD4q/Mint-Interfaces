@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,7 +92,16 @@ type Job struct {
 	pid     int
 	stdin   io.WriteCloser
 	done    chan struct{}
+
+	// lastRead is when output was last read (UnixNano). After the program
+	// exits, its remaining output is read for as long as it keeps arriving.
+	lastRead atomic.Int64
 }
+
+// drainIdle is how long the runner keeps reading after the program exits
+// with nothing new arriving, before deciding the pipes are held open by a
+// background child and closing them.
+const drainIdle = 2 * time.Second
 
 var (
 	activeMu sync.Mutex
@@ -225,13 +235,26 @@ func Start(c Cmd) *Job {
 			wg.Wait()
 			close(drainDone)
 		}()
-		select {
-		case <-drainDone:
-		case <-time.After(200 * time.Millisecond):
-			_ = stdout.Close()
-			_ = stderr.Close()
-			<-drainDone
+		// Read everything the program wrote before it exited, however long
+		// that takes. Only when nothing has arrived for drainIdle (a
+		// background child is holding the pipes open) are they closed.
+		j.touch()
+		tick := time.NewTicker(50 * time.Millisecond)
+	drain:
+		for {
+			select {
+			case <-drainDone:
+				break drain
+			case <-tick.C:
+				if time.Since(time.Unix(0, j.lastRead.Load())) > drainIdle {
+					_ = stdout.Close()
+					_ = stderr.Close()
+					<-drainDone
+					break drain
+				}
+			}
 		}
+		tick.Stop()
 		_ = cmd.Wait()
 
 		activeMu.Lock()
@@ -304,9 +327,13 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 	br := bufio.NewReaderSize(r, 64*1024)
 	var cur strings.Builder
 	lastWasCR := false
+	n := 0
 
 	for {
 		b, err := br.ReadByte()
+		if n++; n&1023 == 0 {
+			j.touch()
+		}
 		if err != nil {
 			if cur.Len() > 0 {
 				text := mint.CleanLine(cur.String())
@@ -337,6 +364,9 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 		}
 	}
 }
+
+// touch records that output is still being read.
+func (j *Job) touch() { j.lastRead.Store(time.Now().UnixNano()) }
 
 func (j *Job) finalizeLast(isErr bool) {
 	j.mu.Lock()
