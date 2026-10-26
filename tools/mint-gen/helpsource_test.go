@@ -217,3 +217,38 @@ func TestHelpRunnerStopsLeftovers(t *testing.T) {
 		t.Fatalf("background process %q still running", pid)
 	}
 }
+
+// Messages from man are not man pages.
+func TestLooksLikeManPage(t *testing.T) {
+	stub := "This system has been minimized by removing packages and content that are\nnot required on a system that users do not log into.\n\nTo restore this content, including manpages, you can run the 'unminimize'\ncommand."
+	if looksLikeManPage(stub) || looksLikeManPage("No manual entry for foo\n") || looksLikeManPage("") {
+		t.Fatal("a message was taken for a man page")
+	}
+	page := "DIG(1)    BIND 9    DIG(1)\n\nN\bNA\bAM\bME\bE\n       dig - DNS lookup utility\n"
+	if !looksLikeManPage(page) {
+		t.Fatal("a real (overstruck) man page was refused")
+	}
+}
+
+// A program the unprivileged user cannot run is reported, not silently
+// skipped (and never run as root instead).
+func TestCollectHelpReportsUnreachableProgram(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root, which drops to nobody to read help")
+	}
+	dir := t.TempDir() // 0700, owned by root: nobody cannot enter it
+	tool := filepath.Join(dir, "rootonly")
+	os.WriteFile(tool, []byte("#!/bin/sh\necho 'Usage: rootonly'\n"), 0o755)
+	srcs, notes := CollectHelpNotes(tool)
+	for _, s := range srcs {
+		if s.Name != "man" {
+			t.Fatalf("help was read anyway: %+v", s)
+		}
+	}
+	if len(notes) == 0 || !strings.Contains(notes[0], "permission denied") || !strings.Contains(notes[0], "never runs a program as root") {
+		t.Fatalf("notes: %q", notes)
+	}
+	if _, notes := CollectHelpNotes("no-such-program-xyz"); len(notes) == 0 || !strings.Contains(notes[0], "not found") {
+		t.Fatalf("missing program: %q", notes)
+	}
+}

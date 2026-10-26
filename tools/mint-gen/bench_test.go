@@ -175,3 +175,110 @@ func TestTemplateBenchmark(t *testing.T) {
 		t.Logf("not installed (skipped): %s", strings.Join(missing, " "))
 	}
 }
+
+// benchInput is one program's evidence, prepared once for tuning.
+type benchInput struct {
+	benchCase
+	ev     templateEvidence
+	hasSub bool
+}
+
+func loadBenchInputs(t *testing.T, cache string) []benchInput {
+	var out []benchInput
+	for _, c := range loadBenchCases(t) {
+		man, help, ok := benchHelp(t, cache, c.Name)
+		if !ok {
+			continue
+		}
+		ml, hl := cleanLines(man), cleanLines(help)
+		ev := findEvidence(c.Name, extractSummary(c.Name, ml, hl), usageLines(c.Name, ml, hl), man+"\n"+help, seeAlsoPrograms(man))
+		out = append(out, benchInput{benchCase: c, ev: ev, hasSub: hasSubcommands(man, help, ml, hl)})
+	}
+	return out
+}
+
+// benchScore classifies inputs with w: correct, abstained, wrong.
+func benchScore(w scoreWeights, inputs []benchInput) (correct, abstained, wrong int) {
+	for _, in := range inputs {
+		id, _ := pickTemplateWith(w, scoreEvidence(w, in.ev))
+		switch {
+		case id == "":
+			fallback := "T05"
+			if in.hasSub {
+				fallback = "T21"
+			}
+			if fallback == in.Want {
+				correct++
+			} else {
+				abstained++
+			}
+		case id == in.Want:
+			correct++
+		default:
+			wrong++
+		}
+	}
+	return
+}
+
+// TestTemplateTuning searches weights on the dev programs only, ranking by
+// correct - 2*wrong (a wrong template is worse than falling back):
+//
+//	MINT_TEMPLATE_TUNE=1 go test -run TestTemplateTuning -v .
+func TestTemplateTuning(t *testing.T) {
+	if os.Getenv("MINT_TEMPLATE_TUNE") == "" {
+		t.Skip("set MINT_TEMPLATE_TUNE=1 to search the scorer's weights")
+	}
+	cache := os.Getenv("MINT_TEMPLATE_BENCH_CACHE")
+	if cache == "" {
+		cache = filepath.Join(os.TempDir(), "mint-template-bench")
+	}
+	var dev []benchInput
+	for _, in := range loadBenchInputs(t, cache) {
+		if !heldOut(in.Name) {
+			dev = append(dev, in)
+		}
+	}
+	type result struct {
+		w                         scoreWeights
+		correct, abstained, wrong int
+	}
+	var results []result
+	base := defaultWeights
+	for _, summ := range []int{4, 5, 6} {
+		for _, weakSumm := range []int{2, 3, 4} {
+			for _, usage := range []int{1, 2, 3} {
+				for _, bodyCap := range []int{2, 3, 4, 6} {
+					for _, rel := range []int{0, 1, 2, 3} {
+						for _, relCap := range []int{2, 4, 6} {
+							for _, minScore := range []int{3, 4, 5} {
+								for _, margin := range []int{1, 2, 3} {
+									w := base
+									w.Summary, w.WeakSummary, w.Usage, w.BodyCap = summ, weakSumm, usage, bodyCap
+									w.Related, w.RelatedCap, w.MinScore, w.MinMargin = rel, relCap, minScore, margin
+									c, a, x := benchScore(w, dev)
+									results = append(results, result{w, c, a, x})
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	obj := func(r result) int { return r.correct - 2*r.wrong }
+	sort.SliceStable(results, func(i, j int) bool {
+		if obj(results[i]) != obj(results[j]) {
+			return obj(results[i]) > obj(results[j])
+		}
+		return results[i].wrong < results[j].wrong
+	})
+	c, a, x := benchScore(defaultWeights, dev)
+	t.Logf("current defaults: correct %d abstained %d wrong %d (objective %d) of %d dev programs", c, a, x, c-2*x, len(dev))
+	for i, r := range results {
+		if i == 15 {
+			break
+		}
+		t.Logf("objective %3d  correct %2d abstained %2d wrong %2d  %+v", obj(r), r.correct, r.abstained, r.wrong, r.w)
+	}
+}

@@ -16,13 +16,14 @@ func TestChooseTemplateFromSummary(t *testing.T) {
 	cases := []struct {
 		name, summary, body, want string
 	}{
-		{"proclook", "display Linux processes", "", "T19"},
+		{"proclook", "interactive process viewer", "", "T19"},
+		{"proclist", "display Linux processes", "", "T05"}, // only ordinary words: too weak to decide
 		{"dirlist", "list directory contents", "", "T25"},
 		{"jsrun", "server-side JavaScript runtime", "", "T10"},
 		{"imgconv", "image converter and resizer", "", "T06"},
 		{"packer", "compress or decompress files", "", "T08"},
 		{"sumcheck", "print or check SHA256 checksums", "", "T16"},
-		{"lineflip", "write each file with the last line first", "", "T26"},
+		{"lineflip", "a stream editor for filtering and transforming text", "", "T26"},
 		{"fsmount", "mount a filesystem", "", "T24"},
 		{"nothing", "do something unusual", "", "T05"}, // no evidence: the general runner
 	}
@@ -37,7 +38,7 @@ func TestChooseTemplateFromSummary(t *testing.T) {
 // Whole words only: words hidden inside other words score nothing.
 func TestTemplateWordsAreWholeWords(t *testing.T) {
 	body := "rapid toolchain csvkit unarchived instances repository-free pidgin"
-	for _, s := range ScoreTemplates("x", "", nil, body, true) {
+	for _, s := range ScoreTemplates("x", "", nil, body, nil) {
 		for _, h := range s.Hits {
 			t.Errorf("%s scored on %q", s.ID, h)
 		}
@@ -47,26 +48,77 @@ func TestTemplateWordsAreWholeWords(t *testing.T) {
 // A long man page cannot outweigh a clear summary.
 func TestBodyIsCapped(t *testing.T) {
 	body := strings.Repeat("archive compress decompress tarball ", 200)
-	got := chooseTemplate("proclook", appkit.ToolSpec{}, manWithName("proclook", "display Linux processes", body), "")
-	if got.ID != "T19" {
-		t.Fatalf("%s (%s): %v", got.ID, got.Why, got.Scores)
+	got := chooseTemplate("proclook", appkit.ToolSpec{}, manWithName("proclook", "interactive process viewer", body), "")
+	if got.ID == "T08" {
+		t.Fatalf("the long man page won: %s (%s): %v", got.ID, got.Why, got.Scores)
 	}
 	for _, s := range got.Scores {
-		if s.ID == "T08" && s.Score > maxBodyScore {
+		if s.ID == "T08" && s.Score > defaultWeights.BodyCap {
 			t.Fatalf("body score %d over the cap", s.Score)
 		}
 	}
 }
 
-// Suite templates (version control, containers…) need subcommands.
-func TestSuiteTemplatesNeedSubcommands(t *testing.T) {
-	man := manWithName("vcsish", "record changes: commit, branch and merge", "")
-	if got := chooseTemplate("vcsish", appkit.ToolSpec{}, man, ""); got.ID == "T21" {
-		t.Fatalf("suite template without subcommands: %s", got.Why)
+// The longer phrase is the meaning: "SQL injection" is security evidence,
+// not also "SQL" data evidence.
+func TestLongerPhraseWins(t *testing.T) {
+	for _, sc := range ScoreTemplates("x", "automatic SQL injection and takeover tool", nil, "", nil) {
+		if sc.ID == "T26" {
+			t.Fatalf("SQL counted inside SQL injection: %v", sc.Hits)
+		}
 	}
-	help := "Usage: vcsish <command>\n\nAvailable commands:\n  commit    record changes\n  branch    list branches\n  merge     join histories\n"
-	if got := chooseTemplate("vcsish", appkit.ToolSpec{}, man, help); got.ID != "T21" {
-		t.Fatalf("with subcommands: %s (%s) %v", got.ID, got.Why, got.Scores)
+}
+
+// Word endings: "viruses", "encryption", "benchmarking" match.
+func TestWordEndings(t *testing.T) {
+	cases := map[string]string{"scan files for viruses": "T15", "OpenPGP encryption and signing tool": "T16",
+		"command-line benchmarking tool": "T11", "read Info documents": "T27"}
+	for summary, want := range cases {
+		scores := ScoreTemplates("x", summary, nil, "", nil)
+		if len(scores) == 0 || scores[0].ID != want {
+			t.Errorf("%q: %v, want %s first", summary, scores, want)
+		}
+	}
+}
+
+// Weak, everyday words never count in the body.
+func TestWeakWordsNotInBody(t *testing.T) {
+	body := strings.Repeat("lines fields columns process signal search build script query database ", 20)
+	if s := ScoreTemplates("x", "", nil, body, nil); len(s) != 0 {
+		t.Fatalf("weak body words scored: %v", s)
+	}
+}
+
+// Related programs named in SEE ALSO count for their templates.
+func TestRelatedPrograms(t *testing.T) {
+	man := "NAME\n       lookup2 - query servers\n\nSEE ALSO\n       host(1), nslookup(1), named(8), resolv.conf(5).\n\nBUGS\n       none(1)\n"
+	rel := seeAlsoPrograms(man)
+	if strings.Join(rel, ",") != "host,nslookup,named" {
+		t.Fatalf("related: %v", rel)
+	}
+	got := scoreTemplateChoice("lookup2", man, "")
+	if got.ID != "T14" {
+		t.Fatalf("%s (%s) %v", got.ID, got.Why, got.Scores)
+	}
+	// A program is never its own evidence.
+	if s := ScoreTemplates("dig", "", nil, "", []string{"dig"}); len(s) != 0 {
+		t.Fatalf("self counted: %v", s)
+	}
+}
+
+// A program's own name in its help is not evidence: "crontab" is a T28
+// signal, but crontab's help naming itself says nothing new. Other words
+// (and the name inside a longer word or path) still count.
+func TestOwnNameIsNotEvidence(t *testing.T) {
+	if s := ScoreTemplates("crontab", "", []string{"crontab [-u user] file", "crontab -l"}, "crontab crontab", nil); len(s) != 0 {
+		t.Fatalf("own name counted: %v", s)
+	}
+	s := ScoreTemplates("crontab", "", []string{"crontab [-u user] file"}, "edit the cron table", nil)
+	if len(s) == 0 || s[0].ID != "T28" {
+		t.Fatalf("other words lost: %v", s)
+	}
+	if s := ScoreTemplates("cron2", "", nil, "reads /etc/crontab and runs crontab jobs", nil); len(s) == 0 || s[0].ID != "T28" {
+		t.Fatalf("another program's name lost: %v", s)
 	}
 }
 

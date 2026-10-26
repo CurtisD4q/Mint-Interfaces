@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
 	"os"
 	"os/exec"
 	"regexp"
@@ -23,8 +25,8 @@ type HelpSource struct {
 // Limits for reading help. A program cannot make mint-gen wait, fill its
 // memory, or keep running after mint-gen has read what it needs.
 const (
-	helpTimeout  = 3 * time.Second
-	helpMaxBytes = 2 << 20 // per run
+	helpTimeout  = 5 * time.Second // Python and Node programs can be slow the first time
+	helpMaxBytes = 2 << 20         // per run
 )
 
 // Environment variables a program keeps when run for its help. Everything
@@ -178,30 +180,45 @@ func resolveProgram(bin string) (string, error) {
 // page, its --help (or -h) output, and the fuller help variants the help
 // itself points to (curl's "--help all", "--help-all"…).
 func CollectHelp(bin string) []HelpSource {
+	srcs, _ := CollectHelpNotes(bin)
+	return srcs
+}
+
+// CollectHelpNotes is CollectHelp, also returning notes on what could not
+// be read and why, for the user to see.
+func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 	name := toolBaseName(bin)
+	var notes []string
 	r, cleanup, err := newHelpRunner()
 	if err != nil {
-		return nil
+		return nil, []string{"could not prepare a safe folder to read the help in: " + err.Error()}
 	}
 	defer cleanup()
 
 	var out []HelpSource
-	if text, _ := r.run("man", "-P", "cat", name); strings.TrimSpace(text) != "" && !strings.HasPrefix(strings.TrimSpace(text), "No manual entry") {
+	if text, _ := r.run("man", "-P", "cat", name); looksLikeManPage(text) {
 		out = append(out, HelpSource{Name: "man", Args: []string{"-P", "cat", name}, Text: text})
 	}
 
 	path, err := resolveProgram(bin)
 	if err != nil {
-		return out
+		return out, append(notes, bin+" was not found on the PATH")
 	}
-	help, _ := r.run(path, "--help")
+	help, runErr := r.run(path, "--help")
 	src := HelpSource{Name: "--help", Args: []string{"--help"}, Text: help}
 	if strings.TrimSpace(help) == "" {
-		help, _ = r.run(path, "-h")
+		help, runErr = r.run(path, "-h")
 		src = HelpSource{Name: "-h", Args: []string{"-h"}, Text: help}
 	}
 	if strings.TrimSpace(help) == "" {
-		return out
+		if errors.Is(runErr, os.ErrPermission) {
+			notes = append(notes, fmt.Sprintf("could not run %s as %s to read its help (permission denied). "+
+				"mint-gen never runs a program as root just to read its help: run mint-gen as your normal user, "+
+				"or use a copy of the program that user can run.", path, r.user()))
+		} else {
+			notes = append(notes, path+" printed no help for --help or -h")
+		}
+		return out, notes
 	}
 	out = append(out, src)
 
@@ -213,7 +230,18 @@ func CollectHelp(bin string) []HelpSource {
 			out = append(out, HelpSource{Name: v.name, Args: v.args, Text: text})
 		}
 	}
-	return out
+	return out, notes
+}
+
+// user names who programs run as, for messages.
+func (r *helpRunner) user() string {
+	if r.cred == nil {
+		return "you"
+	}
+	if r.cred.Uid == 65534 {
+		return "nobody"
+	}
+	return fmt.Sprintf("user %d", r.cred.Uid)
 }
 
 func toolBaseName(bin string) string {
@@ -236,4 +264,16 @@ func manAndHelp(sources []HelpSource) (man, help string) {
 		}
 	}
 	return man, strings.Join(h, "\n")
+}
+
+// looksLikeManPage reports whether man printed a real manual page (it has
+// a NAME section), not a message such as "No manual entry for x" or the
+// "This system has been minimized…" stub of minimized Ubuntu images.
+func looksLikeManPage(text string) bool {
+	for _, l := range strings.Split(text, "\n") {
+		if strings.TrimSpace(mint.CleanLine(l)) == "NAME" {
+			return true
+		}
+	}
+	return false
 }

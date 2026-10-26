@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,7 +23,9 @@ var (
 // (for --explain).
 func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 	name := filepath.Base(strings.TrimSpace(bin))
-	manText, helpText := manAndHelp(CollectHelp(bin))
+	srcs, notes := CollectHelpNotes(bin)
+	printHelpNotes(notes)
+	manText, helpText := manAndHelp(srcs)
 	return ParseManAndHelpIO(name, manText, helpText)
 }
 
@@ -29,7 +34,9 @@ func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 // appkit.ToolSpec.
 func ParseProgram(bin string) (appkit.ToolSpec, error) {
 	name := filepath.Base(strings.TrimSpace(bin))
-	manText, helpText := manAndHelp(CollectHelp(bin))
+	srcs, notes := CollectHelpNotes(bin)
+	printHelpNotes(notes)
+	manText, helpText := manAndHelp(srcs)
 	spec := ParseManAndHelp(name, manText, helpText)
 	return spec, nil
 }
@@ -854,4 +861,13 @@ func knownOnlyFlags(tool string, have []appkit.FlagSpec, outputFlag string) []ap
 			Label: capitalizeFirst(roleName(role)) + " (" + o.Flag + ")", Step: 1})
 	}
 	return out
+}
+
+// helpNotesTo is where notes about unreadable help go (tests replace it).
+var helpNotesTo io.Writer = os.Stderr
+
+func printHelpNotes(notes []string) {
+	for _, n := range notes {
+		fmt.Fprintln(helpNotesTo, "mint-gen: "+safeTerminalText(n))
+	}
 }
