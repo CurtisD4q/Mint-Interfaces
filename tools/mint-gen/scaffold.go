@@ -350,29 +350,58 @@ func flagKindIdent(k appkit.FlagKind) string {
 }
 
 func renderElisp(tool, desc string) string {
-	return fmt.Sprintf(`;;; %s-mint.el --- Launch %s Mint interface in Emacs -*- lexical-binding: t; -*-
+	return fmt.Sprintf(`;;; %[1]s-mint.el --- Launch the %[1]s Mint interface in Emacs -*- lexical-binding: t; -*-
+
+;; Load this file, then use M-x %[1]s-mint (or M-x mint).  With emacs/mint.el
+;; installed, the app opens the way mint.el opens apps (handover or term,
+;; theme matching, key profile); without it, it opens in ansi-term.
 
 (require 'mint nil t)
 
-(defcustom %s-mint-binary
-  (expand-file-name "%s-mint"
+(defcustom %[1]s-mint-binary
+  (expand-file-name "%[1]s-mint"
                     (file-name-directory (or load-file-name buffer-file-name default-directory)))
-  "Path to the compiled %s-mint static Go binary."
+  "Path to the compiled %[1]s-mint static Go binary.
+Set it before this file is loaded."
   :type 'file
   :group 'mint)
 
-;;;###autoload
-(defun %s-mint ()
-  "Open the %s Mint TUI (%s)."
-  (interactive)
-  (if (fboundp 'mint-start)
-      (mint-start "%s" %s-mint-binary)
-    (ansi-term %s-mint-binary "%s-mint")))
+(if (fboundp 'mint-run)
+    ;; mint-define-app defines M-x %[1]s-mint and offers the app in M-x mint.
+    (eval '(mint-define-app %[1]s-mint %[2]q %[1]s-mint-binary %[3]q) t)
+  (defun %[1]s-mint ()
+    %[3]q
+    (interactive)
+    (ansi-term %[1]s-mint-binary "%[1]s-mint")))
 
-(when (fboundp 'mint-register)
-  (mint-register "%s" %q #'%s-mint))
+(provide '%[1]s-mint)
+;;; %[1]s-mint.el ends here
+`, tool, tool, "Open the "+tool+" Mint interface."+elispDocDesc(desc))
+}
 
-(provide '%s-mint)
-;;; %s-mint.el ends here
-`, tool, tool, tool, tool, tool, tool, tool, desc, tool, tool, tool, tool, tool, desc, tool, tool, tool)
+// elispDocDesc is desc as the body of an Emacs docstring: after a blank
+// line, wrapped to stay within 80 columns.
+func elispDocDesc(desc string) string {
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	line := 0
+	for _, w := range strings.Fields(desc) {
+		if line > 0 && line+1+len(w) > 70 {
+			b.WriteString("\n")
+			line = 0
+		} else if line == 0 {
+			b.WriteString("\n")
+		}
+		if line > 0 {
+			b.WriteByte(' ')
+			line++
+		}
+		b.WriteString(w)
+		line += len(w)
+	}
+	return b.String()
 }
