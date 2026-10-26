@@ -71,6 +71,7 @@ type Cmd struct {
 	Label      string                   // short name for status badges ("" = command name)
 	Progress   func(string) (int, bool) // optional parser returning (0..100, true) from a line
 	OnLine     func(mint.LogLine)       // optional callback invoked on every line
+	Redact     func(string) string      // optional: rewrites each line before it is stored or shown (hides secrets)
 	OnExit     func(*Job)               // optional callback invoked when the job finishes
 }
 
@@ -380,6 +381,9 @@ func (j *Job) finalizeLast(isErr bool) {
 }
 
 func (j *Job) appendLine(text string, isErr, replaceable bool) {
+	if j.c.Redact != nil {
+		text = j.c.Redact(text)
+	}
 	line := mint.LogLine{Text: text, Err: isErr, Overwrite: replaceable}
 
 	var pct int = -1

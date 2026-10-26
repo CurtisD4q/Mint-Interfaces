@@ -454,11 +454,49 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 		}
 		a.argvOK = true
 	}
+	if found := a.FreeTextSecrets(); len(found) > 0 {
+		if fp := freeTextFingerprint(found); fp != a.freeTextOK {
+			if !c.Confirm("Password in a text box?", a.freeTextWarning(found)) {
+				c.ToastWarn("Cancelled")
+				return
+			}
+			a.freeTextOK = fp
+		}
+	}
 	if _, err := a.StartJob(); err != nil {
 		c.ToastError(err.Error())
 		return
 	}
 	c.Push(a.RunScreen())
+}
+
+// freeTextWarning explains the risk of a secret typed into a free-text box.
+func (a *ToolApp) freeTextWarning(found []FreeTextSecret) string {
+	kinds := make([]string, 0, len(found))
+	seen := map[string]bool{}
+	for _, s := range found {
+		if !seen[s.Kind] {
+			seen[s.Kind] = true
+			kinds = append(kinds, s.Kind)
+		}
+	}
+	msg := "The text you typed contains what looks like a secret (" + strings.Join(kinds, ", ") + "). " +
+		"It goes on the command line, where other users on this computer can see it (for example with ps) while it runs. " +
+		"Mint hides it on screen, in the output, and in saved settings and history."
+	var safer []string
+	for _, f := range a.Spec.Flags {
+		if f.Kind == FlagSecret {
+			label := f.Label
+			if label == "" {
+				label = f.Flag
+			}
+			safer = append(safer, label)
+		}
+	}
+	if len(safer) > 0 {
+		msg += " Safer: use the " + strings.Join(safer, " or ") + " option, which keeps it hidden."
+	}
+	return msg + " Run anyway?"
 }
 
 // ConfigScreen builds the ArchetypeConfig ("config") State Editor screen.

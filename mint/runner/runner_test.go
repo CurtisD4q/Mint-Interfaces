@@ -309,3 +309,17 @@ func TestSlowReaderKeepsAllOutput(t *testing.T) {
 		t.Fatalf("got %d lines, last %q; want 30000 lines ending \"30000\"", total, last)
 	}
 }
+
+func TestRedactRewritesLines(t *testing.T) {
+	j := Start(Cmd{Shell: "echo 'pw=hunter22'; echo 'pw=hunter22' >&2; exit 3",
+		Redact: func(s string) string { return strings.ReplaceAll(s, "hunter22", "***") }})
+	j.Wait()
+	for _, l := range j.Lines() {
+		if strings.Contains(l.Text, "hunter22") {
+			t.Fatalf("line not redacted: %q", l.Text)
+		}
+	}
+	if strings.Contains(j.LastError(), "hunter22") {
+		t.Fatalf("last error not redacted: %q", j.LastError())
+	}
+}
