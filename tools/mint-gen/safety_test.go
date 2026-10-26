@@ -279,7 +279,7 @@ func TestRenderElisp(t *testing.T) {
 		t.Fatal("unbalanced parentheses")
 	}
 	doc := elispDocDesc(strings.Repeat("word ", 40))
-	for _, line := range strings.Split(doc, `\n`) {
+	for _, line := range strings.Split(doc, "\n") {
 		if len(line) > 79 {
 			t.Fatalf("docstring line too wide (%d): %q", len(line), line)
 		}
