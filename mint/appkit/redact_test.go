@@ -82,7 +82,7 @@ func TestOutputMasker(t *testing.T) {
 		}
 	}
 	// The masker keeps fingerprints, not the secrets.
-	if dump := fmt.Sprintf("%+v", *m); strings.Contains(dump, "hunter22") {
+	if dump := fmt.Sprintf("%+v %+v %+v %+v", m.salt, m.base, m.byLen, m.lens); strings.Contains(dump, "hunter22") {
 		t.Fatal("masker holds the secret in plain text")
 	}
 	// A nil masker still hides well-known token formats.

@@ -94,6 +94,7 @@ func ApplySafetyDefaults(spec *ToolSpec) {
 		spec.Irreversible = true
 	}
 	applyKnownSecretEnvs(spec)
+	applyDataDefaults(spec)
 }
 
 // knownSecretEnv is a secret a known tool reads from an environment
@@ -269,6 +270,9 @@ type SafetyReport struct {
 	Running     string         // when the tool runs, and how it is confirmed
 	Secrets     []SecretOption // FlagSecret options, in spec order
 	Destructive []FlagSpec     // options that delete, overwrite or force
+	Data        string         // DataNormal, DataSensitive or DataSecret
+	DataReason  string
+	Revealing   []FlagSpec // options that make the tool print secrets
 }
 
 // SafetyReport describes s after ApplySafetyDefaults.
@@ -297,6 +301,10 @@ func (s ToolSpec) SafetyReport() SafetyReport {
 		} else if LooksDestructive(f.Flag, f.Label) {
 			r.Destructive = append(r.Destructive, f)
 		}
+		if f.Reveals {
+			r.Revealing = append(r.Revealing, f)
+		}
 	}
+	r.Data, r.DataReason = s.Data, s.DataReason
 	return r
 }
