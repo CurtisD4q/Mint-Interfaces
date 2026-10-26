@@ -93,6 +93,80 @@ func ApplySafetyDefaults(spec *ToolSpec) {
 	if IsIrreversibleTool(bin) {
 		spec.Irreversible = true
 	}
+	applyKnownSecretEnvs(spec)
+}
+
+// knownSecretEnv is a secret a known tool reads from an environment
+// variable, and the options it replaces.
+type knownSecretEnv struct {
+	Env      string
+	Label    string
+	Replaces []string // options carrying the same secret on the command line
+	EnvFlag  string   // switch telling the tool to read the variable
+}
+
+// knownSecretEnvs lists tools that read a secret from the environment, so
+// the secret never has to go on the command line. Only variables the tools
+// document for this purpose are listed.
+var knownSecretEnvs = map[string][]knownSecretEnv{
+	"restic":     {{Env: "RESTIC_PASSWORD", Label: "Repository password"}},
+	"borg":       {{Env: "BORG_PASSPHRASE", Label: "Repository passphrase"}},
+	"kopia":      {{Env: "KOPIA_PASSWORD", Label: "Repository password", Replaces: []string{"--password"}}},
+	"duplicity":  {{Env: "PASSPHRASE", Label: "Encryption passphrase"}},
+	"rclone":     {{Env: "RCLONE_CONFIG_PASS", Label: "Config password"}},
+	"psql":       {{Env: "PGPASSWORD", Label: "Database password"}},
+	"pg_dump":    {{Env: "PGPASSWORD", Label: "Database password"}},
+	"pg_dumpall": {{Env: "PGPASSWORD", Label: "Database password"}},
+	"pg_restore": {{Env: "PGPASSWORD", Label: "Database password"}},
+	"gh":         {{Env: "GH_TOKEN", Label: "GitHub token"}},
+	"glab":       {{Env: "GITLAB_TOKEN", Label: "GitLab token"}},
+	"sshpass":    {{Env: "SSHPASS", Label: "SSH password", Replaces: []string{"-p"}, EnvFlag: "-e"}},
+}
+
+// KnownSecretEnv reports whether bin is known to read its secret from the
+// environment variable env.
+func KnownSecretEnv(bin, env string) bool {
+	for _, k := range knownSecretEnvs[toolBase(bin)] {
+		if k.Env == env {
+			return true
+		}
+	}
+	return false
+}
+
+// applyKnownSecretEnvs routes a known tool's secrets through its environment
+// variable: options carrying the same secret are switched to it, and a
+// secret with no option is added as its own entry.
+func applyKnownSecretEnvs(spec *ToolSpec) {
+	for _, k := range knownSecretEnvs[toolBase(spec.BinaryName())] {
+		if spec.hasSecretEnv(k.Env) {
+			continue
+		}
+		replaced := false
+		for i := range spec.Flags {
+			f := &spec.Flags[i]
+			for _, r := range k.Replaces {
+				if f.Flag == r && !f.SecretStdin {
+					f.Kind, f.SecretEnv, f.EnvFlag = FlagSecret, k.Env, k.EnvFlag
+					f.Choices, f.Min, f.Max = nil, 0, 0
+					replaced = true
+				}
+			}
+		}
+		if !replaced {
+			spec.Flags = append(spec.Flags, FlagSpec{Kind: FlagSecret, Section: "Credentials",
+				Label: k.Label, SecretEnv: k.Env, EnvFlag: k.EnvFlag})
+		}
+	}
+}
+
+func (s *ToolSpec) hasSecretEnv(env string) bool {
+	for _, f := range s.Flags {
+		if f.SecretEnv == env {
+			return true
+		}
+	}
+	return false
 }
 
 // CanReadState reports whether the app has a command that only reads state:
@@ -120,13 +194,19 @@ func LooksSecret(flag, label, hint string) bool {
 // How a secret option's value reaches the program, from safest to least safe.
 const (
 	RouteStdin    = "standard input"
+	RouteEnv      = "environment variable"
 	RouteArgument = "command line"
 )
 
-// SecretRoute says how a FlagSecret value is passed to the program.
+// SecretRoute says how a FlagSecret value is passed to the program:
+// standard input when the program reads it there, else an environment
+// variable when it has one, else the command line.
 func (f FlagSpec) SecretRoute() string {
-	if f.SecretStdin {
+	switch {
+	case f.SecretStdin:
 		return RouteStdin
+	case f.SecretEnv != "":
+		return RouteEnv
 	}
 	return RouteArgument
 }
@@ -136,6 +216,8 @@ func RouteNote(route string) string {
 	switch route {
 	case RouteStdin:
 		return "never visible to other users"
+	case RouteEnv:
+		return "only you and root can see it"
 	default:
 		return "visible to other users (ps) while it runs; the app asks first"
 	}
@@ -177,6 +259,7 @@ func LooksDestructive(flag, label string) bool {
 // SecretOption is one secret option in a SafetyReport.
 type SecretOption struct {
 	Flag, Label, Route string
+	Env                string // the variable, when Route is RouteEnv
 }
 
 // SafetyReport summarises how an interface for the tool behaves: whether it
@@ -210,7 +293,7 @@ func (s ToolSpec) SafetyReport() SafetyReport {
 	}
 	for _, f := range flags {
 		if f.Kind == FlagSecret {
-			r.Secrets = append(r.Secrets, SecretOption{Flag: f.Flag, Label: f.Label, Route: f.SecretRoute()})
+			r.Secrets = append(r.Secrets, SecretOption{Flag: f.Flag, Label: f.Label, Route: f.SecretRoute(), Env: f.SecretEnv})
 		} else if LooksDestructive(f.Flag, f.Label) {
 			r.Destructive = append(r.Destructive, f)
 		}

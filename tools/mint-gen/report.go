@@ -21,7 +21,11 @@ func printSafetyReport(w io.Writer, spec appkit.ToolSpec) {
 	} else {
 		fmt.Fprintf(w, "  Secrets:     %s (asked for with a password dialog, never saved)\n", count(len(r.Secrets), "option"))
 		for _, s := range r.Secrets {
-			fmt.Fprintf(w, "    %-20s %-34s %s: %s\n", s.Flag, short(stripFlag(s.Label, s.Flag), 34), s.Route, appkit.RouteNote(s.Route))
+			flag := s.Flag
+			if flag == "" {
+				flag = "(no option)"
+			}
+			fmt.Fprintf(w, "    %-20s %-34s %s: %s\n", flag, short(stripFlag(s.Label, s.Flag), 34), routeText(spec, s), appkit.RouteNote(s.Route))
 		}
 	}
 	if len(r.Destructive) == 0 {
@@ -63,7 +67,11 @@ func safetyRows(spec appkit.ToolSpec) []mint.Row {
 	} else {
 		var tbl [][]string
 		for _, s := range r.Secrets {
-			tbl = append(tbl, []string{s.Flag, s.Route, appkit.RouteNote(s.Route)})
+			flag := s.Flag
+			if flag == "" {
+				flag = "(no option)"
+			}
+			tbl = append(tbl, []string{flag, routeText(spec, s), appkit.RouteNote(s.Route)})
 		}
 		rows = append(rows, mint.Table(mint.TableOpts{ID: "safety-secrets",
 			Headers: []string{"SECRET", "PASSED ON", "NOTE"}, Rows: tbl}))
@@ -79,4 +87,16 @@ func safetyRows(spec appkit.ToolSpec) []mint.Row {
 			Headers: []string{"DESTRUCTIVE", "WHAT IT DOES"}, Rows: tbl}))
 	}
 	return rows
+}
+
+// routeText is the route, naming the variable and where it was found.
+func routeText(spec appkit.ToolSpec, s appkit.SecretOption) string {
+	if s.Route != appkit.RouteEnv {
+		return s.Route
+	}
+	found := "man page"
+	if appkit.KnownSecretEnv(spec.BinaryName(), s.Env) {
+		found = "built-in list"
+	}
+	return fmt.Sprintf("%s %s (%s)", s.Route, s.Env, found)
 }
