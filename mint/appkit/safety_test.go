@@ -252,10 +252,6 @@ func TestEnvironmentSecrets(t *testing.T) {
 	if !strings.Contains(got, "env: hunter2") || strings.Contains(strings.SplitN(got, "\n", 2)[0], "hunter2") {
 		t.Fatalf("secret should arrive in the environment only:\n%s", got)
 	}
-	a.Spec.NeedsRoot, a.UseSudo = true, true
-	if p := a.CommandPreview(); !strings.Contains(p, "--preserve-env=BACKUP_PASSWORD") {
-		t.Fatalf("sudo would drop the variable: %q", p)
-	}
 }
 
 func TestKnownSecretEnvs(t *testing.T) {
@@ -326,5 +322,70 @@ func TestSecretsLiveInTheSecureStore(t *testing.T) {
 	a.Close()
 	if a.hasSecret("--token-stdin") {
 		t.Fatal("Close did not wipe the secrets")
+	}
+}
+
+// Started with sudo: files go in the invoking user's home and belong to them.
+func TestFilesBelongToTheSudoUser(t *testing.T) {
+	home := t.TempDir()
+	var owned []string
+	oldEuid, oldEnv, oldHome, oldChown := euid, envLookup, lookupHomeDir, chown
+	defer func() { euid, envLookup, lookupHomeDir, chown = oldEuid, oldEnv, oldHome, oldChown }()
+	euid = func() int { return 0 }
+	envLookup = func(k string) string {
+		return map[string]string{"SUDO_UID": "1234", "SUDO_GID": "1234", "SUDO_USER": "curtis"}[k]
+	}
+	lookupHomeDir = func(string) (string, error) { return home, nil }
+	chown = func(p string, uid, gid int) error {
+		if uid != 1234 || gid != 1234 {
+			t.Errorf("chown %s to %d:%d", p, uid, gid)
+		}
+		owned = append(owned, p)
+		return nil
+	}
+
+	bin, _ := fakeTool(t, "cap", "")
+	a := New(ToolSpec{Name: "cap", Bin: bin, NeedsRoot: true, KeepHistory: true})
+	if !strings.HasPrefix(a.ConfigDir, home) || !strings.HasPrefix(a.ResultsDir, home) || !strings.HasPrefix(a.DataDir, home) {
+		t.Fatalf("folders not in the user's home: %s %s %s", a.ConfigDir, a.ResultsDir, a.DataDir)
+	}
+	if err := a.SaveSettings(); err != nil {
+		t.Fatal(err)
+	}
+	job, err := a.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	time.Sleep(50 * time.Millisecond)
+	all := strings.Join(owned, "\n")
+	for _, want := range []string{a.settingsPath(), a.ConfigDir, a.historyPath()} {
+		if !strings.Contains(all, want) {
+			t.Errorf("%s not given back to the user; chowned:\n%s", want, all)
+		}
+	}
+	for _, p := range owned {
+		if !strings.HasPrefix(p, home+"/") {
+			t.Errorf("changed ownership outside the user's home: %s", p)
+		}
+	}
+}
+
+func TestNotStartedWithSudo(t *testing.T) {
+	oldEuid := euid
+	defer func() { euid = oldEuid }()
+	euid = func() int { return 1000 }
+	if sudoInvoker() != nil || runningAsRoot() {
+		t.Fatal("a normal user is not running through sudo")
+	}
+	a := newTestApp(t, ToolSpec{Name: "x", NeedsRoot: true})
+	sec := a.rootAuthSection()
+	if sec == nil || len(sec.Rows) == 0 {
+		t.Fatal("root-needing tool should explain how to start as root")
+	}
+	if !looksLikeNeedsRoot("tcpdump: eth0: You don't have permission to capture on that device (socket: Operation not permitted)") ||
+		!looksLikeNeedsRoot("E: Could not open lock file - open (13: Permission denied)") ||
+		looksLikeNeedsRoot("curl: (6) Could not resolve host") {
+		t.Fatal("permission-error detection")
 	}
 }
