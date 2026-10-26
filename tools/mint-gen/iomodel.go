@@ -49,7 +49,8 @@ type IOModel struct {
 	Save      string // a Save… mode
 	SaveWhy   string
 	Main      *IOEndpoint // where the app's output file goes, for SaveByOption/SaveByPositional
-	Ext       string
+	Ext       string      // the output file's extension (see chooseExtension)
+	ExtWhy    string
 	Known     bool   // the tool is in the known-tools list
 	Usage     string // the first usage form
 }
@@ -82,10 +83,13 @@ func BuildIOModel(spec appkit.ToolSpec, syn Synopsis) IOModel {
 		}
 	}
 	if spec.OutputFlag != "" {
-		e := IOEndpoint{Flag: spec.OutputFlag, Role: appkit.RoleOutputFile, Ext: spec.DefaultExt, Why: "the output option"}
+		e := IOEndpoint{Flag: spec.OutputFlag, Role: appkit.RoleOutputFile, Why: "the output option"}
 		if known {
-			if o, ok := kt.option(spec.OutputFlag); ok && o.Main {
-				e.Why = "the main output in the known-tools list"
+			if o, ok := kt.option(spec.OutputFlag); ok {
+				e.Ext = o.Ext
+				if o.Main {
+					e.Why = "the main output in the known-tools list"
+				}
 			}
 		}
 		add(e)
@@ -147,10 +151,10 @@ func BuildIOModel(spec appkit.ToolSpec, syn Synopsis) IOModel {
 			if e.Flag == spec.OutputFlag {
 				e := e
 				m.Main = &e
+				m.Ext = e.Ext // the known-tools list's, if any
 				break
 			}
 		}
-		m.Ext = spec.DefaultExt
 	case known && kt.OutputPositional:
 		m.Save, m.SaveWhy = SaveByPositional, "the tool writes the file itself, as its last argument (known-tools list)"
 		m.Ext = kt.OutputExt
@@ -189,9 +193,6 @@ func applyIOModel(spec *appkit.ToolSpec, m IOModel) {
 		spec.OutputsFile, spec.OutputPositional = true, true
 	case SaveNone:
 		spec.OutputsFile = false
-	}
-	if m.Ext != "" {
-		spec.DefaultExt = m.Ext
 	}
 }
 
@@ -237,7 +238,10 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 		p("  Saving:   %s", m.SaveWhy)
 	}
 	if ext := spec.DefaultExt; ext != "" {
-		p("  File:     <name>.%s", ext)
+		p("  File:     <name>.%s (%s)", ext, m.ExtWhy)
+		if fmts := formatOptions(spec); len(fmts) > 0 {
+			p("            the app switches the extension to match the format chosen in %s", strings.Join(fmts, ", "))
+		}
 	}
 }
 

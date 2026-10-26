@@ -31,6 +31,8 @@ type KnownTool struct {
 	// with OutputExt as the default extension (ffmpeg picks the format from it).
 	OutputPositional bool   `json:"output_positional,omitempty"`
 	OutputExt        string `json:"output_ext,omitempty"`
+	// StdoutExt: the extension for saving what it prints (jq prints JSON).
+	StdoutExt string `json:"stdout_ext,omitempty"`
 }
 
 // KnownOption is one option of a KnownTool.
@@ -73,12 +75,13 @@ var builtinKnownTools = []KnownTool{
 		{Flag: "-P", Role: "output-dir"}, {Flag: "-i", Role: "input-file"}}},
 	{Name: "sort", Stdout: StdoutResults, Options: []KnownOption{{Flag: "-o", Role: "output-file", Main: true}, {Flag: "-T", Role: "dir"}}},
 	{Name: "gcc", Stdout: StdoutLog, Options: []KnownOption{{Flag: "-o", Role: "output-file", Ext: "out", Main: true}}},
-	{Name: "pandoc", Stdout: StdoutResults, Options: []KnownOption{{Flag: "-o", Role: "output-file", Main: true}, {Flag: "-t", Role: "format"}, {Flag: "-f", Role: "format"}}},
+	// pandoc picks the output format from the file's extension; HTML is its default.
+	{Name: "pandoc", Stdout: StdoutResults, Options: []KnownOption{{Flag: "-o", Role: "output-file", Ext: "html", Main: true}, {Flag: "-t", Role: "format"}}}, // -t is the output format; -f is the input's
 	{Name: "tar", Stdout: StdoutLog, Options: []KnownOption{{Flag: "-f", Role: "file"}, {Flag: "-C", Role: "dir"}, {Flag: "-T", Role: "input-file"}, {Flag: "-X", Role: "input-file"}}},
 	{Name: "gzip", Stdout: StdoutLog}, {Name: "xz", Stdout: StdoutLog}, {Name: "bzip2", Stdout: StdoutLog}, {Name: "zstd", Stdout: StdoutLog},
 	{Name: "zip", Stdout: StdoutLog}, {Name: "7z", Stdout: StdoutLog}, {Name: "rsync", Stdout: StdoutLog},
 	{Name: "cp", Stdout: StdoutLog}, {Name: "mv", Stdout: StdoutLog}, {Name: "dd", Stdout: StdoutLog},
-	{Name: "ls", Stdout: StdoutResults}, {Name: "grep", Stdout: StdoutResults}, {Name: "jq", Stdout: StdoutResults},
+	{Name: "ls", Stdout: StdoutResults}, {Name: "grep", Stdout: StdoutResults}, {Name: "jq", Stdout: StdoutResults, StdoutExt: "json"},
 	{Name: "find", Stdout: StdoutResults}, {Name: "dig", Stdout: StdoutResults}, {Name: "whois", Stdout: StdoutResults},
 }
 
@@ -125,6 +128,9 @@ func validKnownTool(t KnownTool) error {
 	}
 	if t.OutputExt != "" && !reKnownExt.MatchString(t.OutputExt) {
 		return fmt.Errorf("%s: output extension %q is not allowed", t.Name, t.OutputExt)
+	}
+	if t.StdoutExt != "" && !reKnownExt.MatchString(t.StdoutExt) {
+		return fmt.Errorf("%s: stdout extension %q is not allowed", t.Name, t.StdoutExt)
 	}
 	if t.OutputPositional {
 		for _, o := range t.Options {

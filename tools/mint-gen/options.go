@@ -149,6 +149,10 @@ var (
 	// -oN/-oX/-oG <file>: Output scan… / -PS/PA/PU[portlist]: TCP SYN…
 	// --files[=FILE]  read filenames… (an optional value written with brackets)
 	reOptionalArgLine = regexp.MustCompile(`^\s{1,12}(-{1,2}[A-Za-z0-9][-A-Za-z0-9_.]*)(?:,\s*(-{1,2}[A-Za-z0-9][-A-Za-z0-9_.]*))?(\[=?[^\]\s]{1,32}\])(?:\s{2,}(.*)|\s*)$`)
+	// -t FORMAT, -w FORMAT  --to=FORMAT, --write=FORMAT (each name with its
+	// own value; long names may follow instead of a description)
+	reMultiNameLine = regexp.MustCompile(`^\s{1,12}((?:-{1,2}[A-Za-z0-9][-A-Za-z0-9_.]*[ =](?:[A-Z][A-Z0-9_-]{0,31}|<[^>\s]{1,32}>)(?:,\s*)?){2,})(?:\s{2,}(.*?))?\s*$`)
+	reNameWithValue = regexp.MustCompile(`(-{1,2}[A-Za-z0-9][-A-Za-z0-9_.]*)[ =]([A-Z][A-Z0-9_-]{0,31}|<[^>\s]{1,32}>)`)
 	// A folder rather than a file.
 	reDirWord = regexp.MustCompile(`(?i)^(?:dir|dirs|directory|directories|folder|folders|dirname)$`)
 	// Any line that starts like an option: "-x", "--long", "-oN/-oX".
@@ -176,6 +180,32 @@ func scanOptionLine(line string) []OptionText {
 			out = append(out, OptionText{Names: []string{n}, Placeholder: ParsePlaceholder(ph), Desc: strings.TrimSpace(m[4])})
 		}
 		return out
+	}
+	if m := reMultiNameLine.FindStringSubmatch(line); m != nil {
+		var names []string
+		ph := ""
+		for _, nv := range reNameWithValue.FindAllStringSubmatch(m[1], -1) {
+			names = append(names, nv[1])
+			if ph == "" {
+				ph = nv[2]
+			}
+		}
+		desc := strings.TrimSpace(m[2])
+		if strings.HasPrefix(desc, "-") { // more names, not a description
+			for _, nv := range reNameWithValue.FindAllStringSubmatch(desc, -1) {
+				names = append(names, nv[1])
+			}
+			desc = ""
+		}
+		// Short name first, then the first long name, as elsewhere.
+		out := OptionText{Names: names[:1], Placeholder: ParsePlaceholder(ph), Desc: desc}
+		for _, n := range names[1:] {
+			if strings.HasPrefix(n, "--") {
+				out.Names = append(out.Names, n)
+				break
+			}
+		}
+		return []OptionText{out}
 	}
 	if m := reOptionalArgLine.FindStringSubmatch(line); m != nil {
 		names := []string{m[1]}

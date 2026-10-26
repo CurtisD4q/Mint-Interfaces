@@ -331,6 +331,15 @@ func New(spec ToolSpec) *ToolApp {
 
 // DefaultOutputFilename returns a clean timestamped filename for tool outputs.
 func DefaultOutputFilename(toolName, ext string) string {
+	ext = strings.TrimPrefix(ext, ".")
+	if ext == "" {
+		ext = "txt"
+	}
+	return fmt.Sprintf("%s-%s.%s", outputNameBase(toolName), time.Now().Format("20060102-150405"), ext)
+}
+
+// outputNameBase is the tool name as it starts an automatic file name.
+func outputNameBase(toolName string) string {
 	clean := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
 			return r
@@ -340,11 +349,7 @@ func DefaultOutputFilename(toolName, ext string) string {
 	if clean == "" {
 		clean = "mint-output"
 	}
-	ext = strings.TrimPrefix(ext, ".")
-	if ext == "" {
-		ext = "txt"
-	}
-	return fmt.Sprintf("%s-%s.%s", clean, time.Now().Format("20060102-150405"), ext)
+	return clean
 }
 
 // ApplyProfile applies the named preset to the current flag values and ExtraArgs.
@@ -380,6 +385,7 @@ func (a *ToolApp) ResolvedOutputPath() string {
 	if name == "" {
 		name = DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)
 	}
+	name = a.withOutputExt(name)
 	if filepath.IsAbs(name) {
 		return filepath.Clean(name)
 	}
@@ -1282,7 +1288,7 @@ func (a *ToolApp) outputFileSection() mint.Section {
 				Label: "Generate fresh timestamped filename",
 				Hint:  "rename",
 				OnActivate: func(c *mint.Ctx) {
-					a.OutputFile = DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)
+					a.OutputFile = DefaultOutputFilename(a.Spec.Name, a.outputExt())
 					c.Toast("Output filename: " + a.OutputFile)
 				},
 			}),
@@ -1759,7 +1765,7 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 					}
 					def := a.ResolvedOutputPath()
 					if def == "" {
-						def = filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt))
+						def = filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.outputExt()))
 					}
 					dest, ok := c.Prompt("Save Output", "Destination file path", def)
 					if !ok || strings.TrimSpace(dest) == "" {

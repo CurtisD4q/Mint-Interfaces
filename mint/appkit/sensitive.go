@@ -329,7 +329,7 @@ func (a *ToolApp) encryptOutput(c *mint.Ctx) {
 		c.ToastWarn("No output yet")
 		return
 	}
-	dest := filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)+secure.SealedExt)
+	dest := filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.outputExt())+secure.SealedExt)
 	pass, ok := askNewPassphrase(c, "the captured output")
 	if !ok {
 		return
