@@ -59,11 +59,15 @@ var (
 // roleRules are tried in order; all of them add their evidence.
 var roleRules = []roleRule{
 	{"known tool", func(c argCase) []Evidence {
-		if flag, ok := knownOutputFlags[c.Tool]; ok {
-			if c.Flag == flag {
-				return []Evidence{{appkit.RoleOutputFile, 10, c.Tool + "'s output option (built-in list)"}}
-			}
-			// Only the listed option is this tool's output file.
+		kt, ok := KnownToolIO(c.Tool)
+		if !ok {
+			return nil
+		}
+		if o, listed := kt.option(c.Flag); listed {
+			return []Evidence{{appkit.ArgRole(o.Role), 10, "listed for " + c.Tool + " in the known-tools list"}}
+		}
+		if _, hasMain := kt.mainOutput(); hasMain {
+			// The list names this tool's output file, and this is not it.
 			return []Evidence{{appkit.RoleOutputFile, -10, "not " + c.Tool + "'s listed output option"}}
 		}
 		return nil
@@ -138,6 +142,12 @@ var roleRules = []roleRule{
 func ClassifyArg(tool string, f appkit.FlagSpec) (appkit.ArgRole, []Evidence) {
 	if f.Kind == appkit.FlagBool || f.Kind == appkit.FlagSecret {
 		return appkit.RoleValue, nil
+	}
+	// The known-tools list is the authority for the options it names.
+	if kt, ok := KnownToolIO(tool); ok {
+		if o, listed := kt.option(f.Flag); listed {
+			return appkit.ArgRole(o.Role), []Evidence{{appkit.ArgRole(o.Role), 10, "listed for " + tool + " in the known-tools list"}}
+		}
 	}
 	c := argCase{Tool: tool, Flag: f.Flag, Kind: f.Kind, Placeholder: ParsePlaceholder(f.Hint),
 		Desc: stripFlagSuffix(f.Label, f.Flag)}

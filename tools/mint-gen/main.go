@@ -100,6 +100,7 @@ func runCLI(args []string) int {
 		if spec, err := ParseProgram(checkTarget); err == nil {
 			fmt.Println()
 			printSafetyReport(os.Stdout, spec)
+			printKnownToolWarnings(os.Stderr)
 		}
 		return 0
 	}
@@ -168,6 +169,7 @@ func runCLI(args []string) int {
 	}
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
+	printKnownToolWarnings(os.Stderr)
 
 	if buildBin {
 		if err := buildScaffoldedApp(res.AppDir, res.BinaryOut); err != nil {
@@ -579,4 +581,23 @@ func printApps(out, errOut io.Writer, repoRoot string) int {
 		fmt.Fprintf(errOut, "No apps yet in %s\n", dir)
 	}
 	return 0
+}
+
+// printKnownToolWarnings reports known-tools JSON files that were ignored,
+// and why, so a mistake (or someone else's file) is never silent.
+func printKnownToolWarnings(w io.Writer) {
+	for _, msg := range KnownToolWarnings() {
+		fmt.Fprintln(w, "mint-gen: tools.d: "+safeTerminalText(msg))
+	}
+}
+
+// safeTerminalText removes control characters (such as escape sequences
+// from a file name) before text is printed to a terminal.
+func safeTerminalText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, s)
 }
