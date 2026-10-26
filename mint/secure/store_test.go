@@ -228,3 +228,35 @@ func TestIdleTimeoutSettings(t *testing.T) {
 		t.Fatalf("a bad value should be ignored: %v", d)
 	}
 }
+
+func TestHasNoticesExpiryWithoutKeepingTheKeyAlive(t *testing.T) {
+	for _, mode := range []string{"keyring", "fallback"} {
+		t.Run(mode, func(t *testing.T) {
+			forceNoKeyring = mode == "fallback"
+			defer func() { forceNoKeyring = false }()
+			st, _ := OpenWithTimeout(time.Second)
+			defer st.Close()
+			st.Put("pw", []byte("x"))
+			for i := 0; i < 12; i++ { // keep asking, as a screen redraw would
+				st.Has("pw")
+				time.Sleep(200 * time.Millisecond)
+			}
+			if st.Has("pw") {
+				t.Fatal("Has kept the key alive or missed the expiry")
+			}
+		})
+	}
+}
+
+func TestStoresDoNotShareKeys(t *testing.T) {
+	a, _ := OpenWithTimeout(0)
+	b, _ := OpenWithTimeout(0)
+	defer b.Close()
+	a.Put("pw", []byte("from a"))
+	b.Put("pw", []byte("from b"))
+	a.Close() // must not touch b's key
+	var got string
+	if err := b.Use("pw", func(s []byte) error { got = string(s); return nil }); err != nil || got != "from b" {
+		t.Fatalf("second store broken after closing the first: %q %v", got, err)
+	}
+}

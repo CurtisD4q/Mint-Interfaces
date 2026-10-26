@@ -439,6 +439,19 @@ func (j *Job) SendLine(line string) error {
 	return err
 }
 
+// Write sends p to the job's standard input as it is (Cmd.Input must be
+// true). Unlike SendLine it makes no copy, so a secret held in protected
+// memory can be written straight from there.
+func (j *Job) Write(p []byte) (int, error) {
+	j.mu.Lock()
+	w := j.stdin
+	j.mu.Unlock()
+	if w == nil {
+		return 0, errors.New("job stdin is not open (set Cmd.Input: true)")
+	}
+	return w.Write(p)
+}
+
 // Stop terminates the job and its entire process group (SIGTERM or
 // Cmd.StopSignal, followed by SIGKILL after 2s if any process ignores it).
 func (j *Job) Stop() {
