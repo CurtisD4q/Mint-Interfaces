@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +24,7 @@ func runCLI(args []string) int {
 		checkTarget   string
 		templateFlag  string
 		listTemplates bool
+		listApps      bool
 		force         bool
 		buildBin      bool
 		runApp        bool
@@ -36,6 +39,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
 	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and 8 Mixins")
+	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
@@ -69,6 +73,10 @@ func runCLI(args []string) int {
 		repoRoot = detectRepoRoot()
 	}
 
+	if listApps {
+		return printApps(os.Stdout, os.Stderr, repoRoot)
+	}
+
 	if tuiMode {
 		target := ""
 		if fs.NArg() > 0 {
@@ -97,7 +105,7 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-templates] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
 		return 2
 	}
 
@@ -544,3 +552,31 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 }
 
 var _ = appkit.FlagBool
+
+// printApps lists the folders in <repo>/apps, one per line, like ls.
+func printApps(out, errOut io.Writer, repoRoot string) int {
+	dir := filepath.Join(repoRoot, "apps")
+	if repoRoot == "" {
+		dir = "apps"
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(errOut, "No apps yet (%s does not exist)\n", dir)
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	n := 0
+	for _, e := range entries { // ReadDir sorts by name
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			fmt.Fprintln(out, e.Name())
+			n++
+		}
+	}
+	if n == 0 {
+		fmt.Fprintf(errOut, "No apps yet in %s\n", dir)
+	}
+	return 0
+}

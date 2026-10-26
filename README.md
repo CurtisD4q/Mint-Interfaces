@@ -72,6 +72,10 @@ Once installed, the steps from any directory are:
    ```sh
    mint-gen --remove nmap
    ```
+5. **List your apps:** Show the apps in the repository's `apps/` folder, one per line.
+   ```sh
+   mint-gen --list
+   ```
 
 ## Prerequisites
 

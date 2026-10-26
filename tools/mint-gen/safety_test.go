@@ -246,3 +246,20 @@ func TestLaunchThroughSudo(t *testing.T) {
 		t.Fatal("missing sudo should be an error")
 	}
 }
+
+func TestListApps(t *testing.T) {
+	root := t.TempDir()
+	var out, errOut strings.Builder
+	if code := printApps(&out, &errOut, root); code != 0 || !strings.Contains(errOut.String(), "No apps yet") {
+		t.Fatalf("no apps folder: %d %q", code, errOut.String())
+	}
+	for _, d := range []string{"tcpdump", "curl", ".hidden"} {
+		os.MkdirAll(filepath.Join(root, "apps", d), 0o755)
+	}
+	os.WriteFile(filepath.Join(root, "apps", "README"), nil, 0o644)
+	out.Reset()
+	errOut.Reset()
+	if code := printApps(&out, &errOut, root); code != 0 || out.String() != "curl\ntcpdump\n" {
+		t.Fatalf("got %q (%d)", out.String(), code)
+	}
+}
