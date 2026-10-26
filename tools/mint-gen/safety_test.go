@@ -124,3 +124,21 @@ Options:
 		t.Fatalf("spec.go does not keep the secret kinds (%v):\n%s", err, src)
 	}
 }
+
+func TestSafetyReportOutput(t *testing.T) {
+	help := `Usage: login [options] host
+Options:
+  -p, --password PASS      password to log in with
+      --password-stdin     read the password from standard input
+      --force              overwrite the saved session without asking
+`
+	var b strings.Builder
+	printSafetyReport(&b, ParseManAndHelp("login", "", help))
+	out := b.String()
+	for _, want := range []string{"Secrets:     2 options", "-p", "command line: visible to other users",
+		"--password-stdin", "standard input: never visible", "Destructive: 1 option to review", "--force"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report missing %q:\n%s", want, out)
+		}
+	}
+}

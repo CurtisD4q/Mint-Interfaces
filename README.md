@@ -409,6 +409,17 @@ python3 tools/check_catalogue.py
 - **Irreversible tools need the target typed to confirm.** `dd`, `shred`, `rm`, `wipefs`, `mkfs.*`, `kill`, `pkill`, `killall` and similar are marked `Irreversible`.
 - **Secrets stay secret.** Options whose value is a password, token or key are `FlagSecret`: asked for with a password dialog, kept for the session only (never in settings, presets or history), and masked in the command preview. A `--password-stdin` style option sends the secret on standard input. If a tool only accepts the secret on its command line, where other users can see it with `ps`, the app says so and asks before running. Settings and history files are readable only by you.
 - **`mint-gen` only touches folders it created.** It refuses to scaffold into a folder that already has other files, and `--remove` deletes only the files it generated (listed in the folder's `.mint-gen` file), leaving anything else in place. Options may come before or after the program name.
+- **Check before you build.** `mint-gen --check <program>`, the summary after scaffolding, and the Safety section of `mint-gen --tui` all show a safety report: when the tool will run (automatically, only when asked, or only after the target is typed), each secret option and how its value is passed (standard input, which no one else can see, or the command line, which other users can see with `ps`), and the options that look destructive (`--force`, `--delete`, `-f` "never prompt"…). For example:
+
+  ```
+  Safety:
+    Running:     destroys data or processes: runs only when asked, and the target must be typed to confirm
+    Secrets:     none found
+    Destructive: 3 options to review (they delete, overwrite or skip a prompt)
+      -f                   Ignore nonexistent files and arguments, never prompt
+      --no-preserve-root   Do not treat '/' specially
+      -r                   Remove directories and their contents recursively
+  ```
 
 #### Step-by-step: generating and running a Mint interface for any installed CLI program
 

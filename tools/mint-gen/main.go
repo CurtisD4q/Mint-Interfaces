@@ -85,6 +85,10 @@ func runCLI(args []string) int {
 		if !rep.Compatible {
 			return 1
 		}
+		if spec, err := ParseProgram(checkTarget); err == nil {
+			fmt.Println()
+			printSafetyReport(os.Stdout, spec)
+		}
 		return 0
 	}
 
@@ -150,6 +154,8 @@ func runCLI(args []string) int {
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
+	fmt.Println()
+	printSafetyReport(os.Stdout, spec)
 
 	if buildBin {
 		if err := buildScaffoldedApp(res.AppDir, res.BinaryOut); err != nil {
@@ -507,6 +513,10 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							},
 						}),
 					},
+				},
+				{
+					Name: "Safety",
+					Rows: safetyRows(spec),
 				},
 			}
 		}

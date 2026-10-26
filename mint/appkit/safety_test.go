@@ -178,3 +178,50 @@ func TestRefreshStateTimesOut(t *testing.T) {
 		t.Fatalf("err %v after %v", err, time.Since(start))
 	}
 }
+
+func TestLooksDestructive(t *testing.T) {
+	yes := []struct{ flag, label string }{
+		{"--force", ""}, {"--remove-files", "Remove files after adding them"}, {"--delete", ""},
+		{"--no-preserve-root", "Do not treat '/' specially"}, {"--hard", ""},
+		{"-f", "Ignore nonexistent files and arguments, never prompt"},
+		{"-f", "Do not prompt before overwriting"}, {"-r", "Remove directories and their contents recursively"},
+		{"--overwrite", "Overwrite existing files when extracting"},
+	}
+	no := []struct{ flag, label string }{
+		{"-i", "Prompt before overwrite"}, {"-n", "Do not overwrite an existing file"},
+		{"--no-overwrite-dir", "Preserve metadata of existing directories"},
+		{"--owner", "Force NAME as owner for added files"}, {"-v", "Explain what is being done"},
+		{"--hard-dereference", "Follow hard links"},
+	}
+	for _, c := range yes {
+		if !LooksDestructive(c.flag, c.label) {
+			t.Errorf("%s %q should look destructive", c.flag, c.label)
+		}
+	}
+	for _, c := range no {
+		if LooksDestructive(c.flag, c.label) {
+			t.Errorf("%s %q should not look destructive", c.flag, c.label)
+		}
+	}
+}
+
+func TestSafetyReport(t *testing.T) {
+	r := ToolSpec{Name: "shred", Flags: []FlagSpec{
+		{Flag: "--password", Kind: FlagSecret, Label: "Password"},
+		{Flag: "--token-stdin", Kind: FlagSecret, SecretStdin: true, Label: "Token"},
+		{Flag: "--force", Kind: FlagBool, Label: "Force"},
+		{Flag: "-v", Kind: FlagBool, Label: "Verbose"},
+	}}.SafetyReport()
+	if !strings.Contains(r.Running, "typed to confirm") {
+		t.Errorf("running %q", r.Running)
+	}
+	if len(r.Secrets) != 2 || r.Secrets[0].Route != RouteArgument || r.Secrets[1].Route != RouteStdin {
+		t.Errorf("secrets %+v", r.Secrets)
+	}
+	if len(r.Destructive) != 1 || r.Destructive[0].Flag != "--force" {
+		t.Errorf("destructive %+v", r.Destructive)
+	}
+	if ps := (ToolSpec{Name: "ps"}).SafetyReport(); !strings.Contains(ps.Running, "may run automatically") {
+		t.Errorf("ps running %q", ps.Running)
+	}
+}
