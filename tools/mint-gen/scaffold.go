@@ -199,6 +199,12 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.OutputFlag != "" {
 		fmt.Fprintf(&buf, "\t\tOutputFlag:        %q,\n", spec.OutputFlag)
 	}
+	if spec.OutputPositional {
+		buf.WriteString("\t\tOutputPositional:  true,\n")
+	}
+	if id := stdoutIdent(spec.StdoutKind); id != "" {
+		fmt.Fprintf(&buf, "\t\tStdoutKind:        appkit.%s,\n", id)
+	}
 	if spec.DefaultExt != "" {
 		fmt.Fprintf(&buf, "\t\tDefaultExt:        %q,\n", spec.DefaultExt)
 	}
@@ -434,6 +440,20 @@ func roleIdent(r appkit.ArgRole) string {
 		return "RoleConfigFile"
 	case appkit.RoleFormat:
 		return "RoleFormat"
+	}
+	return ""
+}
+
+// stdoutIdent is the Go name of a stdout kind, from a fixed list ("" for
+// unknown values, which are then not written).
+func stdoutIdent(k string) string {
+	switch k {
+	case appkit.StdoutResults:
+		return "StdoutResults"
+	case appkit.StdoutLog:
+		return "StdoutLog"
+	case appkit.StdoutBinary:
+		return "StdoutBinary"
 	}
 	return ""
 }

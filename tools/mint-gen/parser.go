@@ -16,6 +16,15 @@ var (
 	reTargetHint = regexp.MustCompile(`(?i)\b(target|host|url|uri|domain|address|file|path|pattern|dir|directory|archive|input|interface|device|package|image|container)\b`)
 )
 
+// ParseProgramIO is ParseProgram, also returning the input/output model
+// (for --explain).
+func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
+	name := filepath.Base(strings.TrimSpace(bin))
+	manText, helpText := manAndHelp(CollectHelp(bin))
+	spec := ParseManAndHelp(name, manText, helpText)
+	return spec, BuildIOModel(spec, ParseSynopsis(name, cleanLines(manText), cleanLines(helpText)))
+}
+
 // ParseProgram reads the program's man page, its --help (or -h) and any
 // fuller help it points to (see CollectHelp), and returns a populated
 // appkit.ToolSpec.
@@ -126,6 +135,8 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
 	appkit.ApplySafetyDefaults(&spec)
+	// One answer for what the tool reads and writes (see BuildIOModel).
+	applyIOModel(&spec, BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines)))
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec
 }
