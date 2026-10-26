@@ -176,6 +176,12 @@ func chooseTemplate(bin string, spec appkit.ToolSpec, manText, helpText string) 
 	if tpl, ok := appkit.TemplateForTool(name); ok {
 		return TemplateChoice{ID: string(tpl.ID), Why: "listed for " + name + " in the template's tools"}
 	}
+	return scoreTemplateChoice(name, manText, helpText)
+}
+
+// scoreTemplateChoice chooses a template from the help text alone, as for a
+// program no list knows (the template benchmark uses it directly).
+func scoreTemplateChoice(name, manText, helpText string) TemplateChoice {
 	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
 	subcmds := extractSubcommands(manLines, helpLines)
 	lowerAll := strings.ToLower(manText + "\n" + helpText)
