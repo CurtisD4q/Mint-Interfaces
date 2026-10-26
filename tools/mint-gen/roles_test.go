@@ -33,7 +33,7 @@ func TestClassifyArg(t *testing.T) {
 		{"tar", opt("--one-top-level", "[=dir]", "Create a subdirectory to avoid having loose files extracted", D), appkit.RoleOutputDir},
 		{"grep", opt("--include", "glob", "Search only files that match GLOB (a file pattern)", T), appkit.RoleValue},
 		{"nmap", opt("-oN", "<file>", "Output scan in normal format", F), appkit.RoleOutputFile},
-		{"nmap", opt("-oX", "<file>", "Output scan in XML format", F), appkit.RoleFile}, // only -oN is listed (for now)
+		{"nmap", opt("-oX", "<file>", "Output scan in XML format", F), appkit.RoleOutputFile}, // listed in the known-tools list (XML output)
 		{"nmap", opt("-oA", "<basename>", "Output in the three major formats at once", T), appkit.RoleOutputBase},
 		{"pandoc", opt("-t", "{html|pdf|docx|markdown}", "Output format", appkit.FlagChoice), appkit.RoleFormat},
 		{"tool", opt("--format", "format", "Output format: json or text", T), appkit.RoleFormat},

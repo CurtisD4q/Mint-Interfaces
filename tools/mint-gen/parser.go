@@ -58,6 +58,10 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 	var flags []appkit.FlagSpec
 	seen := map[string]bool{}
 
+	knownMain, hasKnownMain := KnownOption{}, false
+	if kt, ok := KnownToolIO(name); ok {
+		knownMain, hasKnownMain = kt.mainOutput()
+	}
 	addFlags := func(parsed []appkit.FlagSpec) {
 		for _, f := range parsed {
 			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
@@ -65,10 +69,13 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 			}
 			f.Role, _ = ClassifyArg(name, f)
 			// The option that writes the tool's output to a file (see isOutputFileFlag)
-			if !spec.OutputsFile && f.Role == appkit.RoleOutputFile {
+			if !spec.OutputsFile && f.Role == appkit.RoleOutputFile && (!hasKnownMain || f.Flag == knownMain.Flag) {
 				spec.OutputsFile = true
 				spec.OutputFlag = f.Flag
 				spec.DefaultExt = guessExtension(name, f.Label+" "+f.Hint)
+				if hasKnownMain && knownMain.Ext != "" {
+					spec.DefaultExt = knownMain.Ext
+				}
 				seen[f.Flag] = true
 				continue
 			}
@@ -550,12 +557,6 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	}
 
 	return appkit.FlagText, nil, 0, 0
-}
-
-// knownOutputFlags are output options the help text alone cannot settle.
-var knownOutputFlags = map[string]string{
-	"tcpdump": "-w", "tshark": "-w", "dumpcap": "-w", // raw packet capture files
-	"nmap": "-oN",
 }
 
 // outputFlagNames are the usual names of an output-file option. One of these

@@ -95,6 +95,14 @@ OPTIONS
 	if spec.OutputFlag != "-oN" {
 		t.Errorf("output option %q, want -oN", spec.OutputFlag)
 	}
+	if spec.DefaultExt != "nmap" {
+		t.Errorf("extension %q, want nmap (from the known-tools list)", spec.DefaultExt)
+	}
+	for _, f := range spec.Flags {
+		if f.Flag == "-oX" && f.Role != appkit.RoleOutputFile {
+			t.Errorf("-oX role %q, want output-file", f.Role)
+		}
+	}
 	// The -i description must not run into the next option.
 	for _, f := range spec.Flags {
 		if f.Flag == "-i" && strings.Contains(f.Label, "Port") {
