@@ -142,7 +142,7 @@ func Choose(title string, items []string, subtitle string) (string, bool) {
 	return c.Value, ok
 }
 
-// asciiLower lowercases A–Z only, as Lua's string.lower does.
+// asciiLower lowercases A–Z only, leaving every other byte as it is.
 func asciiLower(s string) string {
 	b := []byte(s)
 	for i, c := range b {

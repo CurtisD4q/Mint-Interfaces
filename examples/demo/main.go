@@ -1,5 +1,4 @@
-// A tour of every row type and dialog. compare/demo.lua is the same program
-// written against the original Lua library.
+// A tour of every row type and dialog.
 //
 //	go run ./examples/demo
 package main

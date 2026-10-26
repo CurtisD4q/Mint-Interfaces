@@ -1,12 +1,10 @@
 # Mint Interfaces (Go)
 
-A zero-dependency terminal UI library, ported from the Lua original.
+A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
 The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded purple frame with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
 
 On top of the original, it adds dividers and spacing, text styles, collapsible sections, slider ranges and units, progress bars, number steppers, checkboxes, radio groups, toasts, status badges, a loading spinner, background jobs with live output, and a catalogue for building interfaces for command-line programs. See [Additions](#additions). Every app also gets standard command-line flags, emacs and vim key profiles, and can be launched from Emacs, matching its theme. See [Standalone binaries and flags](#standalone-binaries-and-flags), [Keys](#keys) and [Running from Emacs](#running-from-emacs-emacsmintel).
-
-The port was verified byte for byte against the Lua original before any additions were made: both versions were run in a pseudo-terminal with identical keys, clicks and resizes, and every frame matched.
 
 There is no settings logic and no system backend in the library. An app describes screens as structs and handles its own data.
 
@@ -195,7 +193,7 @@ Dialogs: `ctx.Confirm`, `ctx.Message`, `ctx.Prompt`, `ctx.Choose`, `ctx.ChooseIt
 
 `Get` and `Set` are ordinary functions. A slider's `Get` returns `0`–`100`. A picker's `Set` receives the next option string. Pass `Options` (or `OptionsFunc` for a list that changes), or leave them out and handle the raw `-1` / `0` / `1` direction yourself in `Step`. Every row also takes an optional `ID`.
 
-If a `Get` panics, the row shows the message in amber, or the last good value if there was one, exactly like a Lua `error()` inside `get`. Panics in `Set`, `OnActivate`, `Enter` and `Poll` are swallowed, as `pcall` does in the original.
+If a `Get` panics, the row shows the message in amber, or the last good value if there was one. Panics in `Set`, `OnActivate`, `Enter` and `Poll` are recovered, so they never crash the app.
 
 Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The defaults match the settings manager: `↑↓ move ⏎ open q quit` on the home list, and `↑↓ move ←→/Space change b home q quit` on a screen. With the emacs or vim [key profile](#keys) they show that profile's keys instead, unless the app has set its own. They are also exported as `mint.HomeHints`, `mint.ScreenHints` and `mint.EditHints`.
 
@@ -207,7 +205,7 @@ Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The d
 
 ### Colour
 
-The built-in palette is the original purple: 256-colour index 141 for the frame and titles, and a dim selection bar. `theme.Names` lists `default`, `terminal`, `nord`, `gruvbox`, `dracula`, `catppuccin` and `custom`. `mint.SetPalette(theme.Load(name))` applies one immediately. `theme.Set(name)` writes `~/.config/mint-interfaces/theme.conf`, the same file the Lua version reads, so both versions share a theme.
+The built-in palette is the original purple: 256-colour index 141 for the frame and titles, and a dim selection bar. `theme.Names` lists `default`, `terminal`, `nord`, `gruvbox`, `dracula`, `catppuccin` and `custom`. `mint.SetPalette(theme.Load(name))` applies one immediately. `theme.Set(name)` writes `~/.config/mint-interfaces/theme.conf`, the same file mint-interfaces-legacy reads, so both share a theme.
 
 Truecolor (`CSI 38;2;r;g;b m` / `CSI 48;2;r;g;b m`) is gated on both the theme and the terminal: it is emitted only when a theme (or `MINT_PALETTE`) specifies RGB values **and** `$COLORTERM` is `truecolor` or `24bit`. When `$COLORTERM` is unset, any RGB colour falls back to the nearest 256-colour approximation (`CSI 38;5;n m` / `CSI 48;5;n m`).
 
@@ -246,25 +244,9 @@ tools/build.sh                 builds a standalone static binary (also for apps 
 
 `mint/util` is there so apps can shell out safely and encode JSON without another dependency. `util.Run(program, args...)` passes each argument as data, so no shell ever parses it. `util.RunTimeout(limit, program, args...)` does the same with a time limit, detached from the terminal; `util.StopAll()` ends any still running when the app closes. It is not a settings backend.
 
-### Lua → Go cheat sheet
-
-| Lua | Go |
-|---|---|
-| `mint.app({...}):run()` | `(&mint.App{...}).Run()` |
-| `{ "Heading", { rows } }` | `mint.Section{Name: "Heading", Rows: []mint.Row{...}}` |
-| `mint.section("…")` | `mint.Heading("…")` |
-| a bare string in a row list | `mint.Note("…")` |
-| `ctx:prompt(...)` returns `nil` on Esc | `v, ok := ctx.Prompt(...)` |
-| `ctx:choose(t, {{label=, value=}})` | `ctx.ChooseItem(t, []mint.Choice{{Label:, Value:}}, sub)` |
-| picker `set` receiving `-1/0/1` | `PickerOpts.Step` |
-| `mint.theme.palette(name)` | `theme.Load(name)` |
-| `mint.event_cache.new{...}` | `eventcache.New(eventcache.Options{...})` |
-
-Two behaviours differ from the Lua version on purpose. A double-click must land within 0.45 seconds (the Lua version measured CPU time, so a second click seconds later still counted). Backspace in the `Choose` filter and `TypeToConfirm` removes a whole character (Lua removed one byte, leaving half of a character like `é`). Unknown keys such as Delete or F5 are now ignored, where the Lua version treated them as Esc.
-
 ## Additions
 
-None of these exist in the Lua version. All of them are off unless you use them, so existing screens look exactly as before. `examples/features` shows every one.
+All of them are off unless you use them, so existing screens look exactly as before. `examples/features` shows every one.
 
 ### Dividers, spacing and text styles
 
