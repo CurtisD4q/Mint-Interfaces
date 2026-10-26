@@ -5,6 +5,7 @@ package appkit
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/runner"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/secure"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 )
 
@@ -200,10 +202,11 @@ type ToolApp struct {
 	lastOut   string
 	history   []RunRecord
 
-	secrets    map[string]string // FlagSecret values, never written to disk
-	argvOK     bool              // user accepted secrets on the command line this session
-	refreshing bool              // a background state refresh is running
-	refreshed  bool              // a refresh finished since the screen last looked
+	store      *secure.Store   // FlagSecret values: encrypted, locked memory, never on disk
+	secretSet  map[string]bool // which secrets the user entered (names only), to notice expiry
+	argvOK     bool            // user accepted secrets on the command line this session
+	refreshing bool            // a background state refresh is running
+	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
 }
 
@@ -276,7 +279,7 @@ func New(spec ToolSpec) *ToolApp {
 		OutputFile:       DefaultOutputFilename(spec.Name, spec.DefaultExt),
 		ConfigDir:        cfgDir,
 		DataDir:          dataDir,
-		secrets:          map[string]string{},
+		secretSet:        map[string]bool{},
 	}
 
 	if len(spec.Profiles) > 0 {
@@ -360,14 +363,15 @@ const secretMask = "••••••"
 
 // composeFlagArgs builds the flag, output and target arguments. With mask,
 // secret values are replaced by secretMask (for previews and history).
-// stdin holds secrets the program reads from standard input.
+// stdin lists the secrets (by key) the program reads from standard input;
+// StartJob writes them straight from the secure store.
 func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, stdin []string) {
 	for _, f := range a.Spec.Flags {
 		val := strings.TrimSpace(a.Values[f.Flag])
 		switch f.Kind {
 		case FlagSecret:
-			sec := a.secret(f.SecretKey())
-			if sec == "" {
+			key := f.SecretKey()
+			if !a.hasSecret(key) {
 				continue
 			}
 			switch f.SecretRoute() {
@@ -375,7 +379,7 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 				if f.Flag != "" {
 					args = append(args, f.Flag)
 				}
-				stdin = append(stdin, sec)
+				stdin = append(stdin, key)
 				continue
 			case RouteEnv:
 				// The value goes in the environment (secretEnv); only a
@@ -385,8 +389,10 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 				}
 				continue
 			}
-			if mask {
-				sec = secretMask
+			// The command line can only take a string: decrypt just now.
+			sec := secretMask
+			if !mask {
+				sec = a.reveal(key)
 			}
 			if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
 				args = append(args, strings.TrimSuffix(f.Flag, "=")+"="+sec)
@@ -446,9 +452,10 @@ func (a *ToolApp) secretEnv(mask bool) []string {
 		if f.Kind != FlagSecret || f.SecretRoute() != RouteEnv {
 			continue
 		}
-		if sec := a.secret(f.SecretKey()); sec != "" {
-			if mask {
-				sec = secretMask
+		if key := f.SecretKey(); a.hasSecret(key) {
+			sec := secretMask
+			if !mask {
+				sec = a.reveal(key) // an environment entry is a string
 			}
 			env = append(env, f.SecretEnv+"="+sec)
 		}
@@ -464,21 +471,130 @@ func (a *ToolApp) envNames() []string {
 	return names
 }
 
-func (a *ToolApp) secret(flag string) string {
+// hasSecret reports whether a secret is stored (and not expired).
+func (a *ToolApp) hasSecret(key string) bool {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.secrets[flag]
+	st := a.store
+	a.mu.Unlock()
+	return st != nil && st.Has(key)
 }
 
-// SetSecret stores the value of a FlagSecret option for this session only.
-func (a *ToolApp) SetSecret(flag, value string) {
+// secretExpired reports whether the user entered this secret but the
+// store's idle timeout has since wiped it.
+func (a *ToolApp) secretExpired(key string) bool {
+	a.mu.Lock()
+	set := a.secretSet[key]
+	a.mu.Unlock()
+	return set && !a.hasSecret(key)
+}
+
+// reveal decrypts a secret for a command-line argument or an environment
+// entry, which Go can only pass as strings. Stdin secrets never use it.
+func (a *ToolApp) reveal(key string) string {
+	a.mu.Lock()
+	st := a.store
+	a.mu.Unlock()
+	var out string
+	if st != nil {
+		_ = st.Use(key, func(b []byte) error { out = string(b); return nil })
+	}
+	return out
+}
+
+// secureStore opens the secure store the first time a secret is entered.
+func (a *ToolApp) secureStore() (*secure.Store, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if value == "" {
-		delete(a.secrets, flag)
-	} else {
-		a.secrets[flag] = value
+	if a.store == nil {
+		st, err := secure.Open()
+		if err != nil {
+			return nil, err
+		}
+		a.store = st
 	}
+	return a.store, nil
+}
+
+// SecretProtection describes how well this app can protect secrets here,
+// once one has been entered ("" before that).
+func (a *ToolApp) SecretProtection() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.store == nil {
+		return ""
+	}
+	return a.store.Level().String()
+}
+
+// SetSecret stores the value of a FlagSecret option for this session only,
+// encrypted in the secure store (an empty value removes it).
+func (a *ToolApp) SetSecret(flag, value string) error {
+	if value == "" {
+		a.mu.Lock()
+		st := a.store
+		delete(a.secretSet, flag)
+		a.mu.Unlock()
+		if st != nil {
+			st.Delete(flag)
+		}
+		return nil
+	}
+	st, err := a.secureStore()
+	if err != nil {
+		return err
+	}
+	err = st.Put(flag, []byte(value))
+	if errors.Is(err, secure.ErrExpired) {
+		// The idle timeout wiped the old key: start a fresh one.
+		if err = st.Renew(); err == nil {
+			err = st.Put(flag, []byte(value))
+		}
+	}
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.secretSet[flag] = true
+	a.mu.Unlock()
+	return nil
+}
+
+// expiredSecrets lists the labels of secrets the user entered that the
+// idle timeout has wiped, and forgets them, so a run never goes ahead
+// silently without them.
+func (a *ToolApp) expiredSecrets() []string {
+	var out []string
+	for _, f := range a.Spec.Flags {
+		if f.Kind == FlagSecret && a.secretExpired(f.SecretKey()) {
+			label := f.Label
+			if label == "" {
+				label = f.SecretKey()
+			}
+			out = append(out, label)
+			a.mu.Lock()
+			delete(a.secretSet, f.SecretKey())
+			a.mu.Unlock()
+		}
+	}
+	return out
+}
+
+// Close wipes every secret. appkit.Run calls it when the interface closes.
+func (a *ToolApp) Close() {
+	a.mu.Lock()
+	st := a.store
+	a.store = nil
+	a.mu.Unlock()
+	if st != nil {
+		st.Close()
+	}
+}
+
+func pronoun(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // argvSecrets lists the labels of secrets that are set and can only be
@@ -486,7 +602,7 @@ func (a *ToolApp) SetSecret(flag, value string) {
 func (a *ToolApp) argvSecrets() []string {
 	var out []string
 	for _, f := range a.Spec.Flags {
-		if f.Kind == FlagSecret && f.SecretRoute() == RouteArgument && a.secret(f.SecretKey()) != "" {
+		if f.Kind == FlagSecret && f.SecretRoute() == RouteArgument && a.hasSecret(f.SecretKey()) {
 			label := f.Label
 			if label == "" {
 				label = f.Flag
@@ -687,6 +803,9 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	}
 	a.mu.Unlock()
 
+	if labels := a.expiredSecrets(); len(labels) > 0 {
+		return nil, fmt.Errorf("%s expired after a period of inactivity; enter %s again", strings.Join(labels, ", "), pronoun(len(labels)))
+	}
 	args, outPath, stdinSecrets := a.buildArgs(false)
 	shownArgs, _, _ := a.buildArgs(true)
 	if outPath != "" {
@@ -710,8 +829,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		bin = "sudo"
 		stdinLines = append(stdinLines, a.SudoPassword) // sudo reads the first line
 	}
-	stdinLines = append(stdinLines, stdinSecrets...)
-	useStdin := len(stdinLines) > 0
+	useStdin := len(stdinLines) > 0 || len(stdinSecrets) > 0
 
 	started := time.Now()
 	cmdLine := a.CommandPreview()
@@ -755,6 +873,22 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	if useStdin {
 		for _, line := range stdinLines {
 			_ = job.SendLine(line)
+		}
+		// Secrets go from the store's protected memory straight to the
+		// program's standard input, without an ordinary copy.
+		a.mu.Lock()
+		st := a.store
+		a.mu.Unlock()
+		for _, key := range stdinSecrets {
+			if st != nil {
+				_ = st.Use(key, func(b []byte) error {
+					if _, err := job.Write(b); err != nil {
+						return err
+					}
+					_, err := job.Write([]byte{'\n'})
+					return err
+				})
+			}
 		}
 		job.CloseInput()
 	}
@@ -1046,14 +1180,23 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 			ID:    "flag:" + key,
 			Label: label,
 			Get: func() string {
-				if a.secret(key) != "" {
+				if a.secretExpired(key) {
+					return "expired, enter again"
+				}
+				if a.hasSecret(key) {
 					return "set (not saved)"
 				}
 				return "not set"
 			},
 			OnActivate: func(c *mint.Ctx) {
 				if v, ok := c.Password(label, "Kept for this session only; empty clears it"); ok {
-					a.SetSecret(key, v)
+					if err := a.SetSecret(key, v); err != nil {
+						c.ToastError("Could not store the secret: " + err.Error())
+						return
+					}
+					if lvl := a.SecretProtection(); lvl != "" && lvl != "full" {
+						c.ToastWarn("Secret protection " + lvl)
+					}
 				}
 			},
 		})
@@ -1699,6 +1842,7 @@ func (a *ToolApp) MintApp() *mint.App {
 func Run(spec ToolSpec) {
 	app := New(spec)
 	app.BuildApp().Run()
+	app.Close() // wipe every secret
 	runner.StopAll()
 	util.StopAll() // status commands still running in the background
 }

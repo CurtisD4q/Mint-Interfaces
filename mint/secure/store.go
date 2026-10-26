@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,6 +90,9 @@ type Store struct {
 // forceNoKeyring makes Open use the fallback (tests).
 var forceNoKeyring bool
 
+// storeSeq numbers the stores in this process.
+var storeSeq atomic.Int64
+
 // Open creates the store with this computer's idle timeout (see
 // IdleTimeout). It also hardens the process: core dumps off, and on Linux
 // not dumpable, so other processes running as the same user cannot read
@@ -118,7 +122,10 @@ func OpenWithTimeout(timeout time.Duration) (*Store, error) {
 	}
 
 	if keyringAvailable() && !forceNoKeyring {
-		if id, err := keyringAdd(fmt.Sprintf("mint-store-%p", s), key.bytes()); err == nil {
+		// Each store needs its own description: adding a key with an
+		// existing description would replace that store's key.
+		desc := fmt.Sprintf("mint-store-%d", storeSeq.Add(1))
+		if id, err := keyringAdd(desc, key.bytes()); err == nil {
 			s.keyID = id
 			if timeout > 0 {
 				_ = keyringTimeout(id, timeoutSecs(timeout))
@@ -204,12 +211,23 @@ func (s *Store) Use(name string, fn func(secret []byte) error) error {
 	return fn(plain.bytes())
 }
 
-// Has reports whether a secret is stored under name.
+// Has reports whether a secret is stored under name and still usable. It
+// notices an expired key (wiping everything) but, unlike Use, does not
+// restart the idle timer, so it is safe to call while drawing.
 func (s *Store) Has(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed || s.expired {
+		return false
+	}
+	switch {
+	case s.keyID != 0 && !keyringAlive(s.keyID):
+		s.expire()
+	case s.keyID == 0 && s.keyBuf != nil && s.timeout > 0 && time.Since(s.lastUse) > s.timeout:
+		s.expire()
+	}
 	_, ok := s.entries[name]
-	return ok && !s.closed
+	return ok
 }
 
 // Delete removes and wipes one secret.

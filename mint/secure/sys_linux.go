@@ -52,6 +52,13 @@ func keyringRead(id int, buf []byte) (int, error) {
 	return int(n), nil
 }
 
+// keyringAlive reports whether the key still exists (not expired or
+// revoked), without copying its payload.
+func keyringAlive(id int) bool {
+	_, _, errno := syscall.Syscall6(syscall.SYS_KEYCTL, keyctlRead, uintptr(id), 0, 0, 0, 0)
+	return errno == 0
+}
+
 // keyringTimeout makes the kernel expire the key after secs seconds
 // (0 removes the timeout). Setting it again restarts the countdown.
 func keyringTimeout(id int, secs uint) error {

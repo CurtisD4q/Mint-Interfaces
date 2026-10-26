@@ -279,3 +279,52 @@ func TestKnownSecretEnvs(t *testing.T) {
 		t.Fatalf("report %+v", r.Secrets)
 	}
 }
+
+func TestSecretsLiveInTheSecureStore(t *testing.T) {
+	t.Setenv("MINT_KEY_TIMEOUT", "1s")
+	bin, log := fakeTool(t, "login", "cat >> \"$(dirname \"$0\")/runs.log\"")
+	a := newTestApp(t, ToolSpec{Name: "login", Bin: bin, Flags: []FlagSpec{
+		{Flag: "--token-stdin", Kind: FlagSecret, SecretStdin: true, Label: "Token"},
+	}})
+	defer a.Close()
+	if err := a.SetSecret("--token-stdin", "tok-1"); err != nil {
+		t.Fatal(err)
+	}
+	if a.store == nil || !a.store.Has("--token-stdin") {
+		t.Fatal("secret not in the secure store")
+	}
+	if p := a.SecretProtection(); p == "" {
+		t.Fatal("protection level unknown after storing a secret")
+	}
+
+	// After the idle timeout the secret is gone, and a run refuses to go
+	// ahead without it rather than silently leaving it out.
+	time.Sleep(2200 * time.Millisecond)
+	if !a.secretExpired("--token-stdin") {
+		t.Fatal("secret should show as expired")
+	}
+	if _, err := a.StartJob(); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("run after expiry: %v", err)
+	}
+	if got := runs(log); got != "" {
+		t.Fatalf("the tool ran without its secret:\n%s", got)
+	}
+
+	// Entering it again starts a fresh key and works.
+	if err := a.SetSecret("--token-stdin", "tok-2"); err != nil {
+		t.Fatal(err)
+	}
+	job, err := a.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	if got := runs(log); !strings.Contains(got, "tok-2") {
+		t.Fatalf("stdin secret not delivered from the store:\n%s", got)
+	}
+
+	a.Close()
+	if a.hasSecret("--token-stdin") {
+		t.Fatal("Close did not wipe the secrets")
+	}
+}

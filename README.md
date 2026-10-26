@@ -432,7 +432,9 @@ st.Use("db-password", func(pw []byte) error {
 | no kernel keyring | containers that block it (Docker's default profile does), macOS, the BSDs | the key is kept in its own locked page and the store enforces the timeout itself |
 | memory cannot be locked | the locked-memory limit is too low | secrets may reach swap; use encrypted swap |
 
-Limits: root, and anything with root's power, can still read the app's memory and the keyring. While a secret is being encrypted or decrypted, Go's AES keeps a copy of the expanded key in ordinary memory until it is garbage-collected; core dumps stay off, so this matters only if the system swaps that page.
+**In generated apps.** `appkit` keeps every secret option in this store from the moment it is entered. A secret read from standard input is written to the program straight from the store's protected memory. One passed as an environment variable or on the command line has to become an ordinary Go string at the moment the program starts, because that is the only form those take. When the idle timeout wipes a secret, its row shows "expired, enter again" and a run refuses to start without it rather than leaving it out silently.
+
+Limits: root, and anything with root's power, can still read the app's memory and the keyring. The password box hands over what was typed as a Go string, so a copy stays in ordinary memory until it is garbage-collected (core dumps are off). While a secret is being encrypted or decrypted, Go's AES keeps a copy of the expanded key in ordinary memory until it is garbage-collected; core dumps stay off, so this matters only if the system swaps that page.
 
 #### Safety rules every generated interface follows
 
