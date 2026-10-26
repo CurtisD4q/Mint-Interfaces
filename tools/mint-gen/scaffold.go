@@ -268,6 +268,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 				fmt.Fprintf(&buf, "\t\t\t\tJoin:    %q,\n", f.Join)
 			}
 			fmt.Fprintf(&buf, "\t\t\t\tKind:    appkit.%s,\n", flagKindIdent(f.Kind))
+			if id := roleIdent(f.Role); id != "" {
+				fmt.Fprintf(&buf, "\t\t\t\tRole:    appkit.%s,\n", id)
+			}
 			fmt.Fprintf(&buf, "\t\t\t\tSection: %q,\n", f.Section)
 			fmt.Fprintf(&buf, "\t\t\t\tLabel:   %q,\n", f.Label)
 			if f.Hint != "" {
@@ -404,4 +407,33 @@ func elispDocDesc(desc string) string {
 		line += len(w)
 	}
 	return b.String()
+}
+
+// roleIdent is the Go name of a role, from a fixed list, so nothing from a
+// help text is ever written into generated code unquoted. Unknown roles
+// and RoleValue give "" (not written).
+func roleIdent(r appkit.ArgRole) string {
+	switch r {
+	case appkit.RoleFile:
+		return "RoleFile"
+	case appkit.RoleDir:
+		return "RoleDir"
+	case appkit.RoleInputFile:
+		return "RoleInputFile"
+	case appkit.RoleInputDir:
+		return "RoleInputDir"
+	case appkit.RoleOutputFile:
+		return "RoleOutputFile"
+	case appkit.RoleOutputDir:
+		return "RoleOutputDir"
+	case appkit.RoleOutputBase:
+		return "RoleOutputBase"
+	case appkit.RoleLogFile:
+		return "RoleLogFile"
+	case appkit.RoleConfigFile:
+		return "RoleConfigFile"
+	case appkit.RoleFormat:
+		return "RoleFormat"
+	}
+	return ""
 }

@@ -74,6 +74,9 @@ type FlagSpec struct {
 	// EnvFlag is passed on its own when the secret goes through SecretEnv,
 	// for programs that need to be told to read it (sshpass -e).
 	EnvFlag string `json:"env_flag,omitempty"`
+	// Role: what the value is for (an input or output file, a log, a
+	// format…), from the help text. See ArgRole.
+	Role ArgRole `json:"role,omitempty"`
 	// Reveals: setting this option makes the tool print secrets
 	// (--export-secret-keys, --decrypt…), so the run's results are secret.
 	Reveals bool `json:"reveals,omitempty"`

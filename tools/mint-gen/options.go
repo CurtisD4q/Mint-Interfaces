@@ -56,9 +56,56 @@ func lastWordPart(w string) string {
 	return w
 }
 
-// IsFile reports whether the placeholder names a file or folder.
+// IsFile reports whether the placeholder names a file or folder: a path
+// word (FILE, PATH, DIR…), as a whole, as the last part (identity_file), or
+// as an ending (keyfile, scriptpath, outdir).
 func (p Placeholder) IsFile() bool {
-	return p.Word != "" && (reFileArg.MatchString(p.Word) || reFileArg.MatchString(lastWordPart(p.Word)))
+	if p.Word == "" {
+		return false
+	}
+	// Alternatives: FILE/HASHES, DATE-OR-FILE: a path if any one is.
+	if alts := splitAlternatives(p.Word); len(alts) > 1 {
+		for _, a := range alts {
+			if (Placeholder{Word: a}).IsFile() {
+				return true
+			}
+		}
+		return false
+	}
+	if reFileArg.MatchString(p.Word) || reFileArg.MatchString(lastWordPart(p.Word)) {
+		return true
+	}
+	for _, end := range []string{"file", "files", "path", "dir", "directory", "folder"} {
+		if len(p.Word) > len(end) && strings.HasSuffix(p.Word, end) {
+			return true
+		}
+	}
+	return false
+}
+
+// Specific reports whether the placeholder is a word that says what the
+// value is, so it, rather than the description, decides. Missing, vague
+// (VALUE, ARG), one-letter (F, N) and two-sided words (PREFIX, which may be
+// a folder or a text prefix) are not specific.
+func (p Placeholder) Specific() bool {
+	w := p.Word
+	return len(w) > 1 && !ambiguousPlaceholderWords[w]
+}
+
+// Words that may or may not be paths, depending on the option.
+var ambiguousPlaceholderWords = map[string]bool{"prefix": true, "location": true, "base": true, "target": true, "dest": true, "where": true}
+
+// splitAlternatives splits "file/hashes" or "date-or-file" into its choices.
+func splitAlternatives(w string) []string {
+	w = strings.ReplaceAll(w, "-or-", "/")
+	w = strings.ReplaceAll(w, "_or_", "/")
+	var out []string
+	for _, a := range strings.Split(w, "/") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // IsNotFile reports whether the placeholder names something that is not a
@@ -67,7 +114,18 @@ func (p Placeholder) IsNotFile() bool {
 	if len(p.Choices) > 0 {
 		return true
 	}
-	return p.Word != "" && !p.IsFile() && (reNonFileArg.MatchString(p.Word) || reNonFileArg.MatchString(lastWordPart(p.Word)))
+	if p.Word == "" || p.IsFile() {
+		return false
+	}
+	if alts := splitAlternatives(p.Word); len(alts) > 1 {
+		for _, a := range alts {
+			if !(Placeholder{Word: a}).IsNotFile() {
+				return false
+			}
+		}
+		return true
+	}
+	return reNonFileArg.MatchString(p.Word) || reNonFileArg.MatchString(lastWordPart(p.Word))
 }
 
 // OptionText is what one option line of a help text says, before mint-gen
