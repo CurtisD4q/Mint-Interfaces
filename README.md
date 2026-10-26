@@ -74,7 +74,7 @@ Once installed, the steps from any directory are:
    ```sh
    mint-gen --list
    ```
-6. **See what mint-gen understood (optional):** what a program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
+6. **See what mint-gen understood (optional):** which template it chose and the words that decided it, what the program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
    ```sh
    mint-gen --explain ffmpeg
    ```

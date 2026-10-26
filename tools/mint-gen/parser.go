@@ -130,7 +130,8 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	flags = append(flags, knownOnlyFlags(name, flags, spec.OutputFlag)...)
 	markSecretFlags(flags)
 	spec.Flags = flags
-	tpl := DetectTemplate(name, spec, manText, helpText)
+	choice := chooseTemplate(name, spec, manText, helpText)
+	tpl, _ := appkit.LookupTemplate(choice.ID)
 	tpl.ApplyTo(&spec)
 	if spec.Archetype == appkit.ArchetypeSuite && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
@@ -146,6 +147,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)
 	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, tplExt)
+	model.Template = choice
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec, model
@@ -334,6 +336,9 @@ func extractSummary(name string, manLines, helpLines []string) string {
 		if strings.HasPrefix(trimmed, "-") {
 			break
 		}
+		if !looksLikeSummary(name, trimmed) {
+			continue
+		}
 		if m := reManName.FindStringSubmatch(trimmed); m != nil {
 			return capitalizeFirst(strings.TrimSpace(m[1]))
 		}
@@ -342,6 +347,42 @@ func extractSummary(name string, manLines, helpLines []string) string {
 		}
 	}
 	return ""
+}
+
+var (
+	reVersionLine = regexp.MustCompile(`(?i)\b(?:version|v)\s*\d+(?:\.\d+)+|copyright|\(c\)\s*\d{4}`)
+	reHasLower    = regexp.MustCompile(`[a-z]`)
+)
+
+// looksLikeSummary reports whether a help line can describe the program:
+// not another usage line ("Or:  ln [OPTION]... TARGET", "top [options]"),
+// a version or copyright line, a heading in capitals, or a section label
+// ending in ":" ("Input options:").
+func looksLikeSummary(name, line string) bool {
+	t := strings.TrimSpace(line)
+	if t == "" {
+		return false
+	}
+	lower := strings.ToLower(t)
+	if strings.HasPrefix(lower, "or:") || strings.HasPrefix(lower, "usage") {
+		return false
+	}
+	// "top [options]", "/usr/bin/ln [OPTION]...": a usage line, unless a
+	// sentence follows the name ("tar saves many files…" is fine).
+	first := strings.Fields(t)[0]
+	if fl := strings.ToLower(first); fl == strings.ToLower(name) || strings.HasSuffix(fl, "/"+strings.ToLower(name)) {
+		rest := strings.TrimSpace(t[len(first):])
+		if rest == "" || strings.ContainsAny(rest[:1], "[<{-|") {
+			return false
+		}
+	}
+	if reVersionLine.MatchString(t) {
+		return false
+	}
+	if !reHasLower.MatchString(t) {
+		return false // a heading in capitals
+	}
+	return !strings.HasSuffix(t, ":") // a section label ("Input options:")
 }
 
 func extractSynopsis(name string, manLines, helpLines []string) string {
