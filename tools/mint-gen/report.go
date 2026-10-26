@@ -28,6 +28,10 @@ func printSafetyReport(w io.Writer, spec appkit.ToolSpec) {
 			fmt.Fprintf(w, "    %-20s %-34s %s: %s\n", flag, short(stripFlag(s.Label, s.Flag), 34), routeText(spec, s), appkit.RouteNote(s.Route))
 		}
 	}
+	fmt.Fprintf(w, "  Data:        %s\n", dataText(r))
+	for _, f := range r.Revealing {
+		fmt.Fprintf(w, "    %-20s %s\n", f.Flag, short(stripFlag(f.Label, f.Flag), 60))
+	}
 	if len(r.Destructive) == 0 {
 		fmt.Fprintln(w, "  Destructive: no options found")
 	} else {
@@ -76,6 +80,10 @@ func safetyRows(spec appkit.ToolSpec) []mint.Row {
 		rows = append(rows, mint.Table(mint.TableOpts{ID: "safety-secrets",
 			Headers: []string{"SECRET", "PASSED ON", "NOTE"}, Rows: tbl}))
 	}
+	rows = append(rows, mint.Label(mint.StyleBody, "Data: "+dataText(r)))
+	for _, f := range r.Revealing {
+		rows = append(rows, mint.Note("  "+f.Flag+"  "+stripFlag(f.Label, f.Flag)))
+	}
 	if len(r.Destructive) == 0 {
 		rows = append(rows, mint.Note("No destructive options found."))
 	} else {
@@ -99,4 +107,25 @@ func routeText(spec appkit.ToolSpec, s appkit.SecretOption) string {
 		found = "built-in list"
 	}
 	return fmt.Sprintf("%s %s (%s)", s.Route, s.Env, found)
+}
+
+// dataText says how sensitive the results are and what the app does about it.
+func dataText(r appkit.SafetyReport) string {
+	var t string
+	switch r.Data {
+	case appkit.DataSecret:
+		t = "secret (" + r.DataReason + "): result files readable only by you, kept in memory by default"
+	case appkit.DataSensitive:
+		t = "sensitive (" + r.DataReason + "): result files readable only by you"
+	default:
+		t = "normal"
+	}
+	if n := len(r.Revealing); n > 0 {
+		verb := "make"
+		if n == 1 {
+			verb = "makes"
+		}
+		t += fmt.Sprintf("; %s %s a run secret", count(n, "option"), verb)
+	}
+	return t
 }

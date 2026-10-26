@@ -74,6 +74,9 @@ type FlagSpec struct {
 	// EnvFlag is passed on its own when the secret goes through SecretEnv,
 	// for programs that need to be told to read it (sshpass -e).
 	EnvFlag string `json:"env_flag,omitempty"`
+	// Reveals: setting this option makes the tool print secrets
+	// (--export-secret-keys, --decrypt…), so the run's results are secret.
+	Reveals bool `json:"reveals,omitempty"`
 }
 
 // SecretKey identifies a FlagSecret option: its flag, or "$NAME" for a
@@ -121,6 +124,8 @@ type ToolSpec struct {
 	StatusArgs        []string         `json:"status_args,omitempty"`        // Read-only command that shows current state (Config/Monitor)
 	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
+	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
+	DataReason        string           `json:"data_reason,omitempty"`        // Why, in a few words ("captures network traffic…")
 	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying Config
 	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // Poll interval for ArchetypeMonitor
 	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs for ArchetypeSuite
@@ -196,6 +201,7 @@ type ToolApp struct {
 	MonitorPaused    bool
 	LastRefresh      time.Time
 	SnapshotLines    []string
+	InMemory         bool // results go to a private in-memory folder (see SetInMemory)
 
 	mu        sync.Mutex
 	activeJob *runner.Job
@@ -210,6 +216,12 @@ type ToolApp struct {
 	refreshing bool            // a background state refresh is running
 	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
+
+	memSetting   *bool    // InMemory as saved in settings (nil: never chosen)
+	diskDir      string   // the results folder to return to when InMemory is turned off
+	memBacked    bool     // the in-memory folder really is in memory (tmpfs)
+	lastData     string   // level the last run's output turned out to have
+	lastFindings []string // kinds of secret found in the last run's output
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -295,7 +307,19 @@ func New(spec ToolSpec) *ToolApp {
 		a.ApplyProfile(spec.Profiles[0].Name)
 	}
 	a.ResolveDynamicChoices()
+	a.memSetting = nil
 	_ = a.LoadSettings()
+	switch {
+	case a.memSetting != nil && *a.memSetting:
+		if err := a.SetInMemory(true); err != nil { // recreate it after a reboot
+			a.InMemory = false
+			if a.diskDir != "" {
+				a.ResultsDir = a.diskDir
+			}
+		}
+	case a.memSetting == nil && spec.Data == DataSecret:
+		_ = a.SetInMemory(true)
+	}
 	a.loadHistory()
 	return a
 }
@@ -768,6 +792,8 @@ type persistedSettings struct {
 	SaveToFile       bool              `json:"save_to_file"`
 	ResultsDir       string            `json:"results_dir"`
 	OutputFile       string            `json:"output_file"`
+	InMemory         *bool             `json:"in_memory,omitempty"`
+	DiskResultsDir   string            `json:"disk_results_dir,omitempty"`
 }
 
 func (a *ToolApp) settingsPath() string {
@@ -792,6 +818,8 @@ func (a *ToolApp) SaveSettings() error {
 		SaveToFile:       a.SaveToFile,
 		ResultsDir:       a.ResultsDir,
 		OutputFile:       a.OutputFile,
+		InMemory:         &a.InMemory,
+		DiskResultsDir:   a.diskDir,
 	}
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -834,6 +862,14 @@ func (a *ToolApp) LoadSettings() error {
 	}
 	if st.OutputFile != "" {
 		a.OutputFile = st.OutputFile
+	}
+	if st.InMemory != nil {
+		on := *st.InMemory
+		a.memSetting = &on
+		a.diskDir = st.DiskResultsDir
+		if on {
+			a.InMemory = true // SetInMemory re-checks the folder
+		}
 	}
 	return nil
 }
@@ -890,7 +926,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	args, outPath, stdinSecrets := a.buildArgs(false)
 	shownArgs, _, _ := a.buildArgs(true)
 	if outPath != "" {
-		if err := util.Mkdir(filepath.Dir(outPath)); err != nil {
+		if err := a.makeResultsDir(filepath.Dir(outPath)); err != nil {
 			return nil, err
 		}
 		a.giveBack(filepath.Dir(outPath))
@@ -906,6 +942,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	cmdLine := a.CommandPreview()
 	shownTarget := maskFreeText(a.Target, a.secretFlagNames())
 	masker := a.newRunMasker()
+	runLevel, _ := a.DataLevel()
 
 	job := runner.Start(runner.Cmd{
 		Name:   bin,
@@ -918,7 +955,26 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			if outPath != "" && a.Spec.OutputFlag == "" {
 				_ = mint.SaveLogLines(outPath, lines)
 			}
+			level := runLevel
+			found := masker.Findings()
+			if len(found) > 0 {
+				level = DataSecret
+			}
+			a.protectFile(level, outPath)
 			a.giveBack(outPath) // the tool, running as root, may have written it
+			a.mu.Lock()
+			a.lastData, a.lastFindings = "", nil
+			if len(found) > 0 {
+				a.lastData, a.lastFindings = DataSecret, found
+			}
+			a.mu.Unlock()
+			if len(found) > 0 {
+				msg := "The output contained " + strings.Join(found, ", ") + "; it is hidden here."
+				if outPath != "" && a.Spec.OutputFlag != "" {
+					msg += " " + filepath.Base(outPath) + " may still hold it: it is readable only by you, and \"Encrypt the output\" protects it."
+				}
+				mint.ToastWarn(msg)
+			}
 			if j.State() == runner.Failed && !runningAsRoot() && looksLikeNeedsRoot(j.LastError()) {
 				mint.ToastError(needsRootMessage(a.Spec.Name))
 			}
@@ -990,7 +1046,7 @@ func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
 		dir = "."
 	}
 	defer a.giveBack(dir)
-	if err := util.Mkdir(dir); err != nil {
+	if err := a.makeResultsDir(dir); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(dir)
@@ -1030,6 +1086,15 @@ func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
 }
 
 func (a *ToolApp) statusBadges() []mint.Badge {
+	var data []mint.Badge
+	if level, _ := a.DataLevel(); level != DataNormal {
+		b, _ := dataBadge(level)
+		data = append(data, b)
+	}
+	return append(data, a.jobBadges()...)
+}
+
+func (a *ToolApp) jobBadges() []mint.Badge {
 	job := a.ActiveJob()
 	if job == nil {
 		return nil
@@ -1133,23 +1198,27 @@ func (a *ToolApp) flagSections() []mint.Section {
 }
 
 func (a *ToolApp) outputFileSection() mint.Section {
+	rows := []mint.Row{
+		mint.Toggle(mint.ToggleOpts{
+			ID:    "out:enable",
+			Label: "Save output to file",
+			Get:   func() bool { return a.SaveToFile },
+			Set:   func(v bool) { a.SaveToFile = v },
+		}),
+	}
+	rows = append(rows, a.dataRows()...)
 	return mint.Section{
 		Name: "Output File (WithFileOutput)",
-		Rows: []mint.Row{
-			mint.Toggle(mint.ToggleOpts{
-				ID:    "out:enable",
-				Label: "Save output to file",
-				Get:   func() bool { return a.SaveToFile },
-				Set:   func(v bool) { a.SaveToFile = v },
-			}),
+		Rows: append(rows,
 			mint.Text(mint.TextOpts{
 				ID:          "out:dir",
 				Label:       "Save directory",
 				Placeholder: "/path/to/results",
 				Get:         func() string { return a.ResultsDir },
 				Set: func(v string) {
-					if strings.TrimSpace(v) != "" {
+					if strings.TrimSpace(v) != "" && strings.TrimSpace(v) != a.ResultsDir {
 						a.ResultsDir = strings.TrimSpace(v)
+						a.InMemory, a.diskDir = false, "" // a folder of your choosing
 					}
 				},
 			}),
@@ -1189,7 +1258,7 @@ func (a *ToolApp) outputFileSection() mint.Section {
 					c.Push(a.DirectoryScreen())
 				},
 			}),
-		},
+		),
 	}
 }
 
@@ -1665,9 +1734,16 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 						c.ToastError("Save failed: " + err.Error())
 						return
 					}
+					level, _ := a.DataLevel()
+					a.protectFile(level, util.ExpandUser(strings.TrimSpace(dest)))
 					a.giveBack(util.ExpandUser(strings.TrimSpace(dest)))
 					c.Toast("Saved to " + dest)
 				},
+			}),
+			mint.Action(mint.ActionOpts{
+				Label:      "Encrypt the output (passphrase)…",
+				Hint:       "encrypt",
+				OnActivate: a.encryptOutput,
 			}),
 			mint.Action(mint.ActionOpts{
 				Label: "Browse output directory…",
@@ -1745,6 +1821,10 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 							c.ToastError("Cannot read: " + rerr.Error())
 							return
 						}
+						if secure.IsSealed(b) {
+							openSealed(c, filepath.Base(chosen), b)
+							return
+						}
 						raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 						lines := make([]mint.LogLine, len(raw))
 						for i, l := range raw {
@@ -1784,6 +1864,10 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 							b, err := os.ReadFile(entry.Path)
 							if err != nil {
 								c.ToastError("Cannot read: " + err.Error())
+								return
+							}
+							if secure.IsSealed(b) {
+								openSealed(c, entry.Name, b)
 								return
 							}
 							raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // ── Secrets typed into free-text boxes ──────────────────────────────────────
@@ -35,23 +36,33 @@ var (
 // outputPatterns are the patterns Redact looks for in every line. Each has
 // literal text that must appear first, so most lines skip the regexp.
 var outputPatterns = []struct {
-	re    *regexp.Regexp
-	needs []string // at least one must appear (lower-cased when fold)
-	fold  bool
-	group bool // hide only the first group, not the whole match
+	re      *regexp.Regexp
+	needs   []string // at least one must appear (lower-cased when fold)
+	fold    bool
+	group   bool   // hide only the first group, not the whole match
+	finding string // what it is, for "the output contained …"
 }{
-	{knownTokens[0], []string{"gh"}, false, false},
-	{knownTokens[1], []string{"github_pat_"}, false, false},
-	{knownTokens[2], []string{"glpat-"}, false, false},
-	{knownTokens[3], []string{"AKIA", "ASIA"}, false, false},
-	{knownTokens[4], []string{"xox"}, false, false},
-	{knownTokens[5], []string{"sk-"}, false, false},
-	{knownTokens[6], []string{"AIza"}, false, false},
-	{knownTokens[7], []string{"PRIVATE KEY"}, false, false},
-	{authHeader, []string{"authorization:"}, true, true},
-	{keyHeader, []string{"key:", "token:"}, true, true},
-	{urlPassword, []string{"://"}, false, true},
+	{knownTokens[0], []string{"gh"}, false, false, "an access token"},
+	{knownTokens[1], []string{"github_pat_"}, false, false, "an access token"},
+	{knownTokens[2], []string{"glpat-"}, false, false, "an access token"},
+	{knownTokens[3], []string{"AKIA", "ASIA"}, false, false, "a cloud access key"},
+	{knownTokens[4], []string{"xox"}, false, false, "an access token"},
+	{knownTokens[5], []string{"sk-"}, false, false, "an API key"},
+	{knownTokens[6], []string{"AIza"}, false, false, "an API key"},
+	{knownTokens[7], []string{"PRIVATE KEY"}, false, false, "a private key"},
+	{jwtToken, []string{"eyJ"}, false, false, "a login token (JWT)"},
+	{passwordHash, []string{"$"}, false, false, "a password hash"},
+	{awsSecret, []string{"secret_access_key"}, true, true, "a cloud secret key"},
+	{authHeader, []string{"authorization:"}, true, true, "an authorization header"},
+	{keyHeader, []string{"key:", "token:"}, true, true, "an API key"},
+	{urlPassword, []string{"://"}, false, true, "a password in a URL"},
 }
+
+var (
+	jwtToken     = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
+	passwordHash = regexp.MustCompile(`\$(?:1|2[aby]|5|6|y|gy|7)\$[./A-Za-z0-9$]{8,}`)
+	awsSecret    = regexp.MustCompile(`(?i)aws_secret_access_key\s*[=:]\s*"?([A-Za-z0-9/+=]{20,})`)
+)
 
 // knownTokens are formats that are secrets wherever they appear.
 var knownTokens = []*regexp.Regexp{
@@ -165,11 +176,70 @@ const mersenne61 = 1<<61 - 1
 // outputMasker hides known secrets in output lines without keeping them:
 // it holds only a salted SHA-256 of each and a keyed rolling hash, and
 // scans each line with the rolling hash, confirming candidates with SHA-256.
+//
+// It also notes what kinds of secret it hid (Findings), and hides every
+// line of a private key block, not just its first line.
 type outputMasker struct {
 	salt  [16]byte
 	base  uint64
 	byLen map[int]map[uint64][][32]byte
 	lens  []int // longest first
+
+	mu       sync.Mutex // Redact runs for stdout and stderr at once
+	inKey    bool       // inside -----BEGIN … PRIVATE KEY----- … -----END
+	findings map[string]bool
+}
+
+func (m *outputMasker) found(what string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.findings == nil {
+		m.findings = map[string]bool{}
+	}
+	m.findings[what] = true
+	m.mu.Unlock()
+}
+
+// Findings lists the kinds of secret the output contained.
+func (m *outputMasker) Findings() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.findings))
+	for f := range m.findings {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// keyBlock hides the lines of a private key block.
+func (m *outputMasker) keyBlock(line string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	begin := strings.Contains(line, "-----BEGIN") && strings.Contains(line, "PRIVATE KEY")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case begin:
+		m.inKey = !strings.Contains(line, "-----END") // a one-line key ends here
+		if m.findings == nil {
+			m.findings = map[string]bool{}
+		}
+		m.findings["a private key"] = true
+		return secretMask + " (private key hidden)", true
+	case m.inKey:
+		if strings.Contains(line, "-----END") {
+			m.inKey = false
+		}
+		return secretMask, true
+	}
+	return "", false
 }
 
 func newOutputMasker() *outputMasker {
@@ -247,6 +317,9 @@ func (m *outputMasker) empty() bool { return m == nil || len(m.lens) == 0 }
 // Redact returns line with every known secret, every well-known token
 // format and every authorization header value replaced by secretMask.
 func (m *outputMasker) Redact(line string) string {
+	if hidden, ok := m.keyBlock(line); ok {
+		return hidden
+	}
 	type span struct{ from, to int }
 	var spans []span
 	b := []byte(line)
@@ -268,6 +341,7 @@ func (m *outputMasker) Redact(line string) string {
 					for _, s := range sums {
 						if s == got {
 							spans = append(spans, span{i, i + n})
+							m.found("a password or key you entered")
 							break
 						}
 					}
@@ -304,8 +378,10 @@ func (m *outputMasker) Redact(line string) string {
 			switch {
 			case !p.group:
 				spans = append(spans, span{loc[0], loc[1]})
+				m.found(p.finding)
 			case loc[2] >= 0 && loc[3]-loc[2] >= minMaskLen:
 				spans = append(spans, span{loc[2], loc[3]})
+				m.found(p.finding)
 			}
 		}
 	}

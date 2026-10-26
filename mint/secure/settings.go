@@ -14,11 +14,13 @@ const DefaultIdleTimeout = 15 * time.Minute
 
 // settingsFile is the per-computer security settings, e.g.
 //
-//	{"key_timeout": "5m"}
+//	{"key_timeout": "5m", "sealer": "aes-256-gcm"}
 //
-// "0" keeps the key until the app closes.
+// "0" keeps the key until the app closes. "sealer" names the encryption
+// used for new sealed files (see RegisterSealer).
 type settingsFile struct {
 	KeyTimeout string `json:"key_timeout"`
+	Sealer     string `json:"sealer"`
 }
 
 // Paths for tests.
@@ -71,4 +73,26 @@ func parseTimeout(v string) (time.Duration, bool) {
 		return 0, false
 	}
 	return d, true
+}
+
+// sealerSetting is the sealer named by $MINT_SEALER or security.json
+// ("" when none is set).
+func sealerSetting() string {
+	if v := strings.TrimSpace(os.Getenv("MINT_SEALER")); v != "" {
+		return v
+	}
+	for _, path := range []string{userSettingsPath(), systemSettingsPath} {
+		if path == "" {
+			continue
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var s settingsFile
+		if json.Unmarshal(b, &s) == nil && strings.TrimSpace(s.Sealer) != "" {
+			return strings.TrimSpace(s.Sealer)
+		}
+	}
+	return ""
 }
