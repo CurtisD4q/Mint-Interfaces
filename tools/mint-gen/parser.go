@@ -63,8 +63,9 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
 				continue
 			}
+			f.Role, _ = ClassifyArg(name, f)
 			// The option that writes the tool's output to a file (see isOutputFileFlag)
-			if !spec.OutputsFile && isOutputFileFlag(name, f) {
+			if !spec.OutputsFile && f.Role == appkit.RoleOutputFile {
 				spec.OutputsFile = true
 				spec.OutputFlag = f.Flag
 				spec.DefaultExt = guessExtension(name, f.Label+" "+f.Hint)
@@ -458,6 +459,11 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			}
 			join := " "
 			arg := argPart
+			if isFixedValueAlias(firstFlag, secondFlag, arg) {
+				// "-p, --indicator-style=slash": -p is a shortcut for that
+				// fixed setting, so it is a switch, not an option with a value.
+				canonFlag, arg = firstFlag, ""
+			}
 			if strings.HasPrefix(arg, "=") {
 				join = "="
 				arg = strings.TrimPrefix(arg, "=")
@@ -518,7 +524,9 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	}
 
 	combined := strings.ToLower(argClean + " " + desc)
-	if !ph.IsNotFile() {
+	// The description decides only when the placeholder is vague or missing:
+	// NMERGE, CHANGES or LABEL next to "…files" is not a file.
+	if !ph.IsNotFile() && !ph.Specific() {
 		if strings.Contains(combined, "dir") || strings.Contains(combined, "directory") || strings.Contains(combined, "folder") {
 			return appkit.FlagDir, nil, 0, 0
 		}
@@ -560,9 +568,9 @@ var outputFlagNames = map[string]bool{
 
 var (
 	// A value that names a file or folder.
-	reFileArg = regexp.MustCompile(`(?i)^(?:file|files|filename|fname|outfile|out_?file|output_?file|out|path|filepath|dir|directory|folder|archive|dest|destination|target_?file)s?$`)
+	reFileArg = regexp.MustCompile(`(?i)^(?:file|files|filename|fname|basename|outfile|out_?file|output_?file|out|path|filepath|dir|directory|folder|archive|dest|destination|target_?file)s?$`)
 	// A value that is something else: a number, time, size, format, name…
-	reNonFileArg = regexp.MustCompile(`(?i)^(?:n|num|number|int|integer|count|cols|columns|width|height|size|bytes|lines|sec|secs|seconds|ms|millis|minutes|time|timeout|duration|delay|wait|level|depth|port|format|fmt|template|string|str|text|pattern|regex|regexp|name|user|host|hostname|url|uri|id|key|lang|locale|color|colour|mode|type|when|rate|limit|percent|charset|encoding|suffix|suf|ext|extension|method|signal|control|policy|style|algorithm|cipher|ciphers|list)$`)
+	reNonFileArg = regexp.MustCompile(`(?i)^(?:n|num|number|int|integer|count|cols|columns|width|height|size|bytes|lines|sec|secs|seconds|ms|millis|minutes|time|timeout|duration|delay|wait|level|depth|port|format|fmt|template|string|str|text|pattern|regex|regexp|name|user|host|hostname|url|uri|id|key|lang|locale|color|colour|mode|type|when|rate|limit|percent|charset|encoding|suffix|suf|ext|extension|method|signal|control|policy|style|algorithm|cipher|ciphers|list|action|label|glob|globs|expr|expression|changes|date|program|command|cmd|script)$`)
 	// Description words for a path, and for things that are not paths.
 	reFileWords    = regexp.MustCompile(`(?i)\b(?:file|files|filename|path|directory|folder)\b`)
 	reNonFileWords = regexp.MustCompile(`(?i)\b(?:width|columns|seconds|wait|number of|format|level|count|size|timeout|delay|limit)\b`)
@@ -580,7 +588,7 @@ func argIsFile(hint, desc string) bool {
 	if p.IsFile() {
 		return true
 	}
-	if p.IsNotFile() {
+	if p.IsNotFile() || p.Specific() {
 		return false
 	}
 	return reFileWords.MatchString(desc) && !reNonFileWords.MatchString(desc)
@@ -597,32 +605,18 @@ func argIsNotFile(hint, desc string) bool {
 	if p.IsFile() {
 		return false
 	}
+	if p.Specific() {
+		return true // a specific word that is not a path word
+	}
 	return reNonFileWords.MatchString(desc) && !reFileWords.MatchString(desc)
 }
 
-// isOutputFileFlag reports whether f is the option that writes tool's main
-// output to a file (so the app passes its output path there). The value
-// must be a file, the description must be about writing output (not a log
-// or an input), and the option must have a usual output name or say so
-// plainly ("write result to FILE").
+// isOutputFileFlag reports whether f is the option that writes the tool's
+// main output to a file (so the app passes its output path there): its
+// role, decided by ClassifyArg, is RoleOutputFile.
 func isOutputFileFlag(tool string, f appkit.FlagSpec) bool {
-	if f.Kind == appkit.FlagBool {
-		return false
-	}
-	if known, ok := knownOutputFlags[tool]; ok {
-		return f.Flag == known
-	}
-	desc := stripFlagSuffix(f.Label, f.Flag)
-	if argIsNotFile(f.Hint, desc) || !argIsFile(f.Hint, desc) {
-		return false
-	}
-	if reNotMainOut.MatchString(desc) && !reMainOutput.MatchString(desc) {
-		return false // "log messages to FILE", "read input from FILE"
-	}
-	if outputFlagNames[f.Flag] {
-		return desc == "" || reWritesOutput.MatchString(desc)
-	}
-	return reMainOutput.MatchString(desc)
+	role, _ := ClassifyArg(tool, f)
+	return role == appkit.RoleOutputFile
 }
 
 // stripFlagSuffix drops the " (-x)" mint-gen adds to labels.
@@ -772,4 +766,16 @@ func buildDefaultProfiles(flags []appkit.FlagSpec) []appkit.ProfileSpec {
 	return []appkit.ProfileSpec{
 		{Name: "Default", Flags: defaultMap},
 	}
+}
+
+var reLiteralValue = regexp.MustCompile(`^=[a-z][a-z0-9-]*$`)
+
+// isFixedValueAlias reports whether a line like "-p, --indicator-style=slash"
+// or "-C, --check=quiet" names a short switch that stands for a long option
+// set to a fixed value: the short option has no value of its own and the
+// long one's value is a lower-case word, not a placeholder (FILE, WHEN…).
+func isFixedValueAlias(first, second, arg string) bool {
+	return strings.HasPrefix(first, "-") && !strings.HasPrefix(first, "--") && len(first) == 2 &&
+		strings.HasPrefix(second, "--") && reLiteralValue.MatchString(arg) &&
+		!ParsePlaceholder(arg).IsFile()
 }
