@@ -348,3 +348,25 @@ func TestExplainShowsHelpSources(t *testing.T) {
 		t.Fatalf("control characters reached the terminal: %q", out)
 	}
 }
+
+// A program that crashes when asked for help (a Python traceback) is not
+// read as help: -h is tried, and if that crashes too, a note says so.
+func TestCrashIsNotHelp(t *testing.T) {
+	tool := fakeHelpTool(t, "crashy", `echo "Traceback (most recent call last):"; echo '  File "/usr/bin/crashy", line 61, in <module>'; echo "ModuleNotFoundError: No module named 'crashy'"; exit 1`)
+	srcs, notes := CollectHelpNotes(tool)
+	if len(srcs) != 0 {
+		t.Fatalf("crash read as help: %s", names(srcs))
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "crashed when asked for its help (a Python error)") {
+		t.Fatalf("notes: %q", notes)
+	}
+	// Crashes on --help but -h works: -h is read.
+	half := fakeHelpTool(t, "halfcrash", `case "$1" in -h) echo "  -v  be verbose";; *) echo "Traceback (most recent call last):"; exit 1;; esac`)
+	if got := names(CollectHelp(half)); got != "-h" {
+		t.Fatalf("sources: %s", got)
+	}
+	// Help that mentions a traceback option is still help.
+	if crashReport("Traceback (most recent call last):\n  --tb=style  traceback print mode") != "" {
+		t.Fatal("help with options taken as a crash")
+	}
+}

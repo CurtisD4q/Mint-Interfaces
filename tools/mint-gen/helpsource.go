@@ -276,16 +276,23 @@ func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 	}
 	help, runErr := r.run(path, "--help")
 	src := HelpSource{Name: "--help", Args: []string{"--help"}, Text: help}
-	if strings.TrimSpace(help) == "" {
+	crash := crashReport(help)
+	if strings.TrimSpace(help) == "" || crash != "" {
 		help, runErr = r.run(path, "-h")
 		src = HelpSource{Name: "-h", Args: []string{"-h"}, Text: help}
+		if c := crashReport(help); c != "" {
+			crash, help = c, ""
+		}
 	}
 	if strings.TrimSpace(help) == "" {
-		if errors.Is(runErr, os.ErrPermission) {
+		switch {
+		case crash != "":
+			notes = append(notes, fmt.Sprintf("%s crashed when asked for its help (%s), so only its man page was read; the program may be broken or missing a part", path, crash))
+		case errors.Is(runErr, os.ErrPermission):
 			notes = append(notes, fmt.Sprintf("could not run %s as %s to read its help (permission denied). "+
 				"mint-gen never runs a program as root just to read its help: run mint-gen as your normal user, "+
 				"or use a copy of the program that user can run.", path, r.user()))
-		} else {
+		default:
 			notes = append(notes, path+" printed no help for --help or -h")
 		}
 		return out, notes
@@ -320,6 +327,35 @@ func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 		notes = append(notes, fmt.Sprintf("%s has no man page and only a short usage message, so options it does not list there will be missing", name))
 	}
 	return out, notes
+}
+
+// Signs that a program crashed instead of printing its help.
+var crashSigns = []struct {
+	re   *regexp.Regexp
+	what string
+}{
+	{regexp.MustCompile(`(?m)^Traceback \(most recent call last\):`), "a Python error"},
+	{regexp.MustCompile(`error while loading shared libraries`), "a missing library"},
+	{regexp.MustCompile(`(?m)^Exception in thread "`), "a Java error"},
+	{regexp.MustCompile(`(?m)^(?:node:internal/|Error: Cannot find module )`), "a Node.js error"},
+	{regexp.MustCompile(`(?m)^.*: (?:cannot load such file|\(LoadError\))`), "a Ruby error"},
+}
+
+// reHelpOption is an option line as help prints it ("  -v, --verbose").
+var reHelpOption = regexp.MustCompile(`(?m)^\s{0,12}-{1,2}[A-Za-z0-9]`)
+
+// crashReport names the crash when text is a crash report rather than
+// help: a sign of a crash and no option lines. "" if it is not one.
+func crashReport(text string) string {
+	if reHelpOption.MatchString(text) {
+		return ""
+	}
+	for _, c := range crashSigns {
+		if c.re.MatchString(text) {
+			return c.what
+		}
+	}
+	return ""
 }
 
 func hasManPage(srcs []HelpSource) bool {
