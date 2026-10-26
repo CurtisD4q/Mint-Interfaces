@@ -4,6 +4,8 @@
 package appkit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -204,6 +206,7 @@ type ToolApp struct {
 	store      *secure.Store   // FlagSecret values: encrypted, locked memory, never on disk
 	secretSet  map[string]bool // which secrets the user entered (names only), to notice expiry
 	argvOK     bool            // user accepted secrets on the command line this session
+	freeTextOK string          // fingerprint of free-text secrets the user accepted
 	refreshing bool            // a background state refresh is running
 	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
@@ -441,13 +444,90 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 	}
 
 	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" {
+		if mask {
+			extra = maskFreeText(extra, a.secretFlagNames())
+		}
 		args = append(args, splitShellWords(extra)...)
 	}
 
 	if target := strings.TrimSpace(a.Target); target != "" {
+		if mask {
+			target = maskFreeText(target, a.secretFlagNames())
+		}
 		args = append(args, splitShellWords(target)...)
 	}
 	return args, outPath, stdin
+}
+
+// secretFlagNames lists the tool's secret options, such as "-p".
+func (a *ToolApp) secretFlagNames() []string {
+	var out []string
+	for _, f := range a.Spec.Flags {
+		if f.Kind == FlagSecret && f.Flag != "" {
+			out = append(out, f.Flag)
+		}
+	}
+	return out
+}
+
+// FreeTextSecrets lists passwords, tokens and keys typed into the Extra
+// arguments and Target boxes, where they reach the command line.
+func (a *ToolApp) FreeTextSecrets() []FreeTextSecret {
+	flags := a.secretFlagNames()
+	found := FindFreeTextSecrets(a.ExtraArgs, flags)
+	seen := map[string]bool{}
+	for _, s := range found {
+		seen[s.Value] = true
+	}
+	for _, s := range FindFreeTextSecrets(a.Target, flags) {
+		if !seen[s.Value] {
+			found = append(found, s)
+		}
+	}
+	return found
+}
+
+// freeTextFingerprint identifies a set of free-text secrets without keeping
+// them, so an accepted warning is not asked again for the same values.
+func freeTextFingerprint(found []FreeTextSecret) string {
+	h := sha256.New()
+	for _, s := range found {
+		h.Write([]byte(s.Value))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// staleMaskedText reports which free-text box still holds a value hidden
+// when settings were saved (it has to be typed again).
+func (a *ToolApp) staleMaskedText() string {
+	switch {
+	case strings.Contains(a.ExtraArgs, secretMask):
+		return "Extra arguments"
+	case strings.Contains(a.Target, secretMask):
+		return a.Spec.TargetLabel
+	}
+	return ""
+}
+
+// newRunMasker hides every secret this run uses, and those typed into the
+// free-text boxes, in the program's output.
+func (a *ToolApp) newRunMasker() *outputMasker {
+	m := newOutputMasker()
+	a.mu.Lock()
+	st := a.store
+	a.mu.Unlock()
+	if st != nil {
+		for _, f := range a.Spec.Flags {
+			if f.Kind == FlagSecret && st.Has(f.SecretKey()) {
+				_ = st.Use(f.SecretKey(), func(b []byte) error { m.add(b); return nil })
+			}
+		}
+	}
+	for _, s := range a.FreeTextSecrets() {
+		m.add([]byte(s.Value))
+	}
+	return m
 }
 
 // secretEnv returns NAME=value for every secret passed through the
@@ -702,9 +782,10 @@ func (a *ToolApp) SaveSettings() error {
 	if err := util.Mkdir(a.ConfigDir); err != nil {
 		return err
 	}
+	// Passwords typed into the free-text boxes are never written to disk.
 	st := persistedSettings{
-		Target:           a.Target,
-		ExtraArgs:        a.ExtraArgs,
+		Target:           maskFreeText(a.Target, a.secretFlagNames()),
+		ExtraArgs:        maskFreeText(a.ExtraArgs, a.secretFlagNames()),
 		Profile:          a.Profile,
 		ActiveSubcommand: a.ActiveSubcommand,
 		Values:           a.Values,
@@ -803,6 +884,9 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	if labels := a.expiredSecrets(); len(labels) > 0 {
 		return nil, fmt.Errorf("%s expired after a period of inactivity; enter %s again", strings.Join(labels, ", "), pronoun(len(labels)))
 	}
+	if box := a.staleMaskedText(); box != "" {
+		return nil, fmt.Errorf("%s has a hidden value (%s) that was not saved; type it again", box, secretMask)
+	}
 	args, outPath, stdinSecrets := a.buildArgs(false)
 	shownArgs, _, _ := a.buildArgs(true)
 	if outPath != "" {
@@ -820,12 +904,15 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 
 	started := time.Now()
 	cmdLine := a.CommandPreview()
+	shownTarget := maskFreeText(a.Target, a.secretFlagNames())
+	masker := a.newRunMasker()
 
 	job := runner.Start(runner.Cmd{
-		Name:  bin,
-		Args:  cmdArgs,
-		Env:   env,
-		Input: useStdin,
+		Name:   bin,
+		Args:   cmdArgs,
+		Env:    env,
+		Input:  useStdin,
+		Redact: masker.Redact,
 		OnExit: func(j *runner.Job) {
 			lines := j.Lines()
 			if outPath != "" && a.Spec.OutputFlag == "" {
@@ -842,7 +929,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			rec := RunRecord{
 				ID:         started.Format("20060102-150405"),
 				Time:       started,
-				Target:     a.Target,
+				Target:     shownTarget,
 				Args:       shownArgs,
 				CmdLine:    cmdLine,
 				OutputFile: outPath,
