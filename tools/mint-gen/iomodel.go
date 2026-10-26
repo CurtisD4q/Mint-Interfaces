@@ -53,6 +53,7 @@ type IOModel struct {
 	ExtWhy    string
 	Known     bool   // the tool is in the known-tools list
 	Usage     string // the first usage form
+	Template  TemplateChoice
 }
 
 // BuildIOModel combines the options' roles (ClassifyArg), the usage forms
@@ -201,6 +202,20 @@ func applyIOModel(spec *appkit.ToolSpec, m IOModel) {
 func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 	p := func(format string, a ...any) { fmt.Fprint(w, safeTerminalText(fmt.Sprintf(format, a...))+"\n") }
 	p("%s: what goes in and what comes out", m.Tool)
+	if m.Template.ID != "" {
+		tpl, _ := appkit.LookupTemplate(m.Template.ID)
+		p("  Template: %s %s (%s)", m.Template.ID, tpl.Slug, m.Template.Why)
+		for i, sc := range m.Template.Scores {
+			if i == 3 {
+				break
+			}
+			hits := sc.Hits
+			if len(hits) > 4 {
+				hits = append(hits[:4:4], "…")
+			}
+			p("            %s %3d  %s", sc.ID, sc.Score, strings.Join(hits, ", "))
+		}
+	}
 	if m.Usage != "" {
 		p("  Usage:    %s", m.Usage)
 	}
