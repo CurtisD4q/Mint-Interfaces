@@ -225,6 +225,7 @@ mint/term.go                   raw mode, terminal size, key and mouse decoding
 mint/term_linux.go, term_bsd.go    the termios ioctls per platform
 mint/theme/                    palettes and MINT_PALETTE
 mint/util/                     quoting, process spawn, JSON, width helpers
+mint/secure/                   secure store for passwords and keys while an app runs
 mint/runner/                   background jobs, JobScreen
 mint/eventcache/               values refreshed by a stream of events
 mint/collapsible.go            inline foldable sections and large-text chunking
@@ -401,6 +402,37 @@ python3 tools/check_catalogue.py
 - **8 Composable Mixins**: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
 
 `tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
+
+#### Secure store (`mint/secure`)
+
+`mint/secure` keeps passwords, tokens and keys safe while an app runs:
+
+- Each secret is encrypted (AES-256-GCM) and held in **locked memory** outside Go's heap: never written to swap, **excluded from core dumps**, and wiped when removed.
+- The encryption key lives in the app's own **kernel keyring** on Linux: only this process can use it, the programs it starts do not inherit it, and the kernel deletes it when the app closes or the **idle timeout** passes.
+- Opening the store also **hardens the app**: core dumps off, and on Linux not dumpable, so other programs running as you cannot read its memory.
+- Secrets are decrypted only into locked memory, for the moment they are used, then wiped. Keep them as `[]byte` all the way to the program: a Go string makes copies nothing can wipe.
+
+```go
+st, _ := secure.Open()
+defer st.Close()
+st.Put("db-password", typed) // wipes typed
+st.Use("db-password", func(pw []byte) error {
+	_, err := stdin.Write(append(pw, '\n'))
+	return err
+})
+```
+
+**Idle timeout.** Each computer chooses its own: `$MINT_KEY_TIMEOUT` (`"5m"`, or `"0"` to keep the key until the app closes), then `~/.config/mint-interfaces/security.json`, then the administrator's `/etc/mint-interfaces/security.json` (both `{"key_timeout": "5m"}`), then 15 minutes. Each use restarts the countdown. When it passes, every secret is wiped; `Use` returns `ErrExpired` and the app asks again (`Renew` starts a fresh key).
+
+**Fallbacks.** `st.Level()` says how well secrets are protected, and `st.Notes()` why:
+
+| Level | When | What changes |
+|---|---|---|
+| full | Linux with the kernel keyring | nothing |
+| no kernel keyring | containers that block it (Docker's default profile does), macOS, the BSDs | the key is kept in its own locked page and the store enforces the timeout itself |
+| memory cannot be locked | the locked-memory limit is too low | secrets may reach swap; use encrypted swap |
+
+Limits: root, and anything with root's power, can still read the app's memory and the keyring. While a secret is being encrypted or decrypted, Go's AES keeps a copy of the expanded key in ordinary memory until it is garbage-collected; core dumps stay off, so this matters only if the system swaps that page.
 
 #### Safety rules every generated interface follows
 
