@@ -144,12 +144,11 @@ func OpenWithTimeout(timeout time.Duration) (*Store, error) {
 	return s, nil
 }
 
+// timeoutSecs converts d to the kernel's whole-second timeout. The kernel
+// counts from the start of the current second, so one extra second makes
+// sure the key never lasts less than d.
 func timeoutSecs(d time.Duration) uint {
-	secs := uint((d + time.Second - 1) / time.Second)
-	if secs == 0 {
-		secs = 1
-	}
-	return secs
+	return uint((d+time.Second-1)/time.Second) + 1
 }
 
 // Level reports how well secrets are protected here; Notes gives reasons.
