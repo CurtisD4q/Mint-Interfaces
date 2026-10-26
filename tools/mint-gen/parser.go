@@ -21,8 +21,7 @@ var (
 func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 	name := filepath.Base(strings.TrimSpace(bin))
 	manText, helpText := manAndHelp(CollectHelp(bin))
-	spec := ParseManAndHelp(name, manText, helpText)
-	return spec, BuildIOModel(spec, ParseSynopsis(name, cleanLines(manText), cleanLines(helpText)))
+	return ParseManAndHelpIO(name, manText, helpText)
 }
 
 // ParseProgram reads the program's man page, its --help (or -h) and any
@@ -39,6 +38,13 @@ func ParseProgram(bin string) (appkit.ToolSpec, error) {
 // All lines are cleaned through mint.CleanLine so backspace overstrikes (\b)
 // and ANSI escape sequences are normalized first.
 func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
+	spec, _ := ParseManAndHelpIO(bin, manText, helpText)
+	return spec
+}
+
+// ParseManAndHelpIO is ParseManAndHelp, also returning the input/output
+// model the spec's output settings came from.
+func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel) {
 	name := filepath.Base(strings.TrimSpace(bin))
 	titleName := titleWords(strings.ReplaceAll(name, "-", " "))
 	spec := appkit.ToolSpec{
@@ -47,7 +53,8 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 		Desc:              titleName + " command-line interface",
 		TargetLabel:       "Target / arguments",
 		TargetPlaceholder: "arguments",
-		DefaultExt:        "txt",
+		// No extension yet: the template may give one, and chooseExtension
+		// decides at the end.
 	}
 
 	manLines := cleanLines(manText)
@@ -67,6 +74,7 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 	var flags []appkit.FlagSpec
 	seen := map[string]bool{}
 
+	outputDesc := "" // the output option's description, for chooseExtension
 	knownMain, hasKnownMain := KnownOption{}, false
 	if kt, ok := KnownToolIO(name); ok {
 		knownMain, hasKnownMain = kt.mainOutput()
@@ -81,10 +89,7 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 			if !spec.OutputsFile && f.Role == appkit.RoleOutputFile && (!hasKnownMain || f.Flag == knownMain.Flag) {
 				spec.OutputsFile = true
 				spec.OutputFlag = f.Flag
-				spec.DefaultExt = guessExtension(name, f.Label+" "+f.Hint)
-				if hasKnownMain && knownMain.Ext != "" {
-					spec.DefaultExt = knownMain.Ext
-				}
+				outputDesc = stripFlagSuffix(f.Label, f.Flag) + " " + f.Hint
 				seen[f.Flag] = true
 				continue
 			}
@@ -122,6 +127,7 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 		}
 	}
 
+	flags = append(flags, knownOnlyFlags(name, flags, spec.OutputFlag)...)
 	markSecretFlags(flags)
 	spec.Flags = flags
 	tpl := DetectTemplate(name, spec, manText, helpText)
@@ -134,11 +140,15 @@ func ParseManAndHelp(bin, manText, helpText string) appkit.ToolSpec {
 	if len(spec.Profiles) == 0 {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
+	tplExt := spec.DefaultExt // the template's, if it has one
 	appkit.ApplySafetyDefaults(&spec)
 	// One answer for what the tool reads and writes (see BuildIOModel).
-	applyIOModel(&spec, BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines)))
+	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
+	applyIOModel(&spec, model)
+	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, tplExt)
+	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
-	return spec
+	return spec, model
 }
 
 var (
@@ -544,31 +554,31 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	combined := strings.ToLower(argClean + " " + desc)
 	// The description decides only when the placeholder is vague or missing:
 	// NMERGE, CHANGES or LABEL next to "…files" is not a file.
+	// Whole words only: "direction", "redirect", "profile", "filesystem"
+	// and "account" are not folders, files or counts.
 	if !ph.IsNotFile() && !ph.Specific() {
-		if strings.Contains(combined, "dir") || strings.Contains(combined, "directory") || strings.Contains(combined, "folder") {
+		if reDescDir.MatchString(combined) {
 			return appkit.FlagDir, nil, 0, 0
 		}
-		if strings.Contains(combined, "file") || strings.Contains(combined, "path") || strings.Contains(combined, "config") {
+		if reDescFile.MatchString(combined) {
 			return appkit.FlagFile, nil, 0, 0
 		}
 	}
 	if strings.Contains(argClean, "0-5") {
 		return appkit.FlagInt, nil, 0, 5
 	}
-	if strings.Contains(combined, "<num>") ||
-		strings.Contains(combined, "<int>") ||
-		strings.Contains(combined, "<count>") ||
-		strings.Contains(combined, "<seconds>") ||
-		strings.Contains(combined, "number of") ||
-		strings.Contains(combined, "count") ||
-		strings.Contains(combined, "timeout") ||
-		strings.Contains(combined, "threads") ||
-		strings.Contains(combined, "retries") {
+	if reDescNumber.MatchString(combined) {
 		return appkit.FlagInt, nil, 0, 100
 	}
 
 	return appkit.FlagText, nil, 0, 0
 }
+
+var (
+	reDescDir    = regexp.MustCompile(`(?i)\b(?:dir|dirs|directory|directories|folder|folders)\b`)
+	reDescFile   = regexp.MustCompile(`(?i)\b(?:file|files|filename|filenames|path|paths|pathname)\b|\bconfig(?:uration)?\s+file\b`)
+	reDescNumber = regexp.MustCompile(`(?i)<(?:num|int|count|seconds|n)>|\bnumber\s+of\b|\b(?:count|timeout|threads|retries|seconds|milliseconds)\b`)
+)
 
 // outputFlagNames are the usual names of an output-file option. One of these
 // is accepted when its value is a file; any other option only when its
@@ -634,24 +644,6 @@ func isOutputFileFlag(tool string, f appkit.FlagSpec) bool {
 // stripFlagSuffix drops the " (-x)" mint-gen adds to labels.
 func stripFlagSuffix(label, flag string) string {
 	return strings.TrimSpace(strings.TrimSuffix(label, "("+flag+")"))
-}
-
-func guessExtension(binName, desc string) string {
-	lower := strings.ToLower(binName + " " + desc)
-	switch {
-	case strings.Contains(lower, "pcap") || binName == "tshark" || binName == "tcpdump":
-		return "pcap"
-	case strings.Contains(lower, "json"):
-		return "json"
-	case strings.Contains(lower, "xml"):
-		return "xml"
-	case strings.Contains(lower, "csv"):
-		return "csv"
-	case strings.Contains(lower, "png") || binName == "qrencode":
-		return "png"
-	default:
-		return "txt"
-	}
 }
 
 func cleanFlagLabel(flag, altFlag, desc string) string {
@@ -790,4 +782,35 @@ func isFixedValueAlias(first, second, arg string) bool {
 	return strings.HasPrefix(first, "-") && !strings.HasPrefix(first, "--") && len(first) == 2 &&
 		strings.HasPrefix(second, "--") && reLiteralValue.MatchString(arg) &&
 		!ParsePlaceholder(arg).IsFile()
+}
+
+// knownOnlyFlags turns options the known-tools list names, but the help
+// text did not show in a form mint-gen could read, into fields with their
+// roles (pandoc -t, ffmpeg -i), so the app offers them.
+func knownOnlyFlags(tool string, have []appkit.FlagSpec, outputFlag string) []appkit.FlagSpec {
+	kt, ok := KnownToolIO(tool)
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{outputFlag: true}
+	for _, f := range have {
+		seen[f.Flag] = true
+	}
+	var out []appkit.FlagSpec
+	for _, o := range kt.Options {
+		if seen[o.Flag] {
+			continue
+		}
+		role := appkit.ArgRole(o.Role)
+		kind := appkit.FlagText
+		switch role {
+		case appkit.RoleInputFile, appkit.RoleConfigFile, appkit.RoleFile:
+			kind = appkit.FlagFile
+		case appkit.RoleInputDir, appkit.RoleOutputDir, appkit.RoleDir:
+			kind = appkit.FlagDir
+		}
+		out = append(out, appkit.FlagSpec{Flag: o.Flag, Kind: kind, Role: role, Section: "Options",
+			Label: capitalizeFirst(roleName(role)) + " (" + o.Flag + ")", Step: 1})
+	}
+	return out
 }
