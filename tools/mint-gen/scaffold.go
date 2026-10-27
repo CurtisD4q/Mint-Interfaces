@@ -252,6 +252,31 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if f := spec.Findings; f != nil {
+		fmt.Fprintf(&buf, "\t\tFindings: &appkit.FindingsSpec{Adapter: %q", f.Adapter)
+		for _, x := range []struct {
+			name string
+			v    []string
+		}{{"ForceArgs", f.ForceArgs}, {"FormatFlags", f.FormatFlags}, {"ReadableFlags", f.ReadableFlags}} {
+			if len(x.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", x.name, goStrings(x.v))
+			}
+		}
+		if f.ReportFile != "" {
+			fmt.Fprintf(&buf, ", ReportFile: %q", f.ReportFile)
+		}
+		if len(f.Patterns) > 0 {
+			buf.WriteString(", Patterns: []appkit.FindingPattern{")
+			for i, p := range f.Patterns {
+				if i > 0 {
+					buf.WriteString(", ")
+				}
+				fmt.Fprintf(&buf, "{Severity: %q, Regex: %q}", p.Severity, p.Regex)
+			}
+			buf.WriteString("}")
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
 	}

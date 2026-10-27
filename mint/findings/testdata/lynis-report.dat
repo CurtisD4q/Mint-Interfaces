@@ -1,0 +1,9 @@
+# Lynis Report
+report_version_major=1
+hostname=box
+warning[]=AUTH-9286|Configure minimum password age in /etc/login.defs|-|-|
+warning[]=NETW-2705|Couldn't find 2 responsive nameservers|-|Check your /etc/resolv.conf file|
+suggestion[]=BOOT-5122|Set a password on GRUB boot loader to prevent altering boot configuration|-|-|
+suggestion[]=KRNL-6000|One or more sysctl values differ from the scan profile|sysctl key=fs.suid_dumpable|-|
+malformed line without equals
+hardening_index=61

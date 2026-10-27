@@ -68,6 +68,7 @@ type Cmd struct {
 	Timeout    time.Duration            // 0 = no timeout
 	MaxLines   int                      // 0 = DefaultMaxLines (50,000)
 	StopSignal syscall.Signal           // signal sent by Stop (0 = SIGTERM)
+	RawStdout  int                      // keep up to this many bytes of stdout exactly as written, for parsing machine-readable output (0 = off); see Job.RawStdout
 	OKExits    map[int]string           // exit codes besides 0 that are results, not failures, with what they mean (diff: 1 → "files differ")
 	Label      string                   // short name for status badges ("" = command name)
 	Progress   func(string) (int, bool) // optional parser returning (0..100, true) from a line
@@ -94,6 +95,7 @@ type Job struct {
 	pid     int
 	stdin   io.WriteCloser
 	done    chan struct{}
+	raw     *capBuffer // stdout as written, when Cmd.RawStdout > 0
 
 	// lastRead is when output was last read (UnixNano). After the program
 	// exits, its remaining output is read for as long as it keeps arriving.
@@ -196,9 +198,14 @@ func Start(c Cmd) *Job {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+	var out io.Reader = stdout
+	if c.RawStdout > 0 {
+		j.raw = &capBuffer{limit: c.RawStdout}
+		out = io.TeeReader(stdout, j.raw)
+	}
 	go func() {
 		defer wg.Done()
-		j.readPipe(stdout, false)
+		j.readPipe(out, false)
 	}()
 	go func() {
 		defer wg.Done()
@@ -836,4 +843,41 @@ func Clock(d time.Duration) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+// capBuffer keeps the first limit bytes written to it and notes whether
+// more arrived. Writes never fail, so the reader it tees from keeps going.
+type capBuffer struct {
+	mu        sync.Mutex
+	limit     int
+	b         []byte
+	truncated bool
+}
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	room := c.limit - len(c.b)
+	if room < len(p) {
+		c.truncated = true
+		if room > 0 {
+			c.b = append(c.b, p[:room]...)
+		}
+		return len(p), nil
+	}
+	c.b = append(c.b, p...)
+	return len(p), nil
+}
+
+// RawStdout returns a copy of the program's standard output exactly as it
+// wrote it, up to Cmd.RawStdout bytes, and whether more was cut off. It is
+// for parsing (JSON, SARIF); the bytes are untrusted and must be cleaned
+// before anything from them is shown. It is nil unless Cmd.RawStdout > 0.
+func (j *Job) RawStdout() (data []byte, truncated bool) {
+	if j.raw == nil {
+		return nil, false
+	}
+	j.raw.mu.Lock()
+	defer j.raw.mu.Unlock()
+	return append([]byte(nil), j.raw.b...), j.raw.truncated
 }

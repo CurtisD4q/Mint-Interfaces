@@ -29,7 +29,7 @@ type DiffSpec struct {
 	// use, ForceArgs are left out and Mint shows the output as it is.
 	FormatFlags []string `json:"format_flags,omitempty"`
 	// ReadableFlags are the format options whose output the view reads
-	// ("-u", "-U", "--unified" for diff). Empty means ForceArgs.
+	// ("-u", "-U", "--unified" for diff), besides ForceArgs themselves.
 	ReadableFlags []string `json:"readable_flags,omitempty"`
 	LeftLabel     string   `json:"left_label,omitempty"` // "" = the file's name
 	RightLabel    string   `json:"right_label,omitempty"`
@@ -83,56 +83,15 @@ func init() {
 	})
 }
 
-// usesFlag reports whether args, before any "--", use one of flags: as
-// itself, as --flag=value, or as a short option with its value attached
-// (-U3).
-func usesFlag(args, flags []string) bool {
-	for _, arg := range args {
-		if arg == "--" {
-			return false
-		}
-		for _, f := range flags {
-			switch {
-			case arg == f, strings.HasPrefix(f, "--") && strings.HasPrefix(arg, f+"="):
-				return true
-			case len(f) == 2 && f[0] == '-' && f[1] != '-' && len(arg) > 2 && arg[1] != '-' && strings.HasPrefix(arg, f):
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// diffArgs adds WithDiff's ForceArgs to args unless the user chose an
-// output format, and reports whether the output will be readable by the
-// differences view.
-func (a *ToolApp) diffArgs(args []string) (out []string, readable bool) {
+// diffArgs adds WithDiff's ForceArgs to args (at index at, after any
+// subcommand words) unless the user chose an output format, and reports
+// whether the output will be readable by the differences view.
+func (a *ToolApp) diffArgs(args []string, at int) (out []string, readable bool) {
 	d := a.Spec.Diff
 	if d == nil {
 		return args, false
 	}
-	readableFlags := d.ReadableFlags
-	if len(readableFlags) == 0 {
-		readableFlags = d.ForceArgs
-	}
-	if usesFlag(args, d.FormatFlags) || len(d.ForceArgs) == 0 {
-		return args, usesFlag(args, readableFlags)
-	}
-	return insertBeforeOperands(args, d.ForceArgs), true
-}
-
-// insertBeforeOperands puts extra in front of "--", or before everything
-// if there is none, so options never land among the file names.
-func insertBeforeOperands(args, extra []string) []string {
-	out := make([]string, 0, len(args)+len(extra))
-	for i, a := range args {
-		if a == "--" {
-			out = append(out, extra...)
-			return append(out, args[i:]...)
-		}
-		out = append(out, a)
-	}
-	return append(append([]string(nil), extra...), args...)
+	return forceFormat(args, at, d.ForceArgs, d.FormatFlags, d.ReadableFlags)
 }
 
 // diffReadable reports whether the last run printed a format the

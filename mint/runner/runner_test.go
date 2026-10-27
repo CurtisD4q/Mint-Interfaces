@@ -453,3 +453,41 @@ func TestOKExitsAreResults(t *testing.T) {
 		t.Fatalf("no OKExits: state %v", j.State())
 	}
 }
+
+// Machine-readable output is kept whole, even a single line longer than
+// MaxLineBytes, while the displayed line is still cut.
+func TestRawStdout(t *testing.T) {
+	old := MaxLineBytes
+	MaxLineBytes = 100
+	defer func() { MaxLineBytes = old }()
+
+	j := Start(Cmd{Name: "sh", Args: shArgs(`printf '{"x":"%0500d"}' 0; echo err >&2`), RawStdout: 1 << 20})
+	waitOrFail(t, j, 5*time.Second)
+	raw, cut := j.RawStdout()
+	if cut || len(raw) != 508 || string(raw[:6]) != `{"x":"` {
+		t.Fatalf("raw %d bytes, cut %v: %q", len(raw), cut, raw[:20])
+	}
+	if strings.Contains(string(raw), "err") {
+		t.Fatal("stderr in raw stdout")
+	}
+	cutShown := false
+	for _, l := range j.Lines() { // stderr's line may come first
+		cutShown = cutShown || (!l.Err && strings.HasSuffix(l.Text, LineTruncatedMark))
+	}
+	if !cutShown {
+		t.Fatalf("display line not cut: %q", texts(j))
+	}
+
+	j = Start(Cmd{Name: "sh", Args: shArgs("seq 1 100000"), RawStdout: 1000})
+	waitOrFail(t, j, 5*time.Second)
+	if raw, cut := j.RawStdout(); len(raw) != 1000 || !cut {
+		t.Fatalf("limit: %d bytes, cut %v", len(raw), cut)
+	}
+	if j.Total() != 100000 {
+		t.Fatalf("display lost lines past the raw limit: %d", j.Total())
+	}
+
+	if raw, _ := Start(Cmd{Name: "true"}).RawStdout(); raw != nil {
+		t.Fatal("raw kept without RawStdout")
+	}
+}

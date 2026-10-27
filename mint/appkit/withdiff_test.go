@@ -29,13 +29,13 @@ func TestDiffForcesUnified(t *testing.T) {
 	a.Target = "old new"
 	a.Values["-i"] = "true"
 	args, _ := a.BuildArgs()
-	if got := strings.Join(args, " "); got != "-i -u -- old new" {
+	if got := strings.Join(args, " "); got != "-u -i -- old new" {
 		t.Fatalf("args = %q", got)
 	}
-	if !strings.Contains(a.CommandPreview(), "diff -i -u -- old new") {
+	if !strings.Contains(a.CommandPreview(), "diff -u -i -- old new") {
 		t.Fatalf("preview = %q", a.CommandPreview())
 	}
-	if _, ok := a.diffArgs(args); !ok {
+	if _, ok := a.diffArgs(args, 0); !ok {
 		t.Fatal("forced unified output should be readable")
 	}
 }
@@ -49,7 +49,7 @@ func TestDiffRespectsChosenFormat(t *testing.T) {
 	if strings.Contains(strings.Join(args, " "), "-u") {
 		t.Fatalf("-u added over the user's -y: %q", args)
 	}
-	if _, ok := a.diffArgs(args); ok {
+	if _, ok := a.diffArgs(args, 0); ok {
 		t.Fatal("side-by-side output isn't readable by the view")
 	}
 
@@ -59,7 +59,7 @@ func TestDiffRespectsChosenFormat(t *testing.T) {
 	if got := strings.Join(args, " "); got != "-U 5 -- old new" {
 		t.Fatalf("args = %q", got)
 	}
-	if _, ok := a.diffArgs(args); !ok {
+	if _, ok := a.diffArgs(args, 0); !ok {
 		t.Fatal("-U 5 is unified and readable")
 	}
 	a.Values["-U"] = ""
