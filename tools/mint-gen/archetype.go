@@ -65,6 +65,11 @@ var (
 	// Get and set: "get KEY", "set KEY VALUE", "key=value", "NAME=VALUE".
 	reGetSetWord = regexp.MustCompile(`(?i)\b(?:get|set|unset|reset)\b`)
 	reKeyValue   = regexp.MustCompile(`(?i)\b(?:key|name|variable|param|parameter|setting|option)\s*=\s*(?:value|val)\b|\b(?:key|parameter|setting)\s+(?:value|val)\b`)
+	// What the program says it does, when it reports on its input: "print
+	// shared object dependencies", "display information about logical
+	// volumes", "determine file type", "a pager".
+	reReportsOn = regexp.MustCompile(`(?i)\b(?:display|displays|print|prints|show|shows|list|lists|report|reports|determine|determines|identify|identifies|count|counts|describe|describes|dump|dumps|examine|examines|inspect|inspects|view|views|browse|browses)\b(?:\W+\w+){0,5}?\W+(?:information|info|contents?|details|symbols|type|types|attributes|metadata|properties|entries|dependencies|lines|words|columns|tables?|structure|sections|headers|documentation|manual|pages?|tags)\b`)
+	reViewer    = regexp.MustCompile(`(?i)\b(?:pager|viewer|browser|reader)\b`)
 	// A section of options that are modes: "Main operation mode:", "Commands:", "Actions:".
 	reModeSection = regexp.MustCompile(`(?i)\b(?:operation|operations|mode|modes|command|commands|action|actions|function|functions)\b`)
 	// A usage form that starts with a single option (crontab -l, crontab -e).
@@ -133,6 +138,14 @@ func archetypeBehaviour(p programText) map[appkit.Archetype]*ArchetypeScore {
 		case reDeviceArg.MatchString(a):
 			add(appkit.ArchetypeExplorer, behaveMedium, "takes a device ("+a+")")
 		}
+	}
+
+	// Explorer: it reports on what it is given.
+	about := p.Summary + "\n" + p.Description
+	if reReportsOn.MatchString(about) {
+		add(appkit.ArchetypeExplorer, behaveMedium, "it reports on its input ("+reReportsOn.FindString(about)+")")
+	} else if reViewer.MatchString(p.Summary) {
+		add(appkit.ArchetypeExplorer, behaveMedium, "it is a viewer or pager")
 	}
 
 	// Config: gets and sets values.
@@ -295,14 +308,25 @@ func pickWithinArchetype(a appkit.Archetype, scores []TemplateScore) (string, st
 	return best, fmt.Sprintf("best evidence among %s templates (%d points)", a, bestKey.total)
 }
 
+// archetypeWeights weigh words for the archetype step: the long body
+// counts for at most 2, because its passing mentions ("compiler" in ldd's
+// man page) should not outvote how the program works.
+var archetypeWeights = func() scoreWeights {
+	w := defaultWeights
+	w.Body, w.BodyCap = 1, 4
+	return w
+}()
+
 // chooseByArchetype is the two-step choice for a program no list names.
 func chooseByArchetype(p programText) TemplateChoice {
-	return chooseByArchetypeScores(p, scoreEvidence(defaultWeights, findEvidence(p)))
+	ev := findEvidence(p)
+	return chooseByArchetypeEvidence(p, ev, scoreEvidence(defaultWeights, ev))
 }
 
-// chooseByArchetypeScores is chooseByArchetype with the word scores given.
-func chooseByArchetypeScores(p programText, scores []TemplateScore) TemplateChoice {
-	arch := detectArchetype(p, scores)
+// chooseByArchetypeEvidence is chooseByArchetype with the evidence and the
+// word scores given.
+func chooseByArchetypeEvidence(p programText, ev templateEvidence, scores []TemplateScore) TemplateChoice {
+	arch := detectArchetype(p, scoreEvidence(archetypeWeights, ev))
 	a := arch[0]
 	id, why := pickWithinArchetype(a.Archetype, scores)
 	return TemplateChoice{

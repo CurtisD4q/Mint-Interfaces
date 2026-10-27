@@ -118,7 +118,7 @@ func TestTemplateLearn(t *testing.T) {
 				nowID = "T21"
 			}
 		}
-		c := chooseByArchetypeScores(d.text, scores)
+		c := chooseByArchetypeEvidence(d.text, d.ev, scores)
 		gotArch := c.Archetypes[0].Archetype
 		if d.Untouched {
 			archUnt++
@@ -132,6 +132,9 @@ func TestTemplateLearn(t *testing.T) {
 		archAll++
 		if gotArch == archOf(d.Want) {
 			archRight++
+			if c.ID != d.Want {
+				misses = append(misses, fmt.Sprintf("WITHIN %-14s want %s got %s  [%s]", d.Name, d.Want, c.ID, c.Why))
+			}
 		} else {
 			confusion[string(archOf(d.Want))+" -> "+string(gotArch)]++
 			misses = append(misses, fmt.Sprintf("%-14s want %s/%s got %s/%s  [%s]", d.Name, d.Want, archOf(d.Want), c.ID, gotArch, c.Why))
@@ -166,8 +169,9 @@ func TestTemplateLearn(t *testing.T) {
 type learnDoc struct {
 	labelled
 	text   programText
-	sub    bool            // has subcommands (for the fallback)
-	scores []TemplateScore // the word scores, computed once
+	sub    bool             // has subcommands (for the fallback)
+	scores []TemplateScore  // the word scores, computed once
+	ev     templateEvidence // the evidence they came from
 }
 
 func learnDocs(t *testing.T) []learnDoc {
@@ -189,7 +193,8 @@ func learnDocs(t *testing.T) []learnDoc {
 		p.Related = nil // they come from the lists, which are what is being replaced
 		ml, hl := cleanLines(man), cleanLines(help)
 		out = append(out, learnDoc{labelled: l, text: p, sub: hasSubcommands(man, help, ml, hl),
-			scores: scoreEvidence(defaultWeights, findEvidence(p))})
+			ev: findEvidence(p)})
+		out[len(out)-1].scores = scoreEvidence(defaultWeights, out[len(out)-1].ev)
 		if d := time.Since(start); d > 2*time.Second {
 			t.Logf("slow: %s %v (%d KB)", l.Name, d.Round(time.Second), len(man+help)/1024)
 		}
