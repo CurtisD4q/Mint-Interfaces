@@ -155,11 +155,6 @@ func (l *limitedBuffer) String() string {
 	return l.buf.String()
 }
 
-// Shell runs a raw shell command. Quote interpolated values with ShQuote.
-func Shell(command string) (string, error) {
-	return capture(exec.Command("sh", "-c", command))
-}
-
 // RunOK reports whether the program exited 0.
 func RunOK(program string, args ...string) bool {
 	_, err := Run(program, args...)
@@ -175,18 +170,6 @@ func RunValue(program string, args ...string) (string, bool) {
 // RunLines returns the non-empty trimmed lines of stdout.
 func RunLines(program string, args ...string) []string {
 	out, err := Run(program, args...)
-	return lines(out, err)
-}
-
-// ShellValue is RunValue for a shell command.
-func ShellValue(command string) (string, bool) {
-	out, err := Shell(command)
-	return value(out, err)
-}
-
-// ShellLines is RunLines for a shell command.
-func ShellLines(command string) []string {
-	out, err := Shell(command)
 	return lines(out, err)
 }
 

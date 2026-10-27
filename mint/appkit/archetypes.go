@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/fileplan"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 )
 
@@ -419,6 +420,30 @@ func (a *ToolApp) rootAuthSection() *mint.Section {
 }
 
 func (a *ToolApp) executeFromUI(c *mint.Ctx) {
+	if a.Spec.Preview != nil {
+		var plan fileplan.Plan
+		var err error
+		c.Busy("Working out what will change…", func() { plan, err = a.MakePlan() })
+		if err != nil {
+			if !c.Confirm("Run without a preview?", "Mint couldn't work out what this run will change ("+err.Error()+"). Run it anyway?") {
+				c.ToastWarn("Cancelled")
+				return
+			}
+			a.confirmAndRun(c, "")
+			return
+		}
+		c.Push(a.PreviewScreen(plan, func(c *mint.Ctx, plan fileplan.Plan) {
+			a.confirmAndRun(c, planSummary(plan))
+		}))
+		return
+	}
+	a.confirmAndRun(c, "")
+}
+
+// confirmAndRun asks whatever the run needs (typed confirmation, a
+// secret on the command line…) and starts it. summary, when a preview
+// produced one, says what the run will change.
+func (a *ToolApp) confirmAndRun(c *mint.Ctx, summary string) {
 	needConfirm := a.Spec.ConfirmRun
 	if a.Spec.Archetype == ArchetypeSuite {
 		if sub := a.activeSubcommandSpec(); sub != nil && sub.Confirm {
@@ -432,7 +457,11 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 		if phrase == "" {
 			phrase = a.Spec.BinaryName()
 		}
-		if !c.TypeToConfirm("Run "+a.Spec.Name+"?", "This cannot be undone: "+a.CommandPreview(), phrase) {
+		warning := "This cannot be undone: " + a.CommandPreview()
+		if summary != "" {
+			warning = "This cannot be undone. It will " + summary + ".\n" + a.CommandPreview()
+		}
+		if !c.TypeToConfirm("Run "+a.Spec.Name+"?", warning, phrase) {
 			c.ToastWarn("Cancelled")
 			return
 		}
@@ -465,6 +494,10 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 	}
 	if _, err := a.StartJob(); err != nil {
 		c.ToastError(err.Error())
+		return
+	}
+	if a.Spec.Follow != nil {
+		c.Push(a.FollowScreen())
 		return
 	}
 	c.Push(a.RunScreen())

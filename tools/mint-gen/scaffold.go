@@ -6,6 +6,8 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -232,8 +234,103 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.Irreversible {
 		buf.WriteString("\t\tIrreversible:      true,\n")
 	}
+	if d := spec.Diff; d != nil {
+		fmt.Fprintf(&buf, "\t\tDiff: &appkit.DiffSpec{Format: %q", d.Format)
+		for _, f := range []struct {
+			name string
+			v    []string
+		}{{"ForceArgs", d.ForceArgs}, {"FormatFlags", d.FormatFlags}, {"ReadableFlags", d.ReadableFlags}} {
+			if len(f.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", f.name, goStrings(f.v))
+			}
+		}
+		if d.LeftLabel != "" {
+			fmt.Fprintf(&buf, ", LeftLabel: %q", d.LeftLabel)
+		}
+		if d.RightLabel != "" {
+			fmt.Fprintf(&buf, ", RightLabel: %q", d.RightLabel)
+		}
+		buf.WriteString("},\n")
+	}
+	if f := spec.Findings; f != nil {
+		fmt.Fprintf(&buf, "\t\tFindings: &appkit.FindingsSpec{Adapter: %q", f.Adapter)
+		for _, x := range []struct {
+			name string
+			v    []string
+		}{{"ForceArgs", f.ForceArgs}, {"FormatFlags", f.FormatFlags}, {"ReadableFlags", f.ReadableFlags}} {
+			if len(x.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", x.name, goStrings(x.v))
+			}
+		}
+		if f.ReportFile != "" {
+			fmt.Fprintf(&buf, ", ReportFile: %q", f.ReportFile)
+		}
+		if len(f.Patterns) > 0 {
+			buf.WriteString(", Patterns: []appkit.FindingPattern{")
+			for i, p := range f.Patterns {
+				if i > 0 {
+					buf.WriteString(", ")
+				}
+				fmt.Fprintf(&buf, "{Severity: %q, Regex: %q}", p.Severity, p.Regex)
+			}
+			buf.WriteString("}")
+		}
+		buf.WriteString("},\n")
+	}
+	if p := spec.Preview; p != nil {
+		fmt.Fprintf(&buf, "\t\tPreview: &appkit.PreviewSpec{Adapter: %q", p.Adapter)
+		if len(p.DryRunArgs) > 0 {
+			fmt.Fprintf(&buf, ", DryRunArgs: %s", goStrings(p.DryRunArgs))
+		}
+		buf.WriteString("},\n")
+	}
+	if f := spec.Follow; f != nil {
+		fmt.Fprintf(&buf, "\t\tFollow: &appkit.FollowSpec{Format: %q", f.Format)
+		for _, x := range []struct {
+			name string
+			v    []string
+		}{{"FollowArgs", f.FollowArgs}, {"FollowFlags", f.FollowFlags}, {"FormatArgs", f.FormatArgs},
+			{"FormatFlags", f.FormatFlags}, {"ReadableFlags", f.ReadableFlags}} {
+			if len(x.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", x.name, goStrings(x.v))
+			}
+		}
+		if f.AutoStart {
+			buf.WriteString(", AutoStart: true")
+		}
+		if f.Restart != "" {
+			fmt.Fprintf(&buf, ", Restart: %q", f.Restart)
+		}
+		for i, l := range f.Levels {
+			if i == 0 {
+				buf.WriteString(", Levels: []appkit.FollowLevel{")
+			} else {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "{Level: %q, Regex: %q}", l.Level, l.Regex)
+			if i == len(f.Levels)-1 {
+				buf.WriteString("}")
+			}
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
+	}
+	if len(spec.ExitMeanings) > 0 {
+		codes := make([]int, 0, len(spec.ExitMeanings))
+		for c := range spec.ExitMeanings {
+			codes = append(codes, c)
+		}
+		sort.Ints(codes)
+		buf.WriteString("\t\tExitMeanings:      map[int]string{")
+		for i, c := range codes {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%d: %q", c, spec.ExitMeanings[c])
+		}
+		buf.WriteString("},\n")
 	}
 	if len(spec.StatusArgs) > 0 {
 		buf.WriteString("\t\tStatusArgs:        []string{")
@@ -462,4 +559,13 @@ func stdoutIdent(k string) string {
 		return "StdoutBinary"
 	}
 	return ""
+}
+
+// goStrings writes ss as a Go []string literal.
+func goStrings(ss []string) string {
+	q := make([]string, len(ss))
+	for i, s := range ss {
+		q[i] = strconv.Quote(s)
+	}
+	return "[]string{" + strings.Join(q, ", ") + "}"
 }

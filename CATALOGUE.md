@@ -246,7 +246,7 @@ A reload inside `Poll` briefly pauses the interface while the command runs. That
 
 ```go
 var live = eventcache.New(eventcache.Options{
-	Stream: tool + " monitor", // prints a line whenever something changes
+	Stream: []string{tool, "monitor"}, // prints a line whenever something changes
 	Fetchers: map[string]func() any{
 		"volume": func() any { return query("get", "volume") },
 	},

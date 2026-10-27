@@ -92,7 +92,6 @@ Once installed, the steps from any directory are:
 **To build apps:**
 
 - **Go 1.21 or newer.** No C compiler or other tools: cross-compiling for another system or processor is just a setting.
-- **`sh`**, for jobs started with `runner.Cmd{Shell: ...}`. Every Unix system has it.
 - **Python 3**, only for `tools/check_catalogue.py`.
 
 **For the Emacs integration (`emacs/mint.el`):**
