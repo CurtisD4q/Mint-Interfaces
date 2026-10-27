@@ -277,3 +277,66 @@ func TestZoneWindowsMatchFullSearch(t *testing.T) {
 	}
 	t.Logf("%d long help texts compared, %d differ", n, diff)
 }
+
+// TestConfidenceCalibration shows, for each pair of cut-offs, how many
+// choices count as clear and how often clear and close calls are right
+// (MINT_TEMPLATE_LEARN=calibrate; labelled pool only).
+func TestConfidenceCalibration(t *testing.T) {
+	if os.Getenv("MINT_TEMPLATE_LEARN") != "calibrate" {
+		t.Skip("set MINT_TEMPLATE_LEARN=calibrate")
+	}
+	type r struct {
+		right             bool
+		archLead, tplLead int
+	}
+	var rs []r
+	var untClear, untClearRight, untClose, untCloseRight int
+	for _, d := range learnDocs(t) {
+		if d.Untouched {
+			if os.Getenv("MINT_TEMPLATE_LEARN_FINAL") != "" {
+				c := chooseByArchetypeEvidence(d.text, d.ev, d.scores)
+				if c.Confidence == ConfidenceClear {
+					untClear++
+					if c.ID == d.Want {
+						untClearRight++
+					}
+				} else {
+					untClose++
+					if c.ID == d.Want {
+						untCloseRight++
+					}
+				}
+			}
+			continue
+		}
+		c := chooseByArchetypeEvidence(d.text, d.ev, d.scores)
+		rs = append(rs, r{c.ID == d.Want, c.ArchetypeLead, c.TemplateLead})
+	}
+	if untClear+untClose > 0 {
+		t.Logf("untouched at arch>=%d tpl>=%d: clear %d (%.0f%%) right %.0f%% | close %d right %.0f%%",
+			clearArchetypeLead, clearTemplateLead, untClear, 100*float64(untClear)/float64(untClear+untClose),
+			100*float64(untClearRight)/float64(max(untClear, 1)), untClose, 100*float64(untCloseRight)/float64(max(untClose, 1)))
+		return
+	}
+	for a := 1; a <= 6; a++ {
+		for b := 1; b <= 6; b++ {
+			var clear, clearRight, close, closeRight int
+			for _, x := range rs {
+				if x.archLead >= a && x.tplLead >= b {
+					clear++
+					if x.right {
+						clearRight++
+					}
+				} else {
+					close++
+					if x.right {
+						closeRight++
+					}
+				}
+			}
+			t.Logf("arch>=%d tpl>=%d: clear %3d (%3.0f%%) right %3.0f%% | close %3d right %3.0f%%", a, b,
+				clear, 100*float64(clear)/float64(len(rs)), 100*float64(clearRight)/float64(max(clear, 1)),
+				close, 100*float64(closeRight)/float64(max(close, 1)))
+		}
+	}
+}

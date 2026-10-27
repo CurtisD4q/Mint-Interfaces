@@ -581,6 +581,13 @@ type TemplateChoice struct {
 	Why        string
 	Scores     []TemplateScore  // best first (for --explain)
 	Archetypes []ArchetypeScore // best first, when the archetype was chosen first (for --explain)
+
+	Archetype     appkit.Archetype // the archetype it was chosen within
+	ArchetypeLead int              // its points over the next archetype
+	TemplateLead  int              // the template's points over the next of its archetype
+	Confidence    string           // ConfidenceListed, ConfidenceClear or ConfidenceClose
+	Alternatives  []string         // the likely other templates, best first
+	DecidedBy     string           // the tie-breaker that chose between the top two templates
 }
 
 // chooseTemplate picks a template: the built-in tool list first, then the
@@ -589,23 +596,17 @@ type TemplateChoice struct {
 func chooseTemplate(bin string, spec appkit.ToolSpec, manText, helpText string) TemplateChoice {
 	name := strings.ToLower(toolBaseName(bin))
 	if tpl, ok := appkit.TemplateForTool(name); ok {
-		return TemplateChoice{ID: string(tpl.ID), Why: "listed for " + name + " in the template's tools"}
+		return TemplateChoice{ID: string(tpl.ID), Why: "listed for " + name + " in the template's tools",
+			Archetype: tpl.Archetype, Confidence: ConfidenceListed}
 	}
 	return scoreTemplateChoice(name, manText, helpText)
 }
 
 // scoreTemplateChoice chooses a template from the help text alone, as for a
-// program no list knows (the template benchmark uses it directly).
+// program no list knows: its archetype first, then the template within it
+// (see archetype.go). It always chooses, and says how sure it is.
 func scoreTemplateChoice(name, manText, helpText string) TemplateChoice {
-	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
-	scores := scoreEvidence(defaultWeights, findEvidence(programTextFrom(name, manText, helpText)))
-	if id, why := pickTemplate(scores); id != "" {
-		return TemplateChoice{ID: id, Why: why, Scores: scores}
-	} else if hasSubcommands(manText, helpText, manLines, helpLines) {
-		return TemplateChoice{ID: "T21", Why: why + "; it has subcommands", Scores: scores}
-	} else {
-		return TemplateChoice{ID: "T05", Why: why + "; the general runner", Scores: scores}
-	}
+	return chooseByArchetype(programTextFrom(name, manText, helpText))
 }
 
 // hasSubcommands reports whether a program's help lists subcommands.

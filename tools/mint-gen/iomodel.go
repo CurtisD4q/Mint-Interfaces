@@ -220,18 +220,7 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 		p("  Note:     %s", n)
 	}
 	if m.Template.ID != "" {
-		tpl, _ := appkit.LookupTemplate(m.Template.ID)
-		p("  Template: %s %s (%s)", m.Template.ID, tpl.Slug, m.Template.Why)
-		for i, sc := range m.Template.Scores {
-			if i == 3 {
-				break
-			}
-			hits := sc.Hits
-			if len(hits) > 4 {
-				hits = append(hits[:4:4], "…")
-			}
-			p("            %s %3d  %s", sc.ID, sc.Score, strings.Join(hits, ", "))
-		}
+		explainTemplateChoice(w, m.Tool, m.Template)
 	}
 	if m.Usage != "" {
 		p("  Usage:    %s", m.Usage)

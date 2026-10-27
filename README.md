@@ -74,7 +74,7 @@ Once installed, the steps from any directory are:
    ```sh
    mint-gen --list
    ```
-6. **See what mint-gen understood (optional):** which template it chose and the words that decided it, what the program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
+6. **See what mint-gen understood (optional):** which template it chose, how sure it is, the archetype and the evidence that decided it, what the program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
    ```sh
    mint-gen --explain ffmpeg
    ```
@@ -410,7 +410,7 @@ python3 tools/check_catalogue.py
    Behind the scenes, this automatically:
    - Ensures your terminal capability profile is cached in `~/.config/mint-interfaces/termcaps.json` (keyed by `$TERM`, `$TERM_PROGRAM`, and `$TMUX`).
    - Reads `man nmap` and `nmap --help` to extract its summary, synopsis, target input, file-output flags (`-oN`, `-oX`, `-o`, etc.), subcommands, and option flags.
-   - Auto-selects the matching template from `T01`–`T28` (for `nmap`, `T12` `network-scanner` using `ArchetypeScanner` + `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, and `WithHistory`). A program that no template lists is scored on the words in its summary, the opening of its man page's DESCRIPTION, its usage lines, the rest of its help and its SEE ALSO list; with weak or close evidence it gets the general runner (or `T21` if it has subcommands). On a benchmark of 156 programs with the lists switched off, 87% get the right template and 3% a wrong one; on the 44 never used for tuning, 84% and 5% (`MINT_TEMPLATE_BENCH=1 go test -run TestTemplateBenchmark -v ./tools/mint-gen`).
+   - Auto-selects the matching template from `T01`–`T28` (for `nmap`, `T12` `network-scanner` using `ArchetypeScanner` + `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, and `WithHistory`). A program that no template lists gets its archetype first, from how it works (subcommands or modes, repeating or following, hosts, patterns or devices, getting and setting values), then the template within that archetype from the words in its summary, description, usage and help. It always gets a template, marked as a clear choice or a close call; for a close call the build output names the likely alternatives and the `--template` command to switch. On 123 everyday programs never used for tuning, 73% get the right template; 60% are clear choices, right 9 times in 10 (`MINT_TEMPLATE_BENCH=1 go test -run TestTemplateBenchmark -v ./tools/mint-gen`).
    - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`, or interactive path/repeatable browsers) and groups secondary flags into collapsible sections (`mint.Collapsible`).
    - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
 

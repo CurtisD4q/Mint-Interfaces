@@ -148,11 +148,8 @@ func runCLI(args []string) int {
 		return 1
 	}
 
-	spec, err := ParseProgram(program)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mint-gen: parse error: %v\n", err)
-		return 1
-	}
+	spec, model := ParseProgramIO(program)
+	printHelpNotes(model.HelpNotes)
 
 	if templateFlag != "" {
 		tpl, ok := appkit.LookupTemplate(templateFlag)
@@ -178,6 +175,7 @@ func runCLI(args []string) int {
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
+	printTemplateChoice(os.Stdout, program, model.Template, templateFlag)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
 	printKnownToolWarnings(os.Stderr)

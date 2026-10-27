@@ -18,7 +18,7 @@ func TestChooseTemplateFromSummary(t *testing.T) {
 		name, summary, body, want string
 	}{
 		{"proclook", "interactive process viewer", "", "T19"},
-		{"proclist", "display Linux processes", "", "T05"}, // only ordinary words: too weak to decide
+		{"proclist", "display Linux processes", "", "T19"}, // only ordinary words: chosen, but a close call
 		{"dirlist", "list directory contents", "", "T25"},
 		{"jsrun", "server-side JavaScript runtime", "", "T10"},
 		{"imgconv", "image converter and resizer", "", "T06"},
@@ -33,6 +33,22 @@ func TestChooseTemplateFromSummary(t *testing.T) {
 		if got.ID != c.want {
 			t.Errorf("%s (%q): %s (%s), want %s; scores %v", c.name, c.summary, got.ID, got.Why, c.want, got.Scores)
 		}
+		if got.Confidence != ConfidenceClear && got.Confidence != ConfidenceClose {
+			t.Errorf("%s: confidence %q", c.name, got.Confidence)
+		}
+	}
+	// Thin evidence is a close call; none at all is the general runner, a close call.
+	for _, n := range []string{"proclist", "nothing"} {
+		for _, c := range cases {
+			if c.name == n {
+				if got := chooseTemplate(n, appkit.ToolSpec{}, manWithName(n, c.summary, ""), ""); got.Confidence != ConfidenceClose {
+					t.Errorf("%s: %s, want a close call (%s)", n, got.Confidence, got.Why)
+				}
+			}
+		}
+	}
+	if got := chooseTemplate("nmap", appkit.ToolSpec{}, "", ""); got.Confidence != ConfidenceListed || got.Archetype != appkit.ArchetypeScanner {
+		t.Errorf("nmap: %+v", got)
 	}
 }
 
