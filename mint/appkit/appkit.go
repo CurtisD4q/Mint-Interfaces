@@ -132,6 +132,7 @@ type ToolSpec struct {
 	Diff              *DiffSpec        `json:"diff,omitempty"`               // Mixin: WithDiff (Compare)
 	Findings          *FindingsSpec    `json:"findings,omitempty"`           // Mixin: WithFindings (Audit)
 	Preview           *PreviewSpec     `json:"preview,omitempty"`            // Mixin: WithPreview (Edit files)
+	Follow            *FollowSpec      `json:"follow,omitempty"`             // Mixin: WithFollow (Follow)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
@@ -791,6 +792,7 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 	args = append(args, flagArgs...)
 	args, _ = a.diffArgs(args, prefix)
 	args, _ = a.findingsArgs(args, prefix)
+	args = a.followArgs(args, prefix)
 	return args, outPath, stdin
 }
 
@@ -2045,20 +2047,26 @@ func (a *ToolApp) BuildApp() *mint.App {
 		primaryIcon = "❖"
 	}
 
-	items := []mint.HomeItem{
-		{
+	var items []mint.HomeItem
+	if a.Spec.Follow != nil {
+		// Stream first: the log, then the options.
+		items = append(items, mint.HomeItem{Icon: "↧", Label: "Live log", Desc: "Follow " + a.Spec.Name + "'s output as it arrives", Open: a.FollowScreen})
+		primaryLabel = "Options"
+	}
+	items = append(items,
+		mint.HomeItem{
 			Icon:  primaryIcon,
 			Label: primaryLabel,
 			Desc:  a.Spec.Desc,
 			Open:  a.MainScreen,
 		},
-		{
+		mint.HomeItem{
 			Icon:  "◧",
 			Label: "Live Run & Output",
 			Desc:  "Monitor active job, search output, or save log",
 			Open:  a.RunScreen,
 		},
-	}
+	)
 
 	if a.Spec.OutputsFile {
 		items = append(items, mint.HomeItem{

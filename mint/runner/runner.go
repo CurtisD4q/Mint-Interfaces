@@ -712,6 +712,24 @@ func (j *Job) TailLines(n int) (tail []mint.LogLine, total int) {
 	return out, j.dropped + len(j.lines)
 }
 
+// Since returns the lines from absolute line number from on (counting
+// from 0 since the job started, including lines dropped to keep within
+// MaxLines), the absolute number of the first line returned (later than
+// from if older lines were dropped), and the total so far. It is one
+// consistent read, for following output as it arrives.
+func (j *Job) Since(from int) (lines []mint.LogLine, first, total int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	total = j.dropped + len(j.lines)
+	first = max(from, j.dropped)
+	if first >= total {
+		return nil, total, total
+	}
+	lines = make([]mint.LogLine, total-first)
+	copy(lines, j.lines[first-j.dropped:])
+	return lines, first, total
+}
+
 // Slice returns up to count kept LogLines starting at index start (0-based
 // within the kept buffer) together with the total number of kept lines.
 func (j *Job) Slice(start, count int) (lines []mint.LogLine, kept int) {

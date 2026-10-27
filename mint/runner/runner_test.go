@@ -491,3 +491,21 @@ func TestRawStdout(t *testing.T) {
 		t.Fatal("raw kept without RawStdout")
 	}
 }
+
+func TestSince(t *testing.T) {
+	j := Start(Cmd{Name: "sh", Args: shArgs("seq 1 10"), MaxLines: 4})
+	waitOrFail(t, j, 5*time.Second)
+	lines, first, total := j.Since(0)
+	if total != 10 || first < 6 || len(lines) != total-first || lines[len(lines)-1].Text != "10" {
+		t.Fatalf("Since(0): %d lines, first %d, total %d", len(lines), first, total)
+	}
+	if l, f, _ := j.Since(9); f != 9 || len(l) != 1 || l[0].Text != "10" {
+		t.Fatalf("Since(9) = %v from %d", l, f)
+	}
+	if l, f, tot := j.Since(10); l != nil || f != 10 || tot != 10 {
+		t.Fatalf("Since(10) = %v %d %d", l, f, tot)
+	}
+	if l, _, _ := j.Since(99); l != nil {
+		t.Fatalf("Since(99) = %v", l)
+	}
+}

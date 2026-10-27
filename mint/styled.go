@@ -55,9 +55,24 @@ type StyledKey struct {
 	Do func() bool
 }
 
+// StyledSource supplies lines one at a time, for content too long to lay
+// out whole on every frame, such as a live log.
+type StyledSource interface {
+	Len() int
+	Line(i int) StyledLine
+	// Poll takes in anything new and reports whether to redraw. It is
+	// called about ten times a second.
+	Poll() bool
+}
+
 // ViewStyledOpts configures ViewStyled.
 type ViewStyledOpts struct {
-	Title string
+	// Source, when set, is used instead of Lines. Anchors are not used.
+	Source StyledSource
+	// Follow keeps the view at the newest line, like tail -f. Scrolling
+	// up pauses that (the source keeps reading); End resumes it.
+	Follow bool
+	Title  string
 	// Lines lays out the content for a given width (the space inside the
 	// frame). It is called again after a resize or a key that returns true.
 	Lines func(width int) []StyledLine
@@ -160,6 +175,9 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 		return callStatus(screen.appStatus)
 	}
 	hints := " ↑↓ scroll   n/p next/prev "
+	if opts.Source != nil {
+		hints = " ↑↓ scroll   End follow "
+	}
 	for _, k := range opts.Keys {
 		hints += "  " + k.Hint + " "
 	}
@@ -167,12 +185,28 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 
 	layout := func(w int) {
 		lines = nil
-		if opts.Lines != nil {
+		if opts.Source == nil && opts.Lines != nil {
 			protect(func() { lines = opts.Lines(w) })
 		}
 		anchors = anchorsOf(lines)
 		layoutW = w
 	}
+	count := func() int {
+		if opts.Source != nil {
+			n := 0
+			protect(func() { n = opts.Source.Len() })
+			return n
+		}
+		return len(lines)
+	}
+	lineAt := func(i int) (l StyledLine) {
+		if opts.Source != nil {
+			protect(func() { l = opts.Source.Line(i) })
+			return l
+		}
+		return lines[i]
+	}
+	pinned := opts.Follow
 
 	draw := func(h, w int) int {
 		cv := begin(h, w)
@@ -190,26 +224,37 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 		cv.frame(h, w)
 		top, bottom := 4, h-2
 		avail := max(1, bottom-top+1)
-		maxScroll := max(0, len(lines)-avail)
+		total := count()
+		maxScroll := max(0, total-avail)
+		if pinned {
+			scroll = maxScroll
+		}
 		scroll = clampInt(scroll, 0, maxScroll)
 
 		crumb := ""
 		if opts.Crumb != nil {
 			protect(func() { crumb = opts.Crumb(anchorAt(anchors, scroll), len(anchors)) })
-		} else if len(lines) > 0 {
-			crumb = fmt.Sprintf("%d–%d of %d", scroll+1, min(len(lines), scroll+avail), len(lines))
+		} else if total > 0 {
+			crumb = fmt.Sprintf("%d–%d of %d", scroll+1, min(total, scroll+avail), total)
+		}
+		if opts.Follow && !pinned {
+			if below := total - (scroll + avail); below > 0 {
+				crumb = fmt.Sprintf("paused · %d newer below · End resumes", below) + sepIf(crumb) + crumb
+			} else {
+				crumb = "paused · End resumes" + sepIf(crumb) + crumb
+			}
 		}
 		cv.chromeTitle(w, screen.Title, crumb)
 
-		if len(lines) == 0 {
+		if total == 0 {
 			cv.put(top, 3, C.Dim+"(nothing to show)"+Reset)
 		}
-		for row := 0; row < avail && scroll+row < len(lines); row++ {
-			cv.put(top+row, 3, renderStyled(lines[scroll+row], inner))
+		for row := 0; row < avail && scroll+row < total; row++ {
+			cv.put(top+row, 3, renderStyled(lineAt(scroll+row), inner))
 		}
 		sb = nil
-		if len(lines) > avail {
-			thumb := max(1, floorf(float64(avail*avail)/float64(len(lines))+0.5))
+		if total > avail {
+			thumb := max(1, floorf(float64(avail*avail)/float64(total)+0.5))
 			tpos := 0
 			if maxScroll > 0 {
 				tpos = floorf(float64(scroll)/float64(maxScroll)*float64(avail-thumb) + 0.5)
@@ -230,9 +275,17 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 	for {
 		k := readNav(false)
 		dirty := false
-		maxScroll := max(0, len(lines)-avail)
+		maxScroll := max(0, count()-avail)
+		// Moving away from the bottom pauses following; reaching it again
+		// (or End) resumes.
+		unpin := func() { pinned = false }
 		switch {
 		case k == nil:
+			if opts.Source != nil {
+				changed := false
+				protect(func() { changed = opts.Source.Poll() })
+				dirty = dirty || changed
+			}
 			sc++
 			if rt.consumeResize() || sc >= 2 {
 				sc = 0
@@ -246,9 +299,11 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 			}
 		case k.Mouse != nil && (k.Mouse.WheelUp || k.Mouse.WheelDown):
 			if k.Mouse.WheelUp {
+				unpin()
 				scroll = max(0, scroll-3)
 			} else {
 				scroll = min(maxScroll, scroll+3)
+				pinned = opts.Follow && scroll == maxScroll
 			}
 			dirty = true
 		case k.Mouse != nil && k.Mouse.Click:
@@ -256,28 +311,35 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 			if sb != nil && m.Col == sb.col && m.Row >= sb.top && m.Row <= sb.top+sb.rows-1 {
 				frac := float64(m.Row-sb.top) / float64(max(1, sb.rows-1))
 				scroll = clampInt(int(math.Floor(frac*float64(sb.maxoff)+0.5)), 0, sb.maxoff)
+				pinned = opts.Follow && scroll == sb.maxoff
 				dirty = true
 			}
 		case k.Name == "up":
+			unpin()
 			scroll, dirty = max(0, scroll-1), true
 		case k.Name == "down":
 			scroll, dirty = min(maxScroll, scroll+1), true
+			pinned = opts.Follow && scroll == maxScroll
 		case k.Name == "pgup":
+			unpin()
 			scroll, dirty = max(0, scroll-max(1, avail-1)), true
 		case k.Name == "pgdn" || k.Name == " ":
 			scroll, dirty = min(maxScroll, scroll+max(1, avail-1)), true
+			pinned = opts.Follow && scroll == maxScroll
 		case k.Name == "home" || k.Name == "g":
+			unpin()
 			scroll, dirty = 0, true
 		case k.Name == "end" || k.Name == "G":
 			scroll, dirty = maxScroll, true
-		case k.Name == "n" || k.Name == "]":
+			pinned = opts.Follow
+		case (k.Name == "n" || k.Name == "]") && opts.Source == nil:
 			for _, a := range anchors {
 				if a > scroll {
 					scroll, dirty = min(a, maxScroll), true
 					break
 				}
 			}
-		case k.Name == "p" || k.Name == "[":
+		case (k.Name == "p" || k.Name == "[") && opts.Source == nil:
 			for i := len(anchors) - 1; i >= 0; i-- {
 				if anchors[i] < scroll {
 					scroll, dirty = anchors[i], true
@@ -305,4 +367,11 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 			avail = draw(h, w)
 		}
 	}
+}
+
+func sepIf(s string) string {
+	if s == "" {
+		return ""
+	}
+	return " · "
 }
