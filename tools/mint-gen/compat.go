@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
@@ -312,8 +313,8 @@ func CheckCompatibility(bin string) CompatReport {
 	// Locate binary on PATH if installed
 	binPath, err := exec.LookPath(bin)
 	if err != nil {
-		// Not installed locally, or only a shell builtin; check `sh -c "type <name>"`
-		if out, terr := exec.Command("sh", "-c", "type "+name).CombinedOutput(); terr == nil {
+		// Not installed locally, or only a shell builtin: ask the shell.
+		if out, terr := shellType(name); terr == nil {
 			s := strings.ToLower(string(out))
 			if strings.Contains(s, "shell builtin") || strings.Contains(s, "is a special shell builtin") {
 				return CompatReport{
@@ -439,4 +440,19 @@ func readOneLineSummary(name string) string {
 		return ""
 	}
 	return mint.CleanLine(lines[0])
+}
+
+// programName matches what a program name can be. Anything else (spaces,
+// ";", "$(", quotes) is not a program and never reaches a shell.
+var programName = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
+
+// shellType reports what the shell's "type" says name is. Telling a shell
+// built-in from a program needs a shell, so this is the one place mint-gen
+// starts one. name is passed as a positional parameter ("$1"), never as
+// part of the script, so nothing in it is run as shell syntax.
+func shellType(name string) ([]byte, error) {
+	if !programName.MatchString(name) || strings.HasPrefix(name, "-") {
+		return nil, fmt.Errorf("%q is not a program name", name)
+	}
+	return exec.Command("sh", "-c", `type "$1"`, "sh", name).CombinedOutput()
 }
