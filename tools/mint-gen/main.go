@@ -40,7 +40,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
 	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
-	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and 8 Mixins")
+	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and the composable Mixins")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
@@ -244,9 +244,9 @@ func printTemplateCatalogue() {
 	fmt.Println("  explorer  Query -> Results -> Detail (search/query bar -> parsed table/sections -> detail)")
 	fmt.Println("  suite     Multi-Subcommand Manager (subcommand selector -> per-mode flags/table/actions)")
 	fmt.Println()
-	fmt.Println("Mint-Interfaces — 8 Composable Mixins:")
-	for _, m := range appkit.AllMixins() {
-		fmt.Printf("  - %s\n", m)
+	fmt.Printf("Mint-Interfaces — %d Composable Mixins:\n", len(appkit.AllMixins()))
+	for _, m := range appkit.MixinInfos() {
+		fmt.Printf("  - %-22s %s (%s)\n", m.Name, m.Summary, m.Fields)
 	}
 	fmt.Println()
 	fmt.Println("Mint-Interfaces — 28 Template Types (T01..T28):")
@@ -478,7 +478,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							Label: "Active mixins",
 							Get: func() string {
 								var names []string
-								for _, m := range spec.EnabledMixins().Names() {
+								for _, m := range spec.EnabledMixinNames() {
 									names = append(names, string(m))
 								}
 								return strings.Join(names, ", ")
@@ -553,7 +553,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 	app := &mint.App{
 		Title: "◈ Mint Generator",
 		Crumb: "mint-gen",
-		Note:  "man-page & --help interface scaffolder (28 Templates · 6 Archetypes · 8 Mixins)",
+		Note:  "man-page & --help interface scaffolder (28 Templates · 6 Archetypes · Mixins)",
 		Items: []mint.HomeItem{
 			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Auto-detect template T01..T28, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
 		},

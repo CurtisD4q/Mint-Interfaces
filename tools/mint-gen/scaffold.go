@@ -33,6 +33,9 @@ func ScaffoldApp(spec appkit.ToolSpec, outDir, repoRoot string) (ScaffoldResult,
 	if err != nil {
 		return ScaffoldResult{}, err
 	}
+	if err := spec.Validate(); err != nil {
+		return ScaffoldResult{}, fmt.Errorf("the spec for %s is not valid: %w", tool, err)
+	}
 	// Never write go.mod and main.go over somebody's project: only an empty
 	// (or new) folder, or one mint-gen made, may be used.
 	if entries, err := os.ReadDir(absOut); err == nil && len(entries) > 0 && !isScaffold(absOut, tool) {
