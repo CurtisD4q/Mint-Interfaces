@@ -370,3 +370,29 @@ func TestCrashIsNotHelp(t *testing.T) {
 		t.Fatal("help with options taken as a crash")
 	}
 }
+
+// Standard output and error are kept apart, never interleaved: output
+// first, then errors, the same every run.
+func TestHelpStreamsNotInterleaved(t *testing.T) {
+	tool := fakeHelpTool(t, "twostream", `i=0; while [ $i -lt 300 ]; do echo "out $i"; echo "warn $i" >&2; i=$((i+1)); done`)
+	first, _ := runForHelp(t, tool)
+	lines := strings.Split(strings.TrimSpace(first), "\n")
+	if len(lines) != 600 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	for i, l := range lines {
+		if want := i < 300; strings.HasPrefix(l, "out ") != want {
+			t.Fatalf("line %d is %q: streams mixed", i, l)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if again, _ := runForHelp(t, tool); again != first {
+			t.Fatal("output differs between runs")
+		}
+	}
+	// Help printed only on standard error is still read.
+	errOnly := fakeHelpTool(t, "erronly", `echo "usage: erronly [-v]" >&2; exit 1`)
+	if out, _ := runForHelp(t, errOnly, "--help"); !strings.Contains(out, "usage: erronly") {
+		t.Fatalf("stderr help lost: %q", out)
+	}
+}

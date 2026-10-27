@@ -179,19 +179,37 @@ func (r *helpRunner) env() []string {
 	return env
 }
 
-// run runs program with args and returns what it printed (standard output
-// and error together), at most helpMaxBytes.
+// run runs program with args and returns what it printed: standard output,
+// then standard error (many programs print their help there), each at most
+// helpMaxBytes. The two are kept apart, never interleaved: a program that
+// writes to both at once (man, with troff's warnings) would otherwise come
+// out mixed differently every run.
 func (r *helpRunner) run(program string, args ...string) (string, error) {
+	stdout, stderr, err := r.runStreams(program, args...)
+	switch {
+	case stderr == "":
+		return stdout, err
+	case stdout == "":
+		return stderr, err
+	}
+	if !strings.HasSuffix(stdout, "\n") {
+		stdout += "\n"
+	}
+	return stdout + stderr, err
+}
+
+// runStreams is run, with standard output and error returned separately.
+func (r *helpRunner) runStreams(program string, args ...string) (string, string, error) {
 	cmd := exec.Command(program, args...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: r.cred}
 	cmd.WaitDelay = 500 * time.Millisecond
-	out := &capBuffer{max: helpMaxBytes}
+	out, errOut := &capBuffer{max: helpMaxBytes}, &capBuffer{max: helpMaxBytes}
 	cmd.Stdout = out
-	cmd.Stderr = out
+	cmd.Stderr = errOut
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	pgid := cmd.Process.Pid // Setsid: the program leads its own process group
 	done := make(chan error, 1)
@@ -208,7 +226,7 @@ func (r *helpRunner) run(program string, args ...string) (string, error) {
 	}
 	// Anything the program started and left behind goes too.
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	return out.String(), err
+	return out.String(), errOut.String(), err
 }
 
 // capBuffer keeps the first max bytes written to it and discards the rest.
@@ -266,7 +284,9 @@ func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 	defer cleanup()
 
 	var out []HelpSource
-	if text, _ := r.run("man", "-P", "cat", name); looksLikeManPage(text) {
+	// The page is on standard output; standard error has only troff's
+	// warnings and "No manual entry".
+	if text, _, _ := r.runStreams("man", "-P", "cat", name); looksLikeManPage(text) {
 		out = append(out, HelpSource{Name: "man", Args: []string{"-P", "cat", name}, Text: text})
 	}
 

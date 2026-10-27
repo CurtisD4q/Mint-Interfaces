@@ -326,6 +326,9 @@ func loadKnownTools() {
 
 // KnownToolIO returns what is known about a tool's inputs and outputs.
 func KnownToolIO(name string) (KnownTool, bool) {
+	if knownToolsOff {
+		return KnownTool{}, false
+	}
 	knownOnce.Do(loadKnownTools)
 	t, ok := knownRegistry[toolBaseName(name)]
 	return t, ok
@@ -336,6 +339,10 @@ func KnownToolWarnings() []string {
 	knownOnce.Do(loadKnownTools)
 	return append([]string(nil), knownWarnings...)
 }
+
+// knownToolsOff hides the list, so the I/O benchmark can measure what
+// mint-gen works out from help text alone (tests only).
+var knownToolsOff bool
 
 // resetKnownTools forgets the registry (tests).
 func resetKnownTools() {

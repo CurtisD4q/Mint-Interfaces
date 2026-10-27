@@ -146,6 +146,14 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	if len(manLines) > 0 {
 		addFlags(parseFlagLines(manLines, true))
 	}
+	// The known-tools list names this tool's output option, but the help
+	// did not show it (a short --help, an unusual man page): the list is
+	// checked by hand, so it is used as it is.
+	if hasKnownMain && !spec.OutputsFile && spec.OutputFlag == "" && !seen[knownMain.Flag] {
+		spec.OutputsFile = true
+		spec.OutputFlag = knownMain.Flag
+		seen[knownMain.Flag] = true
+	}
 
 	// Mark flags beyond the first 12 (or in non-primary sections) as Advanced so
 	// they automatically fold inside mint.Collapsible sections.
@@ -510,6 +518,10 @@ func summaryWords(name, s string) int {
 }
 
 var (
+	// "   o   -oL ..." / "   *  --foo": a bullet before an option.
+	reBulletOption = regexp.MustCompile(`^(\s{0,12})([o*\x{2022}\x{00B7}]\s{1,4})(--?[A-Za-z0-9].*)$`)
+	// The ":" right after an option's value in such a list: "-oL <filename>: sets".
+	reBulletColon = regexp.MustCompile(`^\s*--?[A-Za-z0-9][-A-Za-z0-9]*\s+(?:<[^>\s]+>|[A-Z][A-Z0-9_-]+|[a-z][a-z0-9_-]*)(:\s+)\S`)
 	reVersionLine = regexp.MustCompile(`(?i)\b(?:version|v)\s*\d+(?:\.\d+)+|copyright|\(c\)\s*\d{4}`)
 	reHasLower    = regexp.MustCompile(`[a-z]`)
 )
@@ -644,6 +656,16 @@ func parseFlagLines(lines []string, isMan bool) ([]appkit.FlagSpec, map[string]b
 		}
 		if inIgnoreSection {
 			continue
+		}
+
+		// A bulleted option list ("o   -oL <filename>: sets the output
+		// format…", as in masscan's man page) is read like a plain one: the
+		// bullet becomes indent, and the colon after the value a gap.
+		if m := reBulletOption.FindStringSubmatch(line); m != nil {
+			line = m[1] + strings.Repeat(" ", len(m[2])) + m[3]
+			if b := reBulletColon.FindStringSubmatchIndex(line); b != nil {
+				line = line[:b[2]] + "  " + line[b[3]:]
+			}
 		}
 
 		var groups [][]string // [whole, first flag, second flag, argument, description]
@@ -818,8 +840,10 @@ var (
 	reNonFileWords = regexp.MustCompile(`(?i)\b(?:width|columns|seconds|wait|number of|format|level|count|size|timeout|delay|limit)\b`)
 	// Writing the tool's main output, as opposed to reading input or a log.
 	reWritesOutput = regexp.MustCompile(`(?i)\b(?:write|writes|save|saves|place|places|store|dump|output)\b`)
-	reMainOutput   = regexp.MustCompile(`(?i)\b(?:write|save|place|store)s?\s+(?:the\s+)?(?:output|result|results|documents?|data)\s+(?:to|into|in)\b`)
-	reNotMainOut   = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
+	// "write the output to", "Send output (stdout) from podman to a file",
+	// "Redirect the output of podman to the specified path".
+	reMainOutput = regexp.MustCompile(`(?i)\b(?:write|save|place|store|send|redirect)s?\s+(?:the\s+)?(?:output|result|results|documents?|data)(?:\s+\([^)]{1,20}\))?(?:\s+(?:of|from)\s+[\w.-]+)?\s+(?:to|into|in)\b`)
+	reNotMainOut = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
 )
 
 // argIsFile reports whether an option's value is a file or folder path:

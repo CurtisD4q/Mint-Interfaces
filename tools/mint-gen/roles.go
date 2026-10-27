@@ -158,7 +158,14 @@ func ClassifyArg(tool string, f appkit.FlagSpec) (appkit.ArgRole, []Evidence) {
 	}
 
 	c.Dirish = f.Kind == appkit.FlagDir || reDirWord.MatchString(c.Placeholder.Word) || reDirWord.MatchString(lastWordPart(c.Placeholder.Word)) ||
-		strings.Contains(c.Placeholder.Word, "prefix")
+		reJoinedDirWord.MatchString(c.Placeholder.Word) ||
+		// "--prefix=PREFIX  install into PREFIX/bin": a folder prefix, but
+		// not yt-dlp's "--default-search PREFIX  prefix for unqualified URLs".
+		(strings.Contains(c.Placeholder.Word, "prefix") && (reFileWords.MatchString(c.Desc) || reInstallWords.MatchString(c.Desc)) && !reURLWords.MatchString(c.Desc)) ||
+		// The description says it is a folder, and the placeholder names
+		// nothing else ("--changed-since time" is a time, whatever the
+		// description says about directories).
+		(reDirDesc.MatchString(c.Desc) && (c.Placeholder.Word == "" || c.Placeholder.Word == "path" || vaguePlaceholderWords[c.Placeholder.Word]))
 	c.Pathish = c.Dirish || f.Kind == appkit.FlagFile || (argIsFile(f.Hint, c.Desc) && !argIsNotFile(f.Hint, c.Desc))
 	if !c.Pathish {
 		return appkit.RoleValue, []Evidence{{appkit.RoleValue, 0, "the value is not a path"}}

@@ -108,8 +108,15 @@ func BuildIOModel(spec appkit.ToolSpec, syn Synopsis) IOModel {
 			}
 		}
 		_, ev := ClassifyArg(spec.Name, f)
-		if s := sortEvidence(ev); len(s) > 0 {
-			e.Why = s[0].Reason
+		// The strongest reason for the role it got, not for another role.
+		for _, x := range sortEvidence(ev) {
+			if x.Role == f.Role && x.Weight > 0 {
+				e.Why = x.Reason
+				break
+			}
+		}
+		if e.Why == "" {
+			e.Why = "no clear evidence either way"
 		}
 		add(e)
 	}
