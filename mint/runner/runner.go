@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
@@ -324,11 +325,26 @@ func (j *Job) failStart(err error) {
 	}
 }
 
+// MaxLineBytes is the longest line kept from a program's output. Text past
+// it, up to the next line break, is dropped, so a stream with no newlines
+// (a large blob sent to "nc -l", a binary file) can't grow memory without
+// bound. A variable so tests can shorten it.
+var MaxLineBytes = 16 * 1024
+
+// LineTruncatedMark ends a line that was cut at MaxLineBytes.
+const LineTruncatedMark = " … [line too long: the rest is not shown]"
+
 func (j *Job) readPipe(r io.Reader, isErr bool) {
 	br := bufio.NewReaderSize(r, 64*1024)
-	var cur strings.Builder
+	var cur []byte
 	lastWasCR := false
+	skipping := false // past MaxLineBytes: drop bytes until the next line break
 	n := 0
+
+	emit := func(replaceable bool) {
+		j.appendLine(displayLine(cur), isErr, replaceable)
+		cur = cur[:0]
+	}
 
 	for {
 		b, err := br.ReadByte()
@@ -336,34 +352,115 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 			j.touch()
 		}
 		if err != nil {
-			if cur.Len() > 0 {
-				text := mint.CleanLine(cur.String())
-				cur.Reset()
-				j.appendLine(text, isErr, false)
+			if len(cur) > 0 {
+				emit(false)
 			}
 			return
 		}
 		switch b {
 		case '\r':
-			text := mint.CleanLine(cur.String())
-			cur.Reset()
-			j.appendLine(text, isErr, true)
+			if skipping {
+				skipping = false
+				lastWasCR = false
+				continue
+			}
+			emit(true)
 			lastWasCR = true
 		case '\n':
-			if lastWasCR && cur.Len() == 0 {
+			if skipping {
+				skipping = false
+				lastWasCR = false
+				continue
+			}
+			if lastWasCR && len(cur) == 0 {
 				// \r\n pair: the line was already emitted on \r; mark it final.
 				j.finalizeLast(isErr)
 				lastWasCR = false
 				continue
 			}
-			text := mint.CleanLine(cur.String())
-			cur.Reset()
-			j.appendLine(text, isErr, false)
+			emit(false)
 			lastWasCR = false
 		default:
-			cur.WriteByte(b)
+			if skipping {
+				continue
+			}
+			cur = append(cur, b)
+			if len(cur) >= MaxLineBytes {
+				text := displayLine(trimPartialRune(cur)) + LineTruncatedMark
+				j.appendLine(text, isErr, false)
+				cur = cur[:0]
+				skipping = true
+				lastWasCR = false
+			}
 		}
 	}
+}
+
+// displayLine turns raw output bytes into text that is safe to show. Lines
+// that look binary (a NUL byte, or mostly invalid UTF-8) are summarised
+// rather than cleaned, since cleaning would leave meaningless fragments.
+func displayLine(raw []byte) string {
+	if looksBinary(raw) {
+		return binarySummary(raw)
+	}
+	return mint.CleanLine(string(raw))
+}
+
+// looksBinary reports whether raw is binary data rather than text: it has
+// a NUL byte, or more than a quarter of it is not valid UTF-8.
+func looksBinary(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	bad := 0
+	for i := 0; i < len(raw); {
+		if raw[i] == 0 {
+			return true
+		}
+		r, size := utf8.DecodeRune(raw[i:])
+		if r == utf8.RuneError && size == 1 {
+			bad++
+		}
+		i += size
+	}
+	return bad*4 > len(raw)
+}
+
+// binarySummary shows binary data as its size and its first bytes in hex.
+func binarySummary(raw []byte) string {
+	const show = 16
+	head := raw
+	if len(head) > show {
+		head = head[:show]
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[binary data, %d bytes:", len(raw))
+	for _, c := range head {
+		fmt.Fprintf(&b, " %02x", c)
+	}
+	if len(raw) > show {
+		b.WriteString(" …")
+	}
+	b.WriteString("]")
+	return b.String()
+}
+
+// trimPartialRune drops an incomplete UTF-8 sequence at the end of b, left
+// there when a line is cut at a byte limit.
+func trimPartialRune(b []byte) []byte {
+	for i := 1; i <= utf8.UTFMax && i <= len(b); i++ {
+		c := b[len(b)-i]
+		if c < 0x80 {
+			return b // ASCII: nothing partial
+		}
+		if utf8.RuneStart(c) {
+			if !utf8.FullRune(b[len(b)-i:]) {
+				return b[:len(b)-i]
+			}
+			return b
+		}
+	}
+	return b
 }
 
 // touch records that output is still being read.
