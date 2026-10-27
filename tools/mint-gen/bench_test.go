@@ -23,8 +23,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -281,5 +283,130 @@ func TestArchetypeCalibration(t *testing.T) {
 		}
 		t.Logf("lead>=%2d: clear %3d (%3.0f%%) right %3.0f%% | close %3d right %3.0f%%", lead, clear,
 			100*float64(clear)/float64(len(rs)), 100*float64(clearRight)/float64(max(clear, 1)), close, 100*float64(closeRight)/float64(max(close, 1)))
+	}
+}
+
+// TestArchetypeTuning searches the global weights (archWeights) on the
+// tunable programs, and estimates how well the search itself generalises
+// by 5-fold cross-validation: choose on four fifths, measure on the rest
+// (MINT_ARCHETYPE_BENCH=tune).
+func TestArchetypeTuning(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "tune" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=tune")
+	}
+	type doc struct {
+		c  archCase
+		ev archEvidence
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.Related = nil
+		docs = append(docs, doc{c, findArchEvidence(p)})
+	}
+	var grid []archWeights
+	for _, weak := range []int{1, 2} {
+		for _, med := range []int{3, 4, 5} {
+			for _, strong := range []int{6, 8} {
+				for _, summ := range []int{4, 5, 6} {
+					for _, desc := range []int{2, 3, 4} {
+						for _, usage := range []int{1, 2, 3} {
+							for _, bodyCap := range []int{2, 3, 5} {
+								for _, share := range []int{0, 30, 60, 100} {
+									for _, rel := range []int{0, 2} {
+										w := defaultArchWeights
+										w.Cue = [4]int{1, weak, med, strong}
+										w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap = summ, desc, usage, bodyCap
+										w.TemplateShare, w.Related = share, rel
+										grid = append(grid, w)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	// Score every program once per set of weights (in parallel), then
+	// cross-validate from the table of right answers.
+	ok := make([][]bool, len(grid))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for g := 0; g < runtime.NumCPU(); g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for gi := range next {
+				row := make([]bool, len(docs))
+				for i, d := range docs {
+					row[i] = scoreArchEvidence(grid[gi], d.ev)[0].ID == d.c.Want
+				}
+				ok[gi] = row
+			}
+		}()
+	}
+	for gi := range grid {
+		next <- gi
+	}
+	close(next)
+	wg.Wait()
+	right := func(gi int, keep func(int) bool) (n, total int) {
+		for i, r := range ok[gi] {
+			if !keep(i) {
+				continue
+			}
+			total++
+			if r {
+				n++
+			}
+		}
+		return
+	}
+	fold := func(i int) int { return i % 5 }
+	// Cross-validation of the search: choose on four folds, count on the
+	// fifth.
+	cvRight, cvTotal := 0, 0
+	for f := 0; f < 5; f++ {
+		best, bestN := 0, -1
+		for gi := range grid {
+			if n, _ := right(gi, func(i int) bool { return fold(i) != f }); n > bestN {
+				best, bestN = gi, n
+			}
+		}
+		n, tot := right(best, func(i int) bool { return fold(i) == f })
+		cvRight += n
+		cvTotal += tot
+	}
+	n0, tot := 0, len(docs)
+	for _, d := range docs {
+		if scoreArchEvidence(defaultArchWeights, d.ev)[0].ID == d.c.Want {
+			n0++
+		}
+	}
+	t.Logf("current weights: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
+	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
+	// The best on all tunable programs.
+	type res struct {
+		w archWeights
+		n int
+	}
+	var all []res
+	for gi, w := range grid {
+		n, _ := right(gi, func(int) bool { return true })
+		all = append(all, res{w, n})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
+	for i := 0; i < 10; i++ {
+		w := all[i].w
+		t.Logf("%d/%d cue %v summary %d desc %d usage %d bodycap %d template %d%% related %d", all[i].n, tot,
+			w.Cue, w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap, w.TemplateShare, w.Related)
 	}
 }

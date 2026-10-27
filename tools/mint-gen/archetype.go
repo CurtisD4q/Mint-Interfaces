@@ -125,12 +125,21 @@ var archetypeSignals = map[string][]string{
 
 var archetypeSignalList = buildSignals(archetypeSignals)
 
-// Behaviour points.
+// How strong a behaviour cue is; its points come from archWeights.Cue.
+type cueLevel int
+
 const (
-	cueStrong = 6
-	cueMedium = 4
-	cueWeak   = 2
+	cueBase cueLevel = iota // counts a little for anything (General)
+	cueWeak
+	cueMedium
+	cueStrong
 )
+
+// cueHit is one behaviour cue found for an archetype.
+type cueHit struct {
+	level cueLevel
+	why   string
+}
 
 var (
 	// Usage arguments.
@@ -152,6 +161,7 @@ var (
 	reArgKV        = regexp.MustCompile(`(?i)(?:key|name|variable|param|parameter|setting)=(?:value|val)|^(?:key|setting|parameter|variable)$`)
 	reArgTime      = regexp.MustCompile(`(?i)^(?:time|timespec|when|schedule)$`)
 	reArgRepeat    = regexp.MustCompile(`(?i)^(?:interval|delay|count|seconds|secs|refresh)$`)
+	reArgFile      = regexp.MustCompile(`(?i)^(?:files?|file\(s|filenames?|objfiles?|object-files?|paths?)$`)
 	reArgAsk       = regexp.MustCompile(`(?i)^(?:number|numbers|question|units?|from-unit|to-unit|month|year)$`)
 
 	// Options.
@@ -167,7 +177,8 @@ var (
 
 	// What a summary or description says the program does.
 	reSaysReports = regexp.MustCompile(`(?i)\b(?:display|displays|print|prints|show|shows|report|reports|determine|determines|identify|identifies|describe|describes|dump|dumps|examine|examines|inspect|inspects)\b(?:\W+\w+){0,5}?\W+(?:information|info|contents?|details|symbols|type|types|attributes|metadata|properties|dependencies|structure|sections|headers|tags|status)\b`)
-	reSaysLists   = regexp.MustCompile(`(?i)^\s*(?:list|lists|show|shows|display|displays|print|prints|report|reports)\b(?:\W+\w+){0,4}?\W+\w+(?:s|es)\b`)
+	reSaysLists   = regexp.MustCompile(`(?i)^\s*(?:list|lists|show|shows|display|displays|print|prints|report|reports)\b(?:\W+\w+){0,5}?\W+\w+[^uis\W]s\b`)
+	reSaysFiles   = regexp.MustCompile(`(?i)\bfiles?\b`)
 	reSaysStdin   = regexp.MustCompile(`(?i)\b(?:standard input|stdin)\b.{0,80}\b(?:standard output|stdout)\b|\bwrit\w* (?:the )?result to standard output\b`)
 )
 
@@ -180,25 +191,29 @@ var subcommandKinds = []struct {
 	{"records", []string{"add", "remove", "install", "uninstall", "list", "search", "show", "update", "upgrade", "delete", "edit", "done", "info", "purge", "hold", "unhold"}},
 	{"control", []string{"start", "stop", "restart", "status", "enable", "disable", "reload", "kill", "suspend", "resume", "shutdown", "reboot", "destroy"}},
 	{"pack", []string{"create", "extract"}},
-	{"settings", []string{"get", "set", "unset", "reset", "list-keys", "list-schemas"}},
+	{"settings", []string{"get", "set", "unset", "reset", "read", "write", "list-keys", "list-schemas", "list-locales", "list-timezones"}},
+	{"rules", []string{"append", "insert", "delete", "replace", "flush", "list-rules", "del", "check", "add-rule", "remove-rule"}},
+	{"build", []string{"build", "test", "run", "bench", "compile", "clean", "vet", "fmt", "check", "doc"}},
 }
 
-// archetypeBehaviour scores the archetypes by how the program works.
-func archetypeBehaviour(p programText) map[appkit.ArchetypeID]*ArchetypeScore {
-	out := map[appkit.ArchetypeID]*ArchetypeScore{}
-	add := func(id appkit.ArchetypeID, pts int, why string) {
-		s := out[id]
-		if s == nil {
-			s = &ArchetypeScore{ID: id}
-			out[id] = s
-		}
-		for _, h := range s.Hits {
-			if h == why {
+// manySubcommands is how many subcommands of mixed kinds make a program
+// a toolkit for certain.
+const manySubcommands = 8
+
+// minKindCommands is how many subcommands of one kind decide the kind.
+const minKindCommands = 3
+
+// archetypeCues finds the behaviour cues for each archetype: how the
+// program works.
+func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
+	out := map[appkit.ArchetypeID][]cueHit{}
+	add := func(id appkit.ArchetypeID, level cueLevel, why string) {
+		for _, h := range out[id] {
+			if h.why == why {
 				return
 			}
 		}
-		s.Score += pts
-		s.Hits = append(s.Hits, why)
+		out[id] = append(out[id], cueHit{level, why})
 	}
 
 	// The usage lines' arguments.
@@ -256,14 +271,19 @@ func archetypeBehaviour(p programText) map[appkit.ArchetypeID]*ArchetypeScore {
 
 	// Subcommands, and what they are called. A COMMAND in the usage of a
 	// program with subcommands is one of them, not a command it runs.
-	subs := extractSubcommandsN(p.manLines, p.helpLines, 60)
+	subs := suiteCommandNames(p.manLines, p.helpLines)
 	if wrapCmd != "" && len(subs) < 2 {
 		add("wrap", cueStrong, "runs a command it is given ("+wrapCmd+" with its arguments)")
 	}
 	if len(subs) >= 2 {
+		// A name counts as itself and by its first part: "list-keys" is
+		// also "list".
 		names := map[string]bool{}
 		for _, s := range subs {
-			names[strings.ToLower(s.Name)] = true
+			names[s] = true
+			if first, _, ok := strings.Cut(s, "-"); ok {
+				names[first] = true
+			}
 		}
 		best, bestN := appkit.ArchetypeID(""), 0
 		for _, k := range subcommandKinds {
@@ -277,8 +297,12 @@ func archetypeBehaviour(p programText) map[appkit.ArchetypeID]*ArchetypeScore {
 				best, bestN = k.id, n
 			}
 		}
-		if bestN >= 2 {
+		// A kind needs several of the commands and a real share of them,
+		// not two of sixty.
+		if bestN >= minKindCommands && bestN*6 >= len(subs) {
 			add(best, cueStrong, fmt.Sprintf("its subcommands manage %s (%d of %d)", best, bestN, len(subs)))
+		} else if len(subs) >= manySubcommands {
+			add("toolkit", cueStrong, fmt.Sprintf("has %d subcommands of many kinds", len(subs)))
 		} else {
 			add("toolkit", cueMedium, fmt.Sprintf("has %d subcommands", len(subs)))
 		}
@@ -316,17 +340,25 @@ func archetypeBehaviour(p programText) map[appkit.ArchetypeID]*ArchetypeScore {
 	about := p.Summary + "\n" + p.Description
 	// "Display information about logical volumes" lists; "display
 	// information about a file" inspects.
-	if reSaysLists.MatchString(p.Summary) {
+	// What it lists or reports is the files it is given when its usage
+	// takes files: "print the strings in files" inspects them.
+	switch {
+	case (reSaysLists.MatchString(p.Summary) || reSaysReports.MatchString(about)) && has(reArgFile) && reSaysFiles.MatchString(p.Summary):
+		add("inspect", cueMedium, "it reports on the files it is given")
+	case reSaysLists.MatchString(p.Summary):
 		add("list", cueMedium, "it lists things")
-	} else if reSaysReports.MatchString(about) {
+	case reSaysReports.MatchString(about) && len(args) > 0:
 		add("inspect", cueMedium, "it reports on its input")
+	case reSaysReports.MatchString(about):
+		// Nothing goes in: it reports on the system.
+		add("inspect", cueWeak, "it reports on the system")
 	}
 	if reSaysStdin.MatchString(about) {
 		add("filter", cueMedium, "it reads standard input and writes standard output")
 	}
 
 	// General: anything, a little.
-	add("general", 1, "it runs and prints (the usual kind)")
+	add("general", cueBase, "it runs and prints (the usual kind)")
 	return out
 }
 
@@ -350,7 +382,11 @@ func usageArgs(usage []string) []usageArg {
 			}
 			repeat := strings.Contains(tok, "...") || (i+1 < len(toks) && strings.HasPrefix(strings.Trim(toks[i+1], "[]"), "..."))
 			withArgs := i+1 < len(toks) && reArgOfCommand.MatchString(strings.ToLower(strings.Trim(toks[i+1], "[]{}()<>|.,'\"…")))
-			w := strings.ToLower(strings.TrimRight(bare, ".…"))
+			// "[FILE]..." is the word "file".
+			w := strings.ToLower(strings.Trim(strings.TrimRight(bare, ".…"), "[]{}()<>|,'\""))
+			if w == "" || w == "option" || w == "options" {
+				continue
+			}
 			if seen[w] {
 				continue
 			}
@@ -361,15 +397,49 @@ func usageArgs(usage []string) []usageArg {
 	return out
 }
 
-// archetypeWeights weigh the words for archetypes: as for templates, but
-// the long body counts for at most 3 per archetype, and related programs
-// are counted separately (see relatedArchetypes).
-var archetypeWeights = func() scoreWeights {
-	w := defaultWeights
-	w.BodyCap = 3
-	w.Related = 0
-	return w
-}()
+// archWeights weigh the evidence for archetypes.
+type archWeights struct {
+	Cue           [4]int       // points for a base, weak, medium and strong behaviour cue
+	Words         scoreWeights // the archetype phrases
+	Template      scoreWeights // the template phrases, read as evidence for the archetype each template stands for
+	TemplateShare int          // percent of the best template score of an archetype that is added to it
+	Related       int          // per related program (SEE ALSO) on the archetype lists, at most two per archetype
+	ClearLead     int          // the lead over the next archetype a clear choice needs
+}
+
+var defaultArchWeights = archWeights{
+	Cue: [4]int{1, 2, 4, 6},
+	Words: func() scoreWeights {
+		w := defaultWeights
+		w.BodyCap, w.Related = 3, 0
+		return w
+	}(),
+	Template: func() scoreWeights {
+		w := defaultWeights
+		w.Related = 0
+		return w
+	}(),
+	TemplateShare: 0,
+	Related:       2,
+	ClearLead:     4,
+}
+
+// archEvidence is what was found in a program's help, before weighing.
+type archEvidence struct {
+	cues    map[appkit.ArchetypeID][]cueHit
+	words   templateEvidence // archetype phrases
+	tmpl    templateEvidence // template phrases
+	related map[appkit.ArchetypeID][]string
+}
+
+func findArchEvidence(p programText) archEvidence {
+	return archEvidence{
+		cues:    archetypeCues(p),
+		words:   findEvidenceIn(archetypeSignalList, p),
+		tmpl:    findEvidenceIn(templateSignalList, programText{Name: p.Name, Summary: p.Summary, Description: p.Description, Usage: p.Usage, Body: p.Body}),
+		related: relatedArchetypes(p.Name, p.Related),
+	}
+}
 
 // relatedArchetypes: programs named under SEE ALSO that the archetype
 // lists know, at most two per archetype.
@@ -386,34 +456,51 @@ func relatedArchetypes(name string, related []string) map[appkit.ArchetypeID][]s
 	return out
 }
 
-// scoreArchetypes ranks the 35 archetypes for a program, best first; ties
-// go to the order of appkit.AllArchetypeDefs, so every run is the same.
-func scoreArchetypes(p programText) []ArchetypeScore {
-	beh := archetypeBehaviour(p)
+// scoreArchEvidence weighs evidence with w: the 35 archetypes, best first;
+// ties go to the order of appkit.AllArchetypeDefs, so every run is the same.
+func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	words := map[appkit.ArchetypeID]TemplateScore{}
-	for _, s := range scoreEvidenceIn(archetypeSignalList, archetypeWeights, findEvidenceIn(archetypeSignalList, p)) {
+	for _, s := range scoreEvidenceIn(archetypeSignalList, w.Words, ev.words) {
 		words[appkit.ArchetypeID(s.ID)] = s
 	}
-	rel := relatedArchetypes(p.Name, p.Related)
+	tmpl := map[appkit.ArchetypeID]TemplateScore{}
+	if w.TemplateShare > 0 {
+		for _, s := range scoreEvidenceIn(templateSignalList, w.Template, ev.tmpl) {
+			if a, ok := appkit.ArchetypeForTemplate(s.ID); ok && s.Score > tmpl[a.ID].Score {
+				tmpl[a.ID] = s
+			}
+		}
+	}
 	var out []ArchetypeScore
 	for _, def := range appkit.AllArchetypeDefs() {
 		s := ArchetypeScore{ID: def.ID}
-		if b := beh[def.ID]; b != nil {
-			s.Score += b.Score
-			s.Hits = append(s.Hits, b.Hits...)
+		for _, h := range ev.cues[def.ID] {
+			s.Score += w.Cue[h.level]
+			s.Hits = append(s.Hits, h.why)
 		}
-		if w, ok := words[def.ID]; ok {
-			s.Score += w.Score
-			s.Hits = append(s.Hits, w.Hits...)
+		if ws, ok := words[def.ID]; ok {
+			s.Score += ws.Score
+			s.Hits = append(s.Hits, ws.Hits...)
 		}
-		for _, r := range rel[def.ID] {
-			s.Score += 2
+		if ts, ok := tmpl[def.ID]; ok {
+			if pts := ts.Score * w.TemplateShare / 100; pts > 0 {
+				s.Score += pts
+				s.Hits = append(s.Hits, fmt.Sprintf("like the %s template (%d)", ts.ID, pts))
+			}
+		}
+		for _, r := range ev.related[def.ID] {
+			s.Score += w.Related
 			s.Hits = append(s.Hits, "related: "+r)
 		}
 		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
 	return out
+}
+
+// scoreArchetypes ranks the 35 archetypes for a program, best first.
+func scoreArchetypes(p programText) []ArchetypeScore {
+	return scoreArchEvidence(defaultArchWeights, findArchEvidence(p))
 }
 
 // Confidence of a choice.
@@ -424,7 +511,7 @@ const (
 )
 
 // clearLead is the lead over the next archetype a choice needs to be clear.
-var clearLead = 4
+var clearLead = defaultArchWeights.ClearLead
 
 func choiceConfidence(lead int) string {
 	if lead >= clearLead {
@@ -446,7 +533,11 @@ type ArchetypeChoice struct {
 // chooseArchetypeFor chooses from the help text alone, as for a program no
 // list knows. It always chooses.
 func chooseArchetypeFor(p programText) ArchetypeChoice {
-	scores := scoreArchetypes(p)
+	return chooseFromScores(scoreArchetypes(p))
+}
+
+// chooseFromScores is the choice from ranked scores.
+func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 	c := ArchetypeChoice{ID: scores[0].ID, Scores: scores, Lead: scores[0].Score - scores[1].Score}
 	c.Why = fmt.Sprintf("best evidence (%d points, %d ahead of %s)", scores[0].Score, c.Lead, scores[1].ID)
 	c.Confidence = choiceConfidence(c.Lead)
