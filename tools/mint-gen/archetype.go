@@ -427,17 +427,17 @@ type archWeights struct {
 	ClearLead     int           // the lead over the next archetype a clear choice needs
 }
 
-// defaultArchWeights split the points by where the evidence was found, for
-// behaviour cues and phrases alike: usage 45, summary 20, description 20,
-// the rest of the help 10, the name 5. The usage shows most directly how a
-// program is used.
+// defaultArchWeights give behaviour cues and phrases alike their points
+// by where they were found: usage 30, summary 25, description 20, name 15,
+// the rest of the help 10. A cue's strength is a percent of its part's
+// points.
 var defaultArchWeights = archWeights{
-	CueZone:     [numZones]int{zoneName: 5, zoneSummary: 20, zoneDescription: 20, zoneUsage: 45, zoneBody: 10},
+	CueZone:     [numZones]int{zoneName: 15, zoneSummary: 25, zoneDescription: 20, zoneUsage: 30, zoneBody: 10},
 	CueStrength: [4]int{cueBase: 20, cueWeak: 35, cueMedium: 70, cueStrong: 100},
 	Words: scoreWeights{
-		Name: 5, Summary: 20, Description: 20, Usage: 45, Body: 10,
-		WeakName: 2, WeakSummary: 8, WeakDescription: 8, WeakUsage: 18,
-		BodyHits: 2, BodyCap: 30,
+		Name: 15, Summary: 25, Description: 20, Usage: 30, Body: 10,
+		WeakName: 6, WeakSummary: 10, WeakDescription: 8, WeakUsage: 12,
+		BodyHits: 2, BodyCap: 20,
 	},
 	Template: func() scoreWeights {
 		w := defaultWeights
@@ -446,7 +446,7 @@ var defaultArchWeights = archWeights{
 	}(),
 	TemplateShare: 0,
 	Related:       10, // SEE ALSO is in the rest of the help
-	ClearLead:     16,
+	ClearLead:     12,
 }
 
 // archEvidence is what was found in a program's help, before weighing.

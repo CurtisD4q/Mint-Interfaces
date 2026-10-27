@@ -311,24 +311,25 @@ func TestArchetypeTuning(t *testing.T) {
 		p.Related = nil
 		docs = append(docs, doc{c, findArchEvidence(p)})
 	}
-	// The split by where evidence was found stays fixed (usage 45, summary
-	// 20, description 20, rest 10, name 5); the search varies how strong
-	// cues count within it and the limits.
+	// The split by where evidence was found stays fixed; the search varies
+	// how strong cues count within it and the limits.
 	var grid []archWeights
-	for _, base := range []int{10, 20} {
-		for _, weak := range []int{25, 35, 50} {
-			for _, med := range []int{55, 70, 85} {
-				for _, weakWord := range []int{30, 40, 55} {
-					for _, bodyCap := range []int{20, 30, 50} {
-						for _, share := range []int{0, 30, 60} {
-							for _, rel := range []int{0, 10} {
-								w := defaultArchWeights
-								w.CueStrength = [4]int{base, weak, med, 100}
-								ww := &w.Words
-								ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
-								ww.BodyCap = bodyCap
-								w.TemplateShare, w.Related = share, rel
-								grid = append(grid, w)
+	for _, scale := range []int{50, 100, 150} {
+		for _, base := range []int{10, 20} {
+			for _, weak := range []int{25, 35, 50} {
+				for _, med := range []int{55, 70, 85} {
+					for _, weakWord := range []int{30, 40, 55} {
+						for _, bodyCap := range []int{20, 30, 50} {
+							for _, share := range []int{0, 30, 60} {
+								for _, rel := range []int{0, 10} {
+									w := defaultArchWeights
+									w.CueStrength = [4]int{base * scale / 100, weak * scale / 100, med * scale / 100, scale}
+									ww := &w.Words
+									ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
+									ww.BodyCap = bodyCap
+									w.TemplateShare, w.Related = share, rel
+									grid = append(grid, w)
+								}
 							}
 						}
 					}
