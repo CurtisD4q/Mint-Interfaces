@@ -129,6 +129,8 @@ type ToolSpec struct {
 	StatusArgs        []string         `json:"status_args,omitempty"`        // Read-only command that shows current state (Config/Monitor)
 	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
+	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
+	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
 	DataReason        string           `json:"data_reason,omitempty"`        // Why, in a few words ("captures network traffic…")
 	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying Config
@@ -488,6 +490,12 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 	if target := strings.TrimSpace(a.Target); target != "" {
 		if mask {
 			target = maskFreeText(target, a.secretFlagNames())
+		}
+		if a.Spec.OperandSeparator {
+			// Without "--", a file named "-rf" (or a target typed as
+			// "-rf x") reaches rm as options. After it, every word is
+			// a name.
+			args = append(args, "--")
 		}
 		args = append(args, splitShellWords(target)...)
 	}
@@ -986,11 +994,12 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	runLevel, _ := a.DataLevel()
 
 	job := runner.Start(runner.Cmd{
-		Name:   bin,
-		Args:   cmdArgs,
-		Env:    env,
-		Input:  useStdin,
-		Redact: masker.Redact,
+		Name:    bin,
+		Args:    cmdArgs,
+		Env:     env,
+		Input:   useStdin,
+		Redact:  masker.Redact,
+		OKExits: a.Spec.ExitMeanings,
 		OnExit: func(j *runner.Job) {
 			lines := j.Lines()
 			if outPath != "" && !a.toolWritesOutput() {
@@ -1145,6 +1154,9 @@ func (a *ToolApp) jobBadges() []mint.Badge {
 	}
 	switch job.State() {
 	case runner.Done:
+		if meaning := job.ExitMeaning(); meaning != "" {
+			return []mint.Badge{{Text: meaning, Kind: mint.BadgeOK}}
+		}
 		return []mint.Badge{{Text: "done", Kind: mint.BadgeOK}}
 	case runner.Failed:
 		return []mint.Badge{{Text: "failed", Kind: mint.BadgeError}}

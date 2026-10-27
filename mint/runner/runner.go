@@ -69,6 +69,7 @@ type Cmd struct {
 	Timeout    time.Duration            // 0 = no timeout
 	MaxLines   int                      // 0 = DefaultMaxLines (50,000)
 	StopSignal syscall.Signal           // signal sent by Stop (0 = SIGTERM)
+	OKExits    map[int]string           // exit codes besides 0 that are results, not failures, with what they mean (diff: 1 → "files differ")
 	Label      string                   // short name for status badges ("" = command name)
 	Progress   func(string) (int, bool) // optional parser returning (0..100, true) from a line
 	OnLine     func(mint.LogLine)       // optional callback invoked on every line
@@ -277,9 +278,10 @@ func Start(c Cmd) *Job {
 			} else if perr != nil {
 				exitCode = -1
 			}
-			if perr == nil && exitCode == 0 {
+			_, okExit := j.c.OKExits[exitCode]
+			if exitCode == 0 && perr == nil || okExit && exitCode > 0 {
 				j.state = Done
-				j.code = 0
+				j.code = exitCode
 				j.pct = 100
 			} else {
 				j.state = Failed
@@ -768,6 +770,9 @@ func (j *Job) Badge() mint.Badge {
 		}
 		return mint.Badge{Text: fmt.Sprintf("%s · %s", label, Clock(dur)), Kind: mint.BadgeWarn}
 	case Done:
+		if meaning := j.ExitMeaning(); meaning != "" {
+			return mint.Badge{Text: fmt.Sprintf("%s: %s · %s", label, meaning, Clock(dur)), Kind: mint.BadgeOK}
+		}
 		return mint.Badge{Text: fmt.Sprintf("%s done in %s", label, Clock(dur)), Kind: mint.BadgeOK}
 	case Stopped:
 		return mint.Badge{Text: label + " stopped", Kind: mint.BadgeIdle}
@@ -781,6 +786,17 @@ func (j *Job) Badge() mint.Badge {
 	default:
 		return mint.Badge{Text: label + " idle", Kind: mint.BadgeIdle}
 	}
+}
+
+// ExitMeaning returns what the job's exit code means when Cmd.OKExits
+// describes it ("files differ"), or "" otherwise.
+func (j *Job) ExitMeaning() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.state != Done {
+		return ""
+	}
+	return j.c.OKExits[j.code]
 }
 
 // Badges returns a slice containing the job's current status Badge, ready for

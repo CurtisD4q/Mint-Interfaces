@@ -410,3 +410,42 @@ func TestLongLineFromProgram(t *testing.T) {
 		t.Fatalf("got %d lines, first %d bytes", len(got), len(got[0]))
 	}
 }
+
+func TestOKExitsAreResults(t *testing.T) {
+	ok := map[int]string{0: "no differences", 1: "files differ"}
+	j := Start(Cmd{Name: "sh", Args: []string{"-c", "exit 1"}, Label: "diff", OKExits: ok})
+	waitOrFail(t, j, 5*time.Second)
+	if j.State() != Done || j.ExitCode() != 1 || j.ExitMeaning() != "files differ" {
+		t.Fatalf("state %v code %d meaning %q", j.State(), j.ExitCode(), j.ExitMeaning())
+	}
+	if b := j.Badge(); !strings.HasPrefix(b.Text, "diff: files differ") {
+		t.Fatalf("badge %q", b.Text)
+	}
+
+	j = Start(Cmd{Name: "sh", Args: []string{"-c", "exit 0"}, OKExits: ok})
+	waitOrFail(t, j, 5*time.Second)
+	if j.State() != Done || j.ExitMeaning() != "no differences" {
+		t.Fatalf("exit 0: state %v meaning %q", j.State(), j.ExitMeaning())
+	}
+
+	// A code that isn't listed is still a failure.
+	j = Start(Cmd{Name: "sh", Args: []string{"-c", "echo trouble >&2; exit 2"}, OKExits: ok})
+	waitOrFail(t, j, 5*time.Second)
+	if j.State() != Failed || j.ExitCode() != 2 || j.ExitMeaning() != "" || j.LastError() != "trouble" {
+		t.Fatalf("exit 2: state %v code %d meaning %q err %q", j.State(), j.ExitCode(), j.ExitMeaning(), j.LastError())
+	}
+
+	// Killed by a signal is never a result, whatever the map says.
+	j = Start(Cmd{Name: "sh", Args: []string{"-c", "kill -9 $$"}, OKExits: map[int]string{-1: "x", 137: "x"}})
+	waitOrFail(t, j, 5*time.Second)
+	if j.State() != Failed {
+		t.Fatalf("signal: state %v", j.State())
+	}
+
+	// Without OKExits, exit 1 fails as before.
+	j = Start(Cmd{Name: "sh", Args: []string{"-c", "exit 1"}})
+	waitOrFail(t, j, 5*time.Second)
+	if j.State() != Failed {
+		t.Fatalf("no OKExits: state %v", j.State())
+	}
+}

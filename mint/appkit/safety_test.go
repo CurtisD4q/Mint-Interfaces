@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/runner"
 )
 
 // fakeTool writes an executable script that records each run (its
@@ -387,5 +390,98 @@ func TestNotStartedWithSudo(t *testing.T) {
 		!looksLikeNeedsRoot("E: Could not open lock file - open (13: Permission denied)") ||
 		looksLikeNeedsRoot("curl: (6) Could not resolve host") {
 		t.Fatal("permission-error detection")
+	}
+}
+
+// A name that starts with "-" must reach rm as a name, not as options.
+func TestOperandSeparatorBeforeTarget(t *testing.T) {
+	a := newTestApp(t, ToolSpec{Name: "rm", Flags: []FlagSpec{{Flag: "-v", Kind: FlagBool}}})
+	if !a.Spec.OperandSeparator {
+		t.Fatal("rm should get OperandSeparator by default")
+	}
+	a.Values["-v"] = "true"
+	a.Target = "-rf important"
+	args, _ := a.BuildArgs()
+	if got := strings.Join(args, " "); got != "-v -- -rf important" {
+		t.Fatalf("args = %q, want options, then --, then names", got)
+	}
+	if p := a.CommandPreview(); !strings.Contains(p, " -- -rf important") {
+		t.Fatalf("preview hides the separator: %q", p)
+	}
+
+	// No target: no stray "--".
+	a.Target = ""
+	if args, _ := a.BuildArgs(); strings.Contains(strings.Join(args, " "), "--") {
+		t.Fatalf("separator without operands: %q", args)
+	}
+
+	// Extra arguments stay before the separator: they are options.
+	a.Target = "x"
+	a.ExtraArgs = "--one-file-system"
+	if got, _ := a.BuildArgs(); strings.Join(got, " ") != "-v --one-file-system -- x" {
+		t.Fatalf("args = %q", got)
+	}
+}
+
+func TestOperandSeparatorOnlyForKnownTools(t *testing.T) {
+	for bin, want := range map[string]bool{
+		"rm": true, "/usr/bin/cp": true, "diff": true, "chmod": true,
+		"ping": false, "ffmpeg": false, "dd": false, "find": false, "ssh": false,
+	} {
+		spec := ToolSpec{Name: "t", Bin: bin}
+		ApplySafetyDefaults(&spec)
+		if spec.OperandSeparator != want {
+			t.Errorf("%s: OperandSeparator = %v, want %v", bin, spec.OperandSeparator, want)
+		}
+	}
+	a := newTestApp(t, ToolSpec{Name: "ping"})
+	a.Target = "-c 1 host"
+	if args, _ := a.BuildArgs(); strings.Join(args, " ") != "-c 1 host" {
+		t.Fatalf("ping args changed: %q", args)
+	}
+}
+
+func TestExitMeaningsDefaults(t *testing.T) {
+	spec := ToolSpec{Name: "diff"}
+	ApplySafetyDefaults(&spec)
+	if spec.ExitMeanings[1] != "files differ" {
+		t.Fatalf("diff ExitMeanings = %v", spec.ExitMeanings)
+	}
+	// The defaults are a copy: changing one spec doesn't change another.
+	spec.ExitMeanings[1] = "changed"
+	if KnownExitMeanings("diff")[1] != "files differ" {
+		t.Fatal("KnownExitMeanings shares its map")
+	}
+	// A spec's own meanings win.
+	own := ToolSpec{Name: "grep", ExitMeanings: map[int]string{1: "nothing"}}
+	ApplySafetyDefaults(&own)
+	if own.ExitMeanings[1] != "nothing" {
+		t.Fatalf("spec value overridden: %v", own.ExitMeanings)
+	}
+	none := ToolSpec{Name: "rsync"}
+	ApplySafetyDefaults(&none)
+	if none.ExitMeanings != nil {
+		t.Fatalf("rsync got %v", none.ExitMeanings)
+	}
+}
+
+// A diff run that finds differences is a result, shown as one.
+func TestDiffExitOneIsAResult(t *testing.T) {
+	bin, _ := fakeTool(t, "diff", "echo '1c1'; exit 1")
+	a := newTestApp(t, ToolSpec{Name: "diff", Bin: bin, KeepHistory: true})
+	a.Target = "a b"
+	job, err := a.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	if job.State() != runner.Done {
+		t.Fatalf("state %v", job.State())
+	}
+	if b := a.jobBadges(); len(b) != 1 || b[0].Text != "files differ" || b[0].Kind != mint.BadgeOK {
+		t.Fatalf("badges %+v", b)
+	}
+	if h := a.History(); len(h) != 1 || h[0].State != "done" {
+		t.Fatalf("history %+v", h)
 	}
 }
