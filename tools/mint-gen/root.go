@@ -31,8 +31,8 @@ func mayNeedRoot(program string, spec *appkit.ToolSpec) bool {
 	if spec != nil && spec.NeedsRoot {
 		return true
 	}
-	tpl, ok := appkit.TemplateForTool(program)
-	return ok && tpl.Mixins.WithRootAuth
+	a, ok := appkit.ArchetypeForTool(program)
+	return ok && a.Blueprint().Has(appkit.FeatRoot)
 }
 
 // startAsRoot decides whether --run starts the app with sudo: --root and

@@ -103,7 +103,7 @@ var defaultWeights = scoreWeights{
 
 // signal is one idea of one template.
 type signal struct {
-	template string
+	template string // the template or archetype ID it is evidence for; "" for a neutral phrase
 	label    string // the first way of saying it, for reports
 	weak     bool
 	re       *regexp.Regexp
@@ -165,15 +165,20 @@ var neutralPhrases = []string{
 	"command line|cmd line",
 }
 
-var templateSignalList = func() []signal {
+var templateSignalList = buildSignals(templateSignals)
+
+// buildSignals compiles groups of phrases (template or archetype ID ->
+// phrases; see templateSignals for the notation), with the neutral phrases
+// under "" so they hide the shorter signals inside them.
+func buildSignals(groups map[string][]string) []signal {
 	var out []signal
-	ids := make([]string, 0, len(templateSignals))
-	for id := range templateSignals {
+	ids := make([]string, 0, len(groups))
+	for id := range groups {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	all := map[string][]string{"": neutralPhrases} // "": scores for no template
-	for id, entries := range templateSignals {
+	all := map[string][]string{"": neutralPhrases} // "": scores for nothing
+	for id, entries := range groups {
 		all[id] = entries
 	}
 	for _, id := range append([]string{""}, ids...) {
@@ -198,7 +203,7 @@ var templateSignalList = func() []signal {
 		}
 	}
 	return out
-}()
+}
 
 // TemplateScore is how well a template fits a program, and why.
 type TemplateScore struct {
@@ -221,12 +226,17 @@ type signalMatch struct {
 // "--layout", "kill-line", "--smart-case". The summary and usage lines
 // keep it ("--json" in a usage line is a fair hint).
 func zoneMatches(text string, prose bool) map[int]int {
+	return zoneMatchesIn(templateSignalList, text, prose)
+}
+
+// zoneMatchesIn is zoneMatches for another signal list.
+func zoneMatchesIn(list []signal, text string, prose bool) map[int]int {
 	var all []signalMatch
 	lower := ""
 	if len(text) > longZone {
 		lower = asciiLower(text)
 	}
-	for i, s := range templateSignalList {
+	for i, s := range list {
 		for _, loc := range signalLocations(s, text, lower) {
 			if prose && inHyphenatedName(text, loc[2], loc[3]) {
 				continue
@@ -298,6 +308,11 @@ type templateEvidence struct {
 }
 
 func findEvidence(p programText) templateEvidence {
+	return findEvidenceIn(templateSignalList, p)
+}
+
+// findEvidenceIn is findEvidence for another signal list.
+func findEvidenceIn(list []signal, p programText) templateEvidence {
 	name, summary, usage, body, related := p.Name, p.Summary, p.Usage, p.Body, p.Related
 	var ev templateEvidence
 	// A program's own name in its usage and help is not evidence about
@@ -325,7 +340,7 @@ func findEvidence(p programText) templateEvidence {
 	texts := [numZones]string{nameZone, summary, mask(p.Description), mask(strings.Join(usage, "\n")), mask(body)}
 	for z, text := range texts {
 		if text != "" {
-			ev.zones[z] = zoneMatches(text, z == zoneDescription || z == zoneBody)
+			ev.zones[z] = zoneMatchesIn(list, text, z == zoneDescription || z == zoneBody)
 		}
 	}
 	for _, r := range related {
@@ -444,6 +459,11 @@ var zoneLabels = [numZones]string{"name", "summary", "description", "usage", "bo
 
 // scoreEvidence weighs evidence with w, best template first.
 func scoreEvidence(w scoreWeights, ev templateEvidence) []TemplateScore {
+	return scoreEvidenceIn(templateSignalList, w, ev)
+}
+
+// scoreEvidenceIn is scoreEvidence for another signal list.
+func scoreEvidenceIn(list []signal, w scoreWeights, ev templateEvidence) []TemplateScore {
 	strong := [numZones]int{w.Name, w.Summary, w.Description, w.Usage, w.Body}
 	weak := [numZones]int{w.WeakName, w.WeakSummary, w.WeakDescription, w.WeakUsage, 0}
 	scores := map[string]*TemplateScore{}
@@ -461,7 +481,7 @@ func scoreEvidence(w scoreWeights, ev templateEvidence) []TemplateScore {
 		}
 		sort.Ints(idx)
 		for _, i := range idx {
-			s := templateSignalList[i]
+			s := list[i]
 			if s.template == "" {
 				continue // a neutral phrase
 			}
@@ -575,38 +595,20 @@ func pickTemplateWith(w scoreWeights, scores []TemplateScore) (string, string) {
 	return best.ID, fmt.Sprintf("best evidence (%d points)", best.Score)
 }
 
-// TemplateChoice is the template a program got, and why.
-type TemplateChoice struct {
-	ID         string
-	Why        string
-	Scores     []TemplateScore  // best first (for --explain)
-	Archetypes []ArchetypeScore // best first, when the archetype was chosen first (for --explain)
-
-	Archetype     appkit.Archetype // the archetype it was chosen within
-	ArchetypeLead int              // its points over the next archetype
-	TemplateLead  int              // the template's points over the next of its archetype
-	Confidence    string           // ConfidenceListed, ConfidenceClear or ConfidenceClose
-	Alternatives  []string         // the likely other templates, best first
-	DecidedBy     string           // the tie-breaker that chose between the top two templates
-}
-
-// chooseTemplate picks a template: the built-in tool list first, then the
-// best-scoring template, then a fallback (a suite for programs with
-// subcommands, else the general batch runner).
-func chooseTemplate(bin string, spec appkit.ToolSpec, manText, helpText string) TemplateChoice {
-	name := strings.ToLower(toolBaseName(bin))
-	if tpl, ok := appkit.TemplateForTool(name); ok {
-		return TemplateChoice{ID: string(tpl.ID), Why: "listed for " + name + " in the template's tools",
-			Archetype: tpl.Archetype, Confidence: ConfidenceListed}
+// topicDataLevel is how sensitive a program's results are by what its
+// help is about, from the old template words: keys and secrets (secret),
+// captured traffic, gathered information, security findings and logs
+// (sensitive). It only ever raises a level (see ParseManAndHelpIO): an
+// archetype says what a program does, not what it handles.
+func topicDataLevel(p programText) (level, reason string) {
+	id, _ := pickTemplate(scoreEvidence(defaultWeights, findEvidence(p)))
+	switch id {
+	case "T16":
+		return appkit.DataSecret, "its help is about keys, passwords or encrypted data"
+	case "T13", "T14", "T15", "T20":
+		return appkit.DataSensitive, "its help is about captured traffic, gathered information, security findings or logs"
 	}
-	return scoreTemplateChoice(name, manText, helpText)
-}
-
-// scoreTemplateChoice chooses a template from the help text alone, as for a
-// program no list knows: its archetype first, then the template within it
-// (see archetype.go). It always chooses, and says how sure it is.
-func scoreTemplateChoice(name, manText, helpText string) TemplateChoice {
-	return chooseByArchetype(programTextFrom(name, manText, helpText))
+	return "", ""
 }
 
 // hasSubcommands reports whether a program's help lists subcommands.

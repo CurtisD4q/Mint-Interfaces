@@ -4,52 +4,25 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
 func manWithName(name, summary, body string) string {
 	return "NAME\n       " + name + " - " + summary + "\n\nDESCRIPTION\n       " + body + "\n"
 }
 
-// Names below are not in any template's tool list, so the scorer decides.
-func TestChooseTemplateFromSummary(t *testing.T) {
-	cases := []struct {
-		name, summary, body, want string
-	}{
-		{"proclook", "interactive process viewer", "", "T19"},
-		{"proclist", "display Linux processes", "", "T19"}, // only ordinary words: chosen, but a close call
-		{"dirlist", "list directory contents", "", "T25"},
-		{"jsrun", "server-side JavaScript runtime", "", "T10"},
-		{"imgconv", "image converter and resizer", "", "T06"},
-		{"packer", "compress or decompress files", "", "T08"},
-		{"sumcheck", "print or check SHA256 checksums", "", "T16"},
-		{"lineflip", "a stream editor for filtering and transforming text", "", "T26"},
-		{"fsmount", "mount a filesystem", "", "T24"},
-		{"nothing", "do something unusual", "", "T05"}, // no evidence: the general runner
-	}
-	for _, c := range cases {
-		got := chooseTemplate(c.name, appkit.ToolSpec{Name: c.name}, manWithName(c.name, c.summary, c.body), "")
-		if got.ID != c.want {
-			t.Errorf("%s (%q): %s (%s), want %s; scores %v", c.name, c.summary, got.ID, got.Why, c.want, got.Scores)
-		}
-		if got.Confidence != ConfidenceClear && got.Confidence != ConfidenceClose {
-			t.Errorf("%s: confidence %q", c.name, got.Confidence)
+// templateChoiceOf is the template scorer's own choice (the scorer that
+// still decides what a program's help is about, for data levels): the best
+// template, else the general runner (T21 for a program with subcommands).
+func templateChoiceOf(name, man, help string) (id, why string, scores []TemplateScore) {
+	scores = scoreEvidence(defaultWeights, findEvidence(programTextFrom(name, man, help)))
+	id, why = pickTemplate(scores)
+	if id == "" {
+		id = "T05"
+		if hasSubcommands(man, help, cleanLines(man), cleanLines(help)) {
+			id = "T21"
 		}
 	}
-	// Thin evidence is a close call; none at all is the general runner, a close call.
-	for _, n := range []string{"proclist", "nothing"} {
-		for _, c := range cases {
-			if c.name == n {
-				if got := chooseTemplate(n, appkit.ToolSpec{}, manWithName(n, c.summary, ""), ""); got.Confidence != ConfidenceClose {
-					t.Errorf("%s: %s, want a close call (%s)", n, got.Confidence, got.Why)
-				}
-			}
-		}
-	}
-	if got := chooseTemplate("nmap", appkit.ToolSpec{}, "", ""); got.Confidence != ConfidenceListed || got.Archetype != appkit.ArchetypeScanner {
-		t.Errorf("nmap: %+v", got)
-	}
+	return id, why, scores
 }
 
 // Whole words only: words hidden inside other words score nothing.
@@ -65,11 +38,11 @@ func TestTemplateWordsAreWholeWords(t *testing.T) {
 // A long man page cannot outweigh a clear summary.
 func TestBodyIsCapped(t *testing.T) {
 	body := "Shows the running processes.\n\nOPTIONS\n       " + strings.Repeat("archive compress decompress tarball ", 200)
-	got := chooseTemplate("proclook", appkit.ToolSpec{}, manWithName("proclook", "interactive process viewer", body), "")
-	if got.ID == "T08" {
-		t.Fatalf("the long man page won: %s (%s): %v", got.ID, got.Why, got.Scores)
+	id, why, scores := templateChoiceOf("proclook", manWithName("proclook", "interactive process viewer", body), "")
+	if id == "T08" {
+		t.Fatalf("the long man page won: %s (%s): %v", id, why, scores)
 	}
-	for _, s := range got.Scores {
+	for _, s := range scores {
 		if s.ID == "T08" && s.Score > defaultWeights.BodyCap {
 			t.Fatalf("body score %d over the cap", s.Score)
 		}
@@ -80,11 +53,11 @@ func TestBodyIsCapped(t *testing.T) {
 // however long it is; option names in it are not prose.
 func TestDescriptionZone(t *testing.T) {
 	man := manWithName("vcs9", "manage things", "Vcs9 is a version control system. "+strings.Repeat("It keeps every revision. ", 30)+"See --kill-line.")
-	got := scoreTemplateChoice("vcs9", man, "")
-	if got.ID != "T21" {
-		t.Fatalf("%s (%s) %v", got.ID, got.Why, got.Scores)
+	id, why, scores := templateChoiceOf("vcs9", man, "")
+	if id != "T21" {
+		t.Fatalf("%s (%s) %v", id, why, scores)
 	}
-	for _, s := range got.Scores {
+	for _, s := range scores {
 		n := 0
 		for _, h := range s.Hits {
 			if strings.HasPrefix(h, "description: ") {
@@ -152,9 +125,9 @@ func TestRelatedPrograms(t *testing.T) {
 	if strings.Join(rel, ",") != "host,nslookup,named" {
 		t.Fatalf("related: %v", rel)
 	}
-	got := scoreTemplateChoice("lookup2", man, "")
-	if len(got.Scores) == 0 || got.Scores[0].ID != "T14" || !strings.Contains(strings.Join(got.Scores[0].Hits, ","), "related: host,related: nslookup") {
-		t.Fatalf("%s (%s) %v", got.ID, got.Why, got.Scores)
+	id, why, scores := templateChoiceOf("lookup2", man, "")
+	if len(scores) == 0 || scores[0].ID != "T14" || !strings.Contains(strings.Join(scores[0].Hits, ","), "related: host,related: nslookup") {
+		t.Fatalf("%s (%s) %v", id, why, scores)
 	}
 	// A program is never its own evidence.
 	if s := ScoreTemplates("dig", "", nil, "", []string{"dig"}); len(s) != 0 {
@@ -229,9 +202,8 @@ func TestLooksLikeSummary(t *testing.T) {
 // Word forms of one idea count once: "line"/"lines" alone decide nothing.
 func TestWordFormsCountOnce(t *testing.T) {
 	help := "Usage: showit FILE\n  -n   number the lines\n  -s   squeeze each blank line\n  -w   wrap long lines at each line end"
-	got := chooseTemplate("showit", appkit.ToolSpec{}, "", help)
-	if got.ID != "T05" {
-		t.Fatalf("one idea decided the template: %s (%s) %v", got.ID, got.Why, got.Scores)
+	if id, why, scores := templateChoiceOf("showit", "", help); id != "T05" {
+		t.Fatalf("one idea decided the template: %s (%s) %v", id, why, scores)
 	}
 }
 

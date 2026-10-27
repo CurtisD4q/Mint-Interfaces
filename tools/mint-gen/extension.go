@@ -45,7 +45,7 @@ func chooseExtension(spec appkit.ToolSpec, m IOModel, outputDesc, tplExt string)
 		return "log", "it prints only messages"
 	}
 	if tplExt != "" && (writes || isTextExtension(tplExt)) {
-		return tplExt, "the template's default (" + spec.Template + ")"
+		return tplExt, "the default for its archetype (" + spec.ArchetypeID + ")"
 	}
 	return "txt", "default"
 }

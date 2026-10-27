@@ -53,7 +53,7 @@ type IOModel struct {
 	ExtWhy    string
 	Known     bool   // the tool is in the known-tools list
 	Usage     string // the first usage form
-	Template  TemplateChoice
+	Archetype ArchetypeChoice
 	HelpRead  []string // the help mint-gen read ("man page", "--help", "-h (the help says…)")
 	HelpNotes []string // help that could not be read, and why
 }
@@ -219,8 +219,8 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 	for _, n := range m.HelpNotes {
 		p("  Note:     %s", n)
 	}
-	if m.Template.ID != "" {
-		explainTemplateChoice(w, m.Tool, m.Template)
+	if m.Archetype.ID != "" {
+		explainArchetypeChoice(w, m.Tool, m.Archetype)
 	}
 	if m.Usage != "" {
 		p("  Usage:    %s", m.Usage)

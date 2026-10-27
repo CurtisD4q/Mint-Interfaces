@@ -177,9 +177,14 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	flags = append(flags, knownOnlyFlags(name, flags, spec.OutputFlag)...)
 	markSecretFlags(flags)
 	spec.Flags = flags
-	choice := chooseTemplate(name, spec, manText, helpText)
-	tpl, _ := appkit.LookupTemplate(choice.ID)
-	tpl.ApplyTo(&spec)
+	text := programTextFrom(name, manText, helpText)
+	choice := chooseArchetype(name, manText, helpText)
+	def, _ := appkit.LookupArchetype(string(choice.ID))
+	def.ApplyTo(&spec)
+	// A program of the old template lists keeps its template's extension.
+	if tpl, ok := appkit.TemplateForTool(name); ok && tpl.DefaultExt != "" {
+		spec.DefaultExt = tpl.DefaultExt
+	}
 	if spec.Archetype == appkit.ArchetypeSuite && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
 			spec.Subcommands = subs
@@ -188,8 +193,12 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	if len(spec.Profiles) == 0 {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
-	tplExt := spec.DefaultExt // the template's, if it has one
+	tplExt := spec.DefaultExt // the archetype's or old template's, if any
 	appkit.ApplySafetyDefaults(&spec)
+	// What the help is about can only raise the data level.
+	if lvl, why := topicDataLevel(text); dataRank(lvl) > dataRank(spec.Data) {
+		spec.Data, spec.DataReason = lvl, why
+	}
 	if d, ok := appkit.KnownDiffSpec(spec.BinaryName()); ok && spec.Diff == nil {
 		spec.Diff = &d
 	}
@@ -211,7 +220,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)
 	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, tplExt)
-	model.Template = choice
+	model.Archetype = choice
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec, model

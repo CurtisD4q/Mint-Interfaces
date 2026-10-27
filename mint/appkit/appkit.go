@@ -108,8 +108,9 @@ type ToolSpec struct {
 	Title             string           `json:"title,omitempty"`
 	Desc              string           `json:"desc,omitempty"`
 	Version           string           `json:"version,omitempty"`
-	Template          string           `json:"template,omitempty"`  // "T01".."T28" or template slug
-	Archetype         Archetype        `json:"archetype,omitempty"` // config, runner, scanner, monitor, explorer, suite
+	Template          string           `json:"template,omitempty"`     // older apps: "T01".."T28" or template slug (see ArchetypeForTemplate)
+	ArchetypeID       string           `json:"archetype_id,omitempty"` // which of the 34 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	Archetype         Archetype        `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite
 	TargetLabel       string           `json:"target_label,omitempty"`
 	TargetPlaceholder string           `json:"target_placeholder,omitempty"`
 	TargetDefault     string           `json:"target_default,omitempty"`
@@ -247,15 +248,24 @@ type ToolApp struct {
 	session *transcript.Session // WithTranscript: the open session
 }
 
-// New creates and initializes a ToolApp from a ToolSpec, applying its Template
-// (T01..T28) and Archetype defaults automatically.
+// New creates and initializes a ToolApp from a ToolSpec, applying its
+// archetype's defaults (ArchetypeID, else the archetype list). An app made
+// before archetypes, with only a Template, gets that template's defaults
+// exactly as before.
 func New(spec ToolSpec) *ToolApp {
-	if spec.Template != "" {
+	switch {
+	case spec.ArchetypeID != "":
+		if a, ok := LookupArchetype(spec.ArchetypeID); ok {
+			a.ApplyTo(&spec)
+		}
+	case spec.Template != "":
 		if tpl, ok := LookupTemplate(spec.Template); ok {
 			tpl.ApplyTo(&spec)
 		}
-	} else if tpl, ok := TemplateForTool(spec.BinaryName()); ok {
-		tpl.ApplyTo(&spec)
+	default:
+		if a, ok := ArchetypeForTool(spec.BinaryName()); ok {
+			a.ApplyTo(&spec)
+		}
 	}
 
 	ApplySafetyDefaults(&spec)

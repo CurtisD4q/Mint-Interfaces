@@ -90,12 +90,23 @@ func ClassifyData(spec ToolSpec) (level, reason string) {
 	if normalDataTools[base] {
 		return DataNormal, ""
 	}
+	// The program's old template (named in the spec, or from the old lists)
+	// keeps the level it always had, so moving to archetypes never makes a
+	// program's results less protected.
 	id := spec.Template
+	if id == "" {
+		if tpl, ok := TemplateForTool(base); ok {
+			id = string(tpl.ID)
+		}
+	}
 	if tpl, ok := LookupTemplate(id); ok {
 		id = string(tpl.ID)
 	}
 	if c, ok := templateData[id]; ok {
 		return c.level, c.reason
+	}
+	if a, ok := LookupArchetype(spec.ArchetypeID); ok && a.Data != "" {
+		return a.Data, a.DataReason
 	}
 	return DataNormal, ""
 }
