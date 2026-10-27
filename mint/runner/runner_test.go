@@ -323,3 +323,90 @@ func TestRedactRewritesLines(t *testing.T) {
 		t.Fatalf("last error not redacted: %q", j.LastError())
 	}
 }
+
+// newPipeJob is a Job with no process, for feeding readPipe directly.
+func newPipeJob() *Job {
+	return &Job{c: Cmd{MaxLines: DefaultMaxLines}, done: make(chan struct{})}
+}
+
+// A stream with no line breaks must not be held in memory whole.
+func TestLongLineIsCut(t *testing.T) {
+	old := MaxLineBytes
+	MaxLineBytes = 1024
+	defer func() { MaxLineBytes = old }()
+
+	j := newPipeJob()
+	in := strings.Repeat("a", 10*1024*1024) + "\nnext\n"
+	j.readPipe(strings.NewReader(in), false)
+	got := texts(j)
+	if len(got) != 2 {
+		t.Fatalf("got %d lines, want the cut line and the next one", len(got))
+	}
+	if !strings.HasSuffix(got[0], LineTruncatedMark) || len(got[0]) != 1024+len(LineTruncatedMark) {
+		t.Fatalf("first line: %d bytes, ends %q", len(got[0]), got[0][len(got[0])-20:])
+	}
+	if got[1] != "next" {
+		t.Fatalf("line after the long one = %q", got[1])
+	}
+}
+
+// The long line is shown as soon as it reaches the limit, not when (if
+// ever) its newline arrives.
+func TestLongLineShownBeforeItEnds(t *testing.T) {
+	old := MaxLineBytes
+	MaxLineBytes = 64
+	defer func() { MaxLineBytes = old }()
+
+	j := newPipeJob()
+	j.readPipe(strings.NewReader(strings.Repeat("z", 1000)), false) // EOF, no newline
+	if got := texts(j); len(got) != 1 || !strings.HasPrefix(got[0], strings.Repeat("z", 64)) {
+		t.Fatalf("lines %q", got)
+	}
+}
+
+func TestLineCutKeepsWholeRunes(t *testing.T) {
+	old := MaxLineBytes
+	MaxLineBytes = 10
+	defer func() { MaxLineBytes = old }()
+
+	j := newPipeJob()
+	j.readPipe(strings.NewReader("aaaaaaaaa€€€\n"), false) // the cut falls inside "€"
+	got := texts(j)[0]
+	if want := "aaaaaaaaa" + LineTruncatedMark; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBinaryOutputIsSummarised(t *testing.T) {
+	j := newPipeJob()
+	j.readPipe(strings.NewReader("ELF\x00\x01\x02\x03\nplain text\n\xff\xfe\xfd\xfc\xfbab\n"), false)
+	got := texts(j)
+	if len(got) != 3 {
+		t.Fatalf("lines %q", got)
+	}
+	if got[0] != "[binary data, 7 bytes: 45 4c 46 00 01 02 03]" {
+		t.Fatalf("NUL line = %q", got[0])
+	}
+	if got[1] != "plain text" {
+		t.Fatalf("text line = %q", got[1])
+	}
+	if !strings.HasPrefix(got[2], "[binary data, 7 bytes:") {
+		t.Fatalf("invalid UTF-8 line = %q", got[2])
+	}
+	// A little invalid UTF-8 in text is still text.
+	j = newPipeJob()
+	j.readPipe(strings.NewReader("caf\xe9 ordered\n"), false)
+	if got := texts(j)[0]; got != "caf ordered" {
+		t.Fatalf("mostly-text line = %q", got)
+	}
+}
+
+// End to end through a real process: 4 MB with no newline.
+func TestLongLineFromProgram(t *testing.T) {
+	j := Start(Cmd{Name: "sh", Args: []string{"-c", "head -c 4194304 /dev/zero | tr '\\000' x; echo; echo done"}})
+	waitOrFail(t, j, 20*time.Second)
+	got := texts(j)
+	if len(got) != 2 || len(got[0]) != MaxLineBytes+len(LineTruncatedMark) || got[1] != "done" {
+		t.Fatalf("got %d lines, first %d bytes", len(got), len(got[0]))
+	}
+}
