@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -256,5 +257,36 @@ func TestNeutralPhrasesAndNameInSummary(t *testing.T) {
 	s := ScoreTemplates("sensors", "Print sensors information", nil, "", nil)
 	if len(s) == 0 || s[0].ID != "T17" {
 		t.Fatalf("name in summary: %v", s)
+	}
+}
+
+// In a long text the phrase search runs only around each phrase's first
+// word, and finds exactly what a search of the whole text finds.
+func TestWindowedSearchMatchesFull(t *testing.T) {
+	var b strings.Builder
+	for b.Len() <= longZone {
+		b.WriteString("filler text about nothing in particular. ")
+	}
+	b.WriteString("PACKET CAPTURE and Captures, xcapture, capturex, packet-capture, packet   capture,\n")
+	b.WriteString("queries query QUERIES; sql injection; SQL; compress compressed decompression; ")
+	b.WriteString("archive archive archive; port scanner; port; portable; i/o statistics; s.m.a.r.t data")
+	text := b.String()
+	lower := asciiLower(text)
+	if len(lower) != len(text) {
+		t.Fatal("lower case changed the length")
+	}
+	found := 0
+	for i, s := range templateSignalList {
+		full := fmt.Sprint(signalLocations(s, text, ""))
+		win := fmt.Sprint(signalLocations(s, text, lower))
+		if full != win {
+			t.Fatalf("signal %d (%s): full %s, windowed %s", i, s.label, full, win)
+		}
+		if full != "[]" {
+			found++
+		}
+	}
+	if found < 8 {
+		t.Fatalf("only %d signals matched; the test text is not testing much", found)
 	}
 }

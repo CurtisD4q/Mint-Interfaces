@@ -107,6 +107,26 @@ type signal struct {
 	label    string // the first way of saying it, for reports
 	weak     bool
 	re       *regexp.Regexp
+	// For long texts: a lower-case word every match starts with (one per
+	// way of saying it), and how far past it a match can reach. The regexp
+	// then runs only around those words (see zoneMatches).
+	firsts []string
+	reach  int
+}
+
+// signalFirstWord is the literal a way of saying an idea always starts
+// with: its first word, without the last letter of a one-word way (whose
+// ending can change: "query" is also "queries").
+func signalFirstWord(way string) string {
+	words := strings.Fields(strings.ToLower(way))
+	if len(words) == 0 {
+		return ""
+	}
+	w := words[0]
+	if len(words) == 1 && len(w) > 3 {
+		w = w[:len(w)-1]
+	}
+	return w
 }
 
 var reAlphaWord = regexp.MustCompile(`^[a-z]+$`)
@@ -167,7 +187,14 @@ var templateSignalList = func() []signal {
 			// Longer ways first, so the regexp prefers "port scanner" to "port".
 			sort.SliceStable(alts, func(i, j int) bool { return len(alts[i]) > len(alts[j]) })
 			re := regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])(` + strings.Join(alts, "|") + `)(?:$|[^A-Za-z0-9_])`)
-			out = append(out, signal{template: id, label: ways[0], weak: weak, re: re})
+			sig := signal{template: id, label: ways[0], weak: weak, re: re}
+			for _, w := range ways {
+				sig.firsts = append(sig.firsts, signalFirstWord(w))
+				if n := 4*len(w) + 32; n > sig.reach {
+					sig.reach = n
+				}
+			}
+			out = append(out, sig)
 		}
 	}
 	return out
@@ -195,8 +222,12 @@ type signalMatch struct {
 // keep it ("--json" in a usage line is a fair hint).
 func zoneMatches(text string, prose bool) map[int]int {
 	var all []signalMatch
+	lower := ""
+	if len(text) > longZone {
+		lower = asciiLower(text)
+	}
 	for i, s := range templateSignalList {
-		for _, loc := range s.re.FindAllStringSubmatchIndex(text, -1) {
+		for _, loc := range signalLocations(s, text, lower) {
 			if prose && inHyphenatedName(text, loc[2], loc[3]) {
 				continue
 			}
@@ -237,6 +268,9 @@ type programText struct {
 	Usage       []string // usage lines
 	Body        string   // all of the man page and help
 	Related     []string // programs from SEE ALSO
+
+	manLines, helpLines []string          // cleaned, for reading behaviour (see archetype.go)
+	options             []appkit.FlagSpec // options from the help, then the man page
 }
 
 // programTextFrom gathers a programText from man and help text.
@@ -249,6 +283,9 @@ func programTextFrom(name, manText, helpText string) programText {
 		Usage:       usageLines(name, manLines, helpLines),
 		Body:        manText + "\n" + helpText,
 		Related:     seeAlsoPrograms(manText),
+		manLines:    manLines,
+		helpLines:   helpLines,
+		options:     append(parseFlagsFromLines(helpLines, false), parseFlagsFromLines(manLines, true)...),
 	}
 }
 
@@ -300,6 +337,85 @@ func findEvidence(p programText) templateEvidence {
 		}
 	}
 	return ev
+}
+
+// longZone is the length above which a signal's regexp runs only around
+// the words its matches start with. Regexps that ignore case and check
+// word edges cannot skip ahead on their own, and a 2 MB man page (rclone's)
+// took half a minute; the result is the same.
+const longZone = 8 << 10
+
+// asciiLower lower-cases ASCII letters only, so every position in the
+// result is the same position in the original.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
+
+// signalLocations is s.re.FindAllStringSubmatchIndex(text, -1). For a long
+// text (lower is its asciiLower) it runs the regexp only in windows around
+// the words a match must start with, merged where they overlap. A window
+// starts one byte before the word, so the regexp still sees what comes
+// before it.
+func signalLocations(s signal, text, lower string) [][]int {
+	if lower == "" {
+		return s.re.FindAllStringSubmatchIndex(text, -1)
+	}
+	type span struct{ from, to int }
+	var spans []span
+	for _, w := range s.firsts {
+		if w == "" {
+			return s.re.FindAllStringSubmatchIndex(text, -1)
+		}
+		for off := 0; ; {
+			i := strings.Index(lower[off:], w)
+			if i < 0 {
+				break
+			}
+			at := off + i
+			from, to := at-1, at+s.reach
+			if from < 0 {
+				from = 0
+			}
+			if to > len(text) {
+				to = len(text)
+			}
+			spans = append(spans, span{from, to})
+			off = at + 1
+		}
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].from < spans[j].from })
+	merged := spans[:1]
+	for _, sp := range spans[1:] {
+		last := &merged[len(merged)-1]
+		if sp.from <= last.to {
+			if sp.to > last.to {
+				last.to = sp.to
+			}
+			continue
+		}
+		merged = append(merged, sp)
+	}
+	var out [][]int
+	for _, sp := range merged {
+		for _, loc := range s.re.FindAllStringSubmatchIndex(text[sp.from:sp.to], -1) {
+			for k := range loc {
+				if loc[k] >= 0 {
+					loc[k] += sp.from
+				}
+			}
+			out = append(out, loc)
+		}
+	}
+	return out
 }
 
 // inHyphenatedName reports whether text[start:end] is joined by a hyphen
@@ -461,9 +577,10 @@ func pickTemplateWith(w scoreWeights, scores []TemplateScore) (string, string) {
 
 // TemplateChoice is the template a program got, and why.
 type TemplateChoice struct {
-	ID     string
-	Why    string
-	Scores []TemplateScore // best first (for --explain)
+	ID         string
+	Why        string
+	Scores     []TemplateScore  // best first (for --explain)
+	Archetypes []ArchetypeScore // best first, when the archetype was chosen first (for --explain)
 }
 
 // chooseTemplate picks a template: the built-in tool list first, then the
