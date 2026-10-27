@@ -180,7 +180,24 @@ func For(tool string, args []string, env Env) (Plan, error) {
 	case "cp", "mv":
 		pl.copyOrMove(base == "mv", o)
 	}
+	pl.plan.Effects = dedupe(pl.plan.Effects)
 	return *pl.plan, nil
+}
+
+// dedupe keeps the first effect for each path: a file reached twice (as
+// "build" and through "link/") is still deleted once.
+func dedupe(es []Effect) []Effect {
+	seen := map[string]bool{}
+	out := es[:0]
+	for _, e := range es {
+		key := fmt.Sprintf("%d\x00%s\x00%s", e.Kind, e.Path, e.Dest)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, e)
+	}
+	return out
 }
 
 // checkOperand warns about names that aren't what they look like.

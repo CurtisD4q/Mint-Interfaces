@@ -358,3 +358,13 @@ func TestFingerprintChangesWithTree(t *testing.T) {
 		t.Fatal("fingerprint didn't change when a file appeared")
 	}
 }
+
+// A file reached two ways is counted once.
+func TestSamePathCountedOnce(t *testing.T) {
+	dir := t.TempDir()
+	tree(t, dir, "build/a=1", "build/s/b=2", "link=->build")
+	p, _ := For("rm", []string{"-r", "--", "build", "link/", "build"}, Env{Dir: dir})
+	if c := p.Totals().Count[Delete]; c != 4 { // build, build/a, build/s, build/s/b
+		t.Fatalf("%d deletes: %+v", c, p.Effects)
+	}
+}
