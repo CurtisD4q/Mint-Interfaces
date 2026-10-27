@@ -187,7 +187,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	fmt.Fprintf(&buf, "\t\tName:              %q,\n", spec.Name)
 	fmt.Fprintf(&buf, "\t\tTitle:             %q,\n", spec.Title)
 	fmt.Fprintf(&buf, "\t\tDesc:              %q,\n", spec.Desc)
-	if spec.Template != "" {
+	if spec.ArchetypeID != "" {
+		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
+	} else if spec.Template != "" {
 		fmt.Fprintf(&buf, "\t\tTemplate:          %q,\n", spec.Template)
 	}
 	if spec.Archetype != "" {

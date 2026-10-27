@@ -39,8 +39,10 @@ func runCLI(args []string) int {
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
-	fs.StringVar(&templateFlag, "template", "", "Override template type (T01..T28 or slug, e.g. network-scanner)")
-	fs.BoolVar(&listTemplates, "list-templates", false, "List all 28 Template Types (T01..T28), 6 Base Archetypes, and the composable Mixins")
+	fs.StringVar(&templateFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
+	fs.StringVar(&templateFlag, "template", "", "Older name for --archetype; also takes T01..T28 or a template slug")
+	fs.BoolVar(&listTemplates, "list-archetypes", false, "List the 35 archetypes, the 6 base layouts and the add-ons")
+	fs.BoolVar(&listTemplates, "list-templates", false, "Older name for --list-archetypes")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
@@ -152,14 +154,13 @@ func runCLI(args []string) int {
 	printHelpNotes(model.HelpNotes)
 
 	if templateFlag != "" {
-		tpl, ok := appkit.LookupTemplate(templateFlag)
+		a, ok := resolveArchetypeFlag(templateFlag)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "mint-gen: unknown template %q (run `mint-gen --list-templates` to see T01..T28)\n", templateFlag)
+			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(templateFlag))
 			return 2
 		}
-		spec.Template = string(tpl.ID)
-		spec.Archetype = tpl.Archetype
-		tpl.ApplyTo(&spec)
+		spec.Archetype = a.Blueprint().Layout
+		a.ApplyTo(&spec)
 	}
 
 	prof, _, cached := ensureTermProfile(false)
@@ -170,12 +171,12 @@ func runCLI(args []string) int {
 	}
 
 	fmt.Printf("Terminal: %s\n", formatTermSummary(prof, cached))
-	fmt.Printf("Scaffolded %s [template=%s archetype=%s] (%d flags, outputs_file=%v) in %s:\n",
-		spec.Name, spec.Template, spec.Archetype, len(spec.Flags), spec.OutputsFile, res.AppDir)
+	fmt.Printf("Scaffolded %s [archetype=%s layout=%s] (%d flags, outputs_file=%v) in %s:\n",
+		spec.Name, spec.ArchetypeID, spec.Archetype, len(spec.Flags), spec.OutputsFile, res.AppDir)
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
-	printTemplateChoice(os.Stdout, program, model.Template, templateFlag)
+	printArchetypeChoice(os.Stdout, program, model.Archetype, templateFlag)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
 	printKnownToolWarnings(os.Stderr)
@@ -236,7 +237,7 @@ func flagsFirst(fs *flag.FlagSet, args []string) []string {
 }
 
 func printTemplateCatalogue() {
-	fmt.Println("Mint-Interfaces — 6 Base Archetypes:")
+	fmt.Println("Mint-Interfaces — 6 Base Layouts:")
 	fmt.Println("  config    State Editor (read live state -> edit controls/rules -> apply)")
 	fmt.Println("  runner    Task & Pipeline (target + flags + presets -> background job + progress -> output)")
 	fmt.Println("  scanner   Target -> Live Table + Log (live structured table + collapsible raw output)")
@@ -249,13 +250,13 @@ func printTemplateCatalogue() {
 		fmt.Printf("  - %-22s %s (%s)\n", m.Name, m.Summary, m.Fields)
 	}
 	fmt.Println()
-	fmt.Println("Mint-Interfaces — 28 Template Types (T01..T28):")
-	fmt.Printf("  %-4s  %-24s  %-9s  %-34s  %s\n", "ID", "SLUG", "ARCHETYPE", "NAME", "EXAMPLE TOOLS")
-	for _, tpl := range appkit.AllTemplates() {
-		examples := strings.Join(tpl.ExampleTools, ", ")
-		fmt.Printf("  %-4s  %-24s  %-9s  %-34s  %s\n",
-			tpl.ID, tpl.Slug, tpl.Archetype, tpl.Name, examples)
+	fmt.Printf("Mint-Interfaces — %d Archetypes (what kind of program it is):\n", len(appkit.AllArchetypeDefs()))
+	fmt.Printf("  %-11s  %-19s  %-9s  %s\n", "ARCHETYPE", "GROUP", "LAYOUT", "WHAT IT IS")
+	for _, a := range appkit.AllArchetypeDefs() {
+		fmt.Printf("  %-11s  %-19s  %-9s  %s\n", a.ID, a.Group, a.Blueprint().Layout, a.Is)
 	}
+	fmt.Println()
+	fmt.Println("Older template names (T01..T28 and their slugs) still work with --archetype.")
 }
 
 func printCompatReport(rep CompatReport) {
@@ -413,9 +414,9 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 		spec, _ = ParseProgram(prog)
 	}
 
-	tplOptions := make([]string, len(appkit.AllTemplates()))
-	for i, tpl := range appkit.AllTemplates() {
-		tplOptions[i] = string(tpl.ID)
+	tplOptions := make([]string, len(appkit.AllArchetypeDefs()))
+	for i, a := range appkit.AllArchetypeDefs() {
+		tplOptions[i] = string(a.ID)
 	}
 
 	mainScr := func() *mint.Screen {
@@ -424,7 +425,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 			Title: "mint-gen",
 			Status: func() []mint.Badge {
 				if rep.Compatible {
-					return []mint.Badge{{Text: prog + " · " + spec.Template + " (" + string(spec.Archetype) + ")", Kind: mint.BadgeOK}}
+					return []mint.Badge{{Text: prog + " · " + spec.ArchetypeID + " (" + string(spec.Archetype) + ")", Kind: mint.BadgeOK}}
 				}
 				return []mint.Badge{{Text: prog + " excluded", Kind: mint.BadgeError}}
 			},
@@ -444,7 +445,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 			}
 			s.Sections = []mint.Section{
 				{
-					Name: "Target Program & Template Classification",
+					Name: "Target Program & Archetype",
 					Rows: []mint.Row{
 						mint.Text(mint.TextOpts{
 							ID:          "program",
@@ -457,20 +458,19 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 						}),
 						mint.Picker(mint.PickerOpts{
 							ID:      "template",
-							Label:   "Template type (T01..T28)",
+							Label:   "Archetype",
 							Options: tplOptions,
-							Get:     func() string { return spec.Template },
+							Get:     func() string { return spec.ArchetypeID },
 							Set: func(v string) {
-								if tpl, ok := appkit.LookupTemplate(v); ok {
-									spec.Template = string(tpl.ID)
-									spec.Archetype = tpl.Archetype
-									tpl.ApplyTo(&spec)
+								if a, ok := appkit.LookupArchetype(v); ok {
+									spec.Archetype = a.Blueprint().Layout
+									a.ApplyTo(&spec)
 								}
 							},
 						}),
 						mint.Value(mint.ValueOpts{
 							ID:    "archetype",
-							Label: "Base archetype",
+							Label: "Base layout",
 							Get:   func() string { return string(spec.Archetype) },
 						}),
 						mint.Value(mint.ValueOpts{

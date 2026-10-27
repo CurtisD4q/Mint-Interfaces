@@ -170,64 +170,65 @@ func TestScaffoldAppAndCLI(t *testing.T) {
 	}
 }
 
-func TestDetectTemplateAndCLIFlags(t *testing.T) {
-	if code := runCLI([]string{"--list-templates"}); code != 0 {
-		t.Fatalf("--list-templates returned %d, want 0", code)
+func TestDetectArchetypeAndCLIFlags(t *testing.T) {
+	for _, flag := range []string{"--list-archetypes", "--list-templates"} {
+		if code := runCLI([]string{flag}); code != 0 {
+			t.Fatalf("%s returned %d, want 0", flag, code)
+		}
 	}
-	if code := runCLI([]string{"--template", "INVALID-T99", "echo"}); code == 0 {
-		t.Fatalf("expected non-zero exit code for invalid --template")
-	}
-
-	knownCases := []struct {
-		bin     string
-		wantID  appkit.TemplateID
-		wantArc appkit.Archetype
-	}{
-		{"sysctl", appkit.T01, appkit.ArchetypeConfig},
-		{"ufw", appkit.T04, appkit.ArchetypeConfig},
-		{"ffmpeg", appkit.T06, appkit.ArchetypeRunner},
-		{"curl", appkit.T07, appkit.ArchetypeRunner},
-		{"tar", appkit.T08, appkit.ArchetypeSuite},
-		{"nmap", appkit.T12, appkit.ArchetypeScanner},
-		{"tshark", appkit.T13, appkit.ArchetypeScanner},
-		{"whois", appkit.T14, appkit.ArchetypeScanner},
-		{"nikto", appkit.T15, appkit.ArchetypeRunner},
-		{"systemctl", appkit.T18, appkit.ArchetypeMonitor},
-		{"journalctl", appkit.T20, appkit.ArchetypeMonitor},
-		{"git", appkit.T21, appkit.ArchetypeSuite},
-		{"docker", appkit.T22, appkit.ArchetypeSuite},
-		{"lsblk", appkit.T24, appkit.ArchetypeExplorer},
-		{"rg", appkit.T25, appkit.ArchetypeExplorer},
-		{"jq", appkit.T26, appkit.ArchetypeExplorer},
-		{"man", appkit.T27, appkit.ArchetypeExplorer},
-		{"crontab", appkit.T28, appkit.ArchetypeSuite},
-	}
-
-	for _, tc := range knownCases {
-		tpl := DetectTemplate(tc.bin, appkit.ToolSpec{Name: tc.bin}, "", "")
-		if tpl.ID != tc.wantID || tpl.Archetype != tc.wantArc {
-			t.Errorf("DetectTemplate(%q) = (%s, %s), want (%s, %s)",
-				tc.bin, tpl.ID, tpl.Archetype, tc.wantID, tc.wantArc)
+	for _, flag := range []string{"--archetype", "--template"} {
+		if code := runCLI([]string{flag, "INVALID-T99", "echo"}); code == 0 {
+			t.Fatalf("expected a non-zero exit code for an unknown %s", flag)
 		}
 	}
 
-	// Test heuristic classification on unknown CLI tools
-	heuristics := []struct {
+	// Listed programs: their archetype and base layout.
+	known := []struct {
 		bin    string
-		man    string
-		help   string
-		wantID appkit.TemplateID
+		want   appkit.ArchetypeID
+		layout appkit.Archetype
 	}{
-		{"customscan", "NAME\n customscan - fast SYN port scan and host discovery tool\n", "", appkit.T12},
-		{"customcap", "NAME\n customcap - promiscuous packet capture sniffer to pcap\n", "", appkit.T13},
-		{"customfw", "NAME\n customfw - netfilter firewall chain rule editor\n", "", appkit.T04},
-		{"customjq", "NAME\n customjq - lightweight JSON processor and YAML query tool\n", "", appkit.T26},
-		{"customctl", "", "Available Commands:\n  list    List all containers\n  start   Start a container\n", appkit.T22},
+		{"sysctl", "settings", appkit.ArchetypeConfig},
+		{"ufw", "rules", appkit.ArchetypeConfig},
+		{"ffmpeg", "convert", appkit.ArchetypeRunner},
+		{"curl", "transfer", appkit.ArchetypeRunner},
+		{"tar", "pack", appkit.ArchetypeSuite},
+		{"nmap", "probe", appkit.ArchetypeScanner},
+		{"tshark", "record", appkit.ArchetypeScanner},
+		{"whois", "look-up", appkit.ArchetypeExplorer},
+		{"nikto", "audit", appkit.ArchetypeRunner},
+		{"systemctl", "control", appkit.ArchetypeMonitor},
+		{"journalctl", "follow", appkit.ArchetypeMonitor},
+		{"git", "history", appkit.ArchetypeSuite},
+		{"docker", "toolkit", appkit.ArchetypeSuite},
+		{"lsblk", "list", appkit.ArchetypeExplorer},
+		{"rg", "search", appkit.ArchetypeExplorer},
+		{"jq", "query", appkit.ArchetypeExplorer},
+		{"man", "read", appkit.ArchetypeExplorer},
+		{"crontab", "schedule", appkit.ArchetypeSuite},
+	}
+	for _, tc := range known {
+		a := DetectArchetype(tc.bin, "", "")
+		if a.ID != tc.want || a.Blueprint().Layout != tc.layout {
+			t.Errorf("DetectArchetype(%q) = (%s, %s), want (%s, %s)", tc.bin, a.ID, a.Blueprint().Layout, tc.want, tc.layout)
+		}
+	}
+
+	// Unlisted programs, from their help.
+	heuristics := []struct {
+		bin, man, help string
+		want           appkit.ArchetypeID
+	}{
+		{"customscan", "NAME\n customscan - fast SYN port scan and host discovery tool\n", "Usage: customscan [options] HOST...\n", "probe"},
+		{"customcap", "NAME\n customcap - promiscuous packet capture sniffer to pcap\n", "", "record"},
+		{"customfw", "NAME\n customfw - netfilter firewall chain rule editor\n", "", "rules"},
+		{"customjq", "NAME\n customjq - lightweight JSON processor and YAML query tool\n", "Usage: customjq [options] FILTER [FILE]...\n", "query"},
+		{"customctl", "", "Available Commands:\n  list    List all services\n  start   Start a service\n  stop    Stop a service\n  status  Show status\n", "control"},
 	}
 	for _, hc := range heuristics {
 		spec := ParseManAndHelp(hc.bin, hc.man, hc.help)
-		if spec.Template != string(hc.wantID) {
-			t.Errorf("ParseManAndHelp(%q).Template = %q, want %q", hc.bin, spec.Template, hc.wantID)
+		if spec.ArchetypeID != string(hc.want) {
+			t.Errorf("ParseManAndHelp(%q).ArchetypeID = %q, want %q", hc.bin, spec.ArchetypeID, hc.want)
 		}
 	}
 }

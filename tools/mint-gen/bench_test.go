@@ -1,98 +1,40 @@
 package main
 
-// The template benchmark: how well the scorer classifies real programs it
-// has no list entry for. It runs only when asked:
+// The archetype benchmark: how well mint-gen recognises the archetype of a
+// program it has no list entry for. It runs only when asked:
 //
-//	MINT_TEMPLATE_BENCH=1 go test -run TestTemplateBenchmark -v .
+//	MINT_ARCHETYPE_BENCH=1     go test -run TestArchetypeBenchmark -v .   # listed and bench programs
+//	MINT_ARCHETYPE_BENCH=final go test -run TestArchetypeBenchmark -v .   # also the untouched and fresh sets
 //
-// For each program in testdata/template_benchmark.txt that is installed,
-// it reads the help the way mint-gen does (CollectHelp, sandboxed) and
-// classifies it blind, with the template tool lists switched off. Help is
-// cached in $MINT_TEMPLATE_BENCH_CACHE (default: a folder in the system
-// temp dir) so runs are quick and repeatable; delete it to re-read.
+// Labels: the archetype lists (mint/appkit/archetypetools.go) and
+// testdata/archetype_labels.txt. Every program is classified blind, from
+// its help alone, with the lists switched off. The listed and bench
+// programs may be looked at while improving the rules; the untouched and
+// fresh programs are only ever measured.
 //
-// Programs are split into a dev set (tune on it) and a held-out set (never
-// looked at while tuning) by a hash of the name, so the held-out numbers
-// show how the scorer does on programs it was not tuned for.
-// testdata/template_benchmark_new.txt holds programs labelled after the
-// scorer was first tuned and before they were first run. The same hash
-// splits them into new-dev (may be tuned on) and new-test (never).
+// Help is read the way mint-gen reads it (CollectHelp, sandboxed) and
+// cached in $MINT_TEMPLATE_BENCH_CACHE (an absolute path; default: a folder
+// in the system temp dir). No help text is committed.
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
-type benchCase struct {
-	Name, Want, Source string
-	New                bool // from the new set
-}
-
-// benchSet names the set a program is in: dev, held-out, new-dev or
-// new-test.
-func benchSet(c benchCase) string {
-	switch {
-	case c.New && heldOut(c.Name):
-		return "new-test"
-	case c.New:
-		return "new-dev"
-	case heldOut(c.Name):
-		return "held-out"
+func benchCache() string {
+	if c := os.Getenv("MINT_TEMPLATE_BENCH_CACHE"); c != "" {
+		return c
 	}
-	return "dev"
-}
-
-// tunable reports whether tuning may look at a program.
-func tunable(c benchCase) bool {
-	set := benchSet(c)
-	return set == "dev" || set == "new-dev"
-}
-
-func loadBenchCases(t *testing.T) []benchCase {
-	out := loadBenchFile(t, "testdata/template_benchmark.txt", false)
-	return append(out, loadBenchFile(t, "testdata/template_benchmark_new.txt", true)...)
-}
-
-func loadBenchFile(t *testing.T, path string, isNew bool) []benchCase {
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	var out []benchCase
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		f := strings.Fields(line)
-		if len(f) < 2 {
-			t.Fatalf("bad line %q", line)
-		}
-		source := "judged"
-		if len(f) > 2 {
-			source = f[2]
-		}
-		out = append(out, benchCase{f[0], f[1], source, isNew})
-	}
-	return out
-}
-
-// heldOut puts about 30% of programs in the held-out set, the same ones
-// every run.
-func heldOut(name string) bool {
-	h := fnv.New32a()
-	h.Write([]byte(name))
-	return h.Sum32()%10 < 3
+	return filepath.Join(os.TempDir(), "mint-template-bench")
 }
 
 // benchHelp returns the program's man and help text, from the cache or
@@ -101,6 +43,9 @@ func benchHelp(t *testing.T, cache, name string) (man, help string, ok bool) {
 	if cache == "" || !filepath.IsAbs(cache) {
 		// Never cache into the source folder: help text is not ours to commit.
 		t.Fatalf("the help cache must be an absolute path, not %q", cache)
+	}
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
 	}
 	path := filepath.Join(cache, name+".json")
 	if b, err := os.ReadFile(path); err == nil {
@@ -121,205 +66,220 @@ func benchHelp(t *testing.T, cache, name string) (man, help string, ok bool) {
 	return m, h, true
 }
 
-type benchResult struct {
-	benchCase
-	Got     string
-	Verdict string // correct, fallback-correct, abstained, wrong
-	Why     string
-	Top     string
+type archCase struct {
+	Name string
+	Want appkit.ArchetypeID
+	Set  string // listed, bench, untouched, fresh
 }
 
-func TestTemplateBenchmark(t *testing.T) {
-	if os.Getenv("MINT_TEMPLATE_BENCH") == "" {
-		t.Skip("set MINT_TEMPLATE_BENCH=1 to run the template benchmark")
+func (c archCase) tunable() bool { return c.Set == "listed" || c.Set == "bench" }
+
+func loadArchCases(t *testing.T) []archCase {
+	var out []archCase
+	for _, n := range appkit.ArchetypeToolNames() {
+		a, _ := appkit.ArchetypeForTool(n)
+		out = append(out, archCase{n, a.ID, "listed"})
 	}
-	cache := os.Getenv("MINT_TEMPLATE_BENCH_CACHE")
-	if cache == "" {
-		cache = filepath.Join(os.TempDir(), "mint-template-bench")
-	}
-	if err := os.MkdirAll(cache, 0o700); err != nil {
+	f, err := os.Open("testdata/archetype_labels.txt")
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fs := strings.Fields(line)
+		if len(fs) != 3 {
+			t.Fatalf("bad line %q", line)
+		}
+		if _, ok := appkit.LookupArchetype(fs[1]); !ok {
+			t.Fatalf("%s: unknown archetype %q", fs[0], fs[1])
+		}
+		out = append(out, archCase{fs[0], appkit.ArchetypeID(fs[1]), fs[2]})
+	}
+	return out
+}
 
-	var results []benchResult
+type archResult struct {
+	archCase
+	choice ArchetypeChoice
+}
+
+// verdict: right-clear, right-close, wrong-close (flagged), wrong-clear.
+func (r archResult) verdict() string {
+	right := r.choice.ID == r.Want
+	clear := r.choice.Confidence == ConfidenceClear
+	switch {
+	case right && clear:
+		return "right-clear"
+	case right:
+		return "right-close"
+	case !clear:
+		return "wrong-close"
+	}
+	return "wrong-clear"
+}
+
+func runArchBench(t *testing.T, keep func(archCase) bool) ([]archResult, []string) {
+	var out []archResult
 	var missing []string
-	for _, c := range loadBenchCases(t) {
-		man, help, ok := benchHelp(t, cache, c.Name)
-		if !ok {
+	for _, c := range loadArchCases(t) {
+		if !keep(c) {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
 			missing = append(missing, c.Name)
 			continue
 		}
-		choice := scoreTemplateChoice(c.Name, man, help)
-		r := benchResult{benchCase: c, Got: choice.ID, Why: choice.Why}
-		// Every unlisted program gets a template; what matters is whether a
-		// wrong one was flagged as a close call.
-		close := choice.Confidence != ConfidenceClear
-		switch {
-		case choice.ID == c.Want && !close:
-			r.Verdict = "correct"
-		case choice.ID == c.Want:
-			r.Verdict = "correct-close"
-		case close:
-			r.Verdict = "wrong-flagged"
-		default:
-			r.Verdict = "wrong"
-		}
-		var top []string
-		for i, s := range choice.Scores {
-			if i == 3 {
-				break
-			}
-			top = append(top, fmt.Sprintf("%s:%d", s.ID, s.Score))
-		}
-		r.Top = strings.Join(top, " ")
-		results = append(results, r)
+		p := programTextFrom(c.Name, man, help)
+		p.Related = nil // they come from the lists, which are switched off
+		out = append(out, archResult{c, chooseArchetypeFor(p)})
 	}
+	return out, missing
+}
 
-	report := func(title string, keep func(benchResult) bool) {
-		n := map[string]int{}
-		total := 0
-		for _, r := range results {
-			if keep(r) {
-				n[r.Verdict]++
-				total++
+func reportArch(t *testing.T, title string, rs []archResult) {
+	n := map[string]int{}
+	for _, r := range rs {
+		n[r.verdict()]++
+	}
+	total := len(rs)
+	if total == 0 {
+		return
+	}
+	pct := func(k ...string) string {
+		s := 0
+		for _, x := range k {
+			s += n[x]
+		}
+		return fmt.Sprintf("%3d (%3.0f%%)", s, 100*float64(s)/float64(total))
+	}
+	t.Logf("%-9s %3d | right %s [clear %s] | wrong %s [flagged %s, marked clear %s]", title, total,
+		pct("right-clear", "right-close"), pct("right-clear"), pct("wrong-close", "wrong-clear"), pct("wrong-close"), pct("wrong-clear"))
+}
+
+func TestArchetypeBenchmark(t *testing.T) {
+	mode := os.Getenv("MINT_ARCHETYPE_BENCH")
+	if mode == "" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=1 (or final) to run the archetype benchmark")
+	}
+	final := mode == "final"
+	rs, missing := runArchBench(t, func(c archCase) bool { return final || c.tunable() })
+	sort.Slice(rs, func(i, j int) bool { return string(rs[i].Want)+rs[i].Name < string(rs[j].Want)+rs[j].Name })
+	confusion := map[string]int{}
+	for _, r := range rs {
+		if r.choice.ID != r.Want && r.tunable() {
+			confusion[string(r.Want)+" -> "+string(r.choice.ID)]++
+			if os.Getenv("MINT_ARCHETYPE_BENCH_MISSES") != "" {
+				top := ""
+				for i, s := range r.choice.Scores {
+					if i == 3 {
+						break
+					}
+					top += fmt.Sprintf(" %s:%d", s.ID, s.Score)
+				}
+				t.Logf("  %-6s %-14s want %-10s got %-10s %-5s%s", r.Set, r.Name, r.Want, r.choice.ID, r.choice.Confidence, top)
 			}
 		}
-		if total == 0 {
-			return
-		}
-		pct := func(k string) string { return fmt.Sprintf("%2d (%3.0f%%)", n[k], 100*float64(n[k])/float64(total)) }
-		t.Logf("%-9s %3d programs | right, clear %s | right, close call %s | wrong, flagged close %s | WRONG, marked clear %s",
-			title, total, pct("correct"), pct("correct-close"), pct("wrong-flagged"), pct("wrong"))
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].Want+results[i].Name < results[j].Want+results[j].Name })
-	if os.Getenv("MINT_TEMPLATE_BENCH") == "all" {
-		for _, r := range results {
-			set := benchSet(r.benchCase)
-			t.Logf("%-8s %-13s want %s got %s  %-16s %s   [%s]", set, r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
-		}
-	} else {
-		for _, r := range results {
-			if tunable(r.benchCase) && (r.Verdict == "wrong" || r.Verdict == "wrong-flagged") {
-				t.Logf("%-8s %-13s want %s got %s  %-16s %s   [%s]", benchSet(r.benchCase), r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
+	for _, set := range []string{"listed", "bench", "untouched", "fresh"} {
+		var some []archResult
+		for _, r := range rs {
+			if r.Set == set {
+				some = append(some, r)
 			}
 		}
+		reportArch(t, set, some)
 	}
-	for _, set := range []string{"dev", "held-out", "new-dev", "new-test"} {
-		set := set
-		report(set, func(r benchResult) bool { return benchSet(r.benchCase) == set })
+	var tun, untuned []archResult
+	for _, r := range rs {
+		if r.tunable() {
+			tun = append(tun, r)
+		} else {
+			untuned = append(untuned, r)
+		}
 	}
-	report("tunable", func(r benchResult) bool { return tunable(r.benchCase) })
-	report("untuned", func(r benchResult) bool { return !tunable(r.benchCase) })
-	report("all", func(benchResult) bool { return true })
+	reportArch(t, "tunable", tun)
+	reportArch(t, "untuned", untuned)
+	var keys []string
+	for k := range confusion {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if confusion[keys[i]] != confusion[keys[j]] {
+			return confusion[keys[i]] > confusion[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	for i, k := range keys {
+		if i == 15 {
+			break
+		}
+		t.Logf("  tunable confusion %-26s %d", k, confusion[k])
+	}
 	if len(missing) > 0 {
 		t.Logf("not installed (skipped): %s", strings.Join(missing, " "))
 	}
 }
 
-// benchInput is one program's evidence, prepared once for tuning (the
-// earlier word-only scorer's weights; see TestTemplateTuning).
-type benchInput struct {
-	benchCase
-	ev     templateEvidence
-	hasSub bool
-}
-
-func loadBenchInputs(t *testing.T, cache string) []benchInput {
-	var out []benchInput
-	for _, c := range loadBenchCases(t) {
-		man, help, ok := benchHelp(t, cache, c.Name)
+// The windowed phrase search finds exactly what the full search finds, on
+// every cached program's help (MINT_ARCHETYPE_BENCH=windows).
+func TestZoneWindowsMatchFullSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "windows" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=windows")
+	}
+	n := 0
+	for _, c := range loadArchCases(t) {
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
 		if !ok {
 			continue
 		}
-		ml, hl := cleanLines(man), cleanLines(help)
-		ev := findEvidence(programTextFrom(c.Name, man, help))
-		out = append(out, benchInput{benchCase: c, ev: ev, hasSub: hasSubcommands(man, help, ml, hl)})
-	}
-	return out
-}
-
-// benchScore classifies inputs with w: correct, abstained, wrong.
-func benchScore(w scoreWeights, inputs []benchInput) (correct, abstained, wrong int) {
-	for _, in := range inputs {
-		id, _ := pickTemplateWith(w, scoreEvidence(w, in.ev))
-		switch {
-		case id == "":
-			fallback := "T05"
-			if in.hasSub {
-				fallback = "T21"
-			}
-			if fallback == in.Want {
-				correct++
-			} else {
-				abstained++
-			}
-		case id == in.Want:
-			correct++
-		default:
-			wrong++
+		text := man + "\n" + help
+		if len(text) <= longZone {
+			continue
 		}
-	}
-	return
-}
-
-// TestTemplateTuning searches weights on the dev programs only, ranking by
-// correct - 2*wrong (a wrong template is worse than falling back):
-//
-//	MINT_TEMPLATE_TUNE=1 go test -run TestTemplateTuning -v .
-func TestTemplateTuning(t *testing.T) {
-	if os.Getenv("MINT_TEMPLATE_TUNE") == "" {
-		t.Skip("set MINT_TEMPLATE_TUNE=1 to search the scorer's weights")
-	}
-	cache := os.Getenv("MINT_TEMPLATE_BENCH_CACHE")
-	if cache == "" {
-		cache = filepath.Join(os.TempDir(), "mint-template-bench")
-	}
-	var dev []benchInput
-	for _, in := range loadBenchInputs(t, cache) {
-		if tunable(in.benchCase) {
-			dev = append(dev, in)
-		}
-	}
-	type result struct {
-		w                         scoreWeights
-		correct, abstained, wrong int
-	}
-	var results []result
-	base := defaultWeights
-	for _, summ := range []int{4, 5, 6} {
-		for _, weakSumm := range []int{2, 3} {
-			for _, desc := range []int{0, 2, 3, 4} {
-				for _, weakDesc := range []int{0, 1} {
-					for _, bodyCap := range []int{2, 4, 6} {
-						for _, rel := range []int{0, 2} {
-							for _, minScore := range []int{4, 5, 6} {
-								for _, margin := range []int{2, 3, 4} {
-									w := base
-									w.Summary, w.WeakSummary, w.Description, w.WeakDescription = summ, weakSumm, desc, weakDesc
-									w.BodyCap, w.Related, w.MinScore, w.MinMargin = bodyCap, rel, minScore, margin
-									c, a, x := benchScore(w, dev)
-									results = append(results, result{w, c, a, x})
-								}
-							}
-						}
-					}
+		n++
+		lower := asciiLower(text)
+		for _, list := range [][]signal{templateSignalList, archetypeSignalList} {
+			for i, s := range list {
+				if full, win := fmt.Sprint(signalLocations(s, text, "")), fmt.Sprint(signalLocations(s, text, lower)); full != win {
+					t.Errorf("%s, signal %d (%s): full %.80s window %.80s", c.Name, i, s.label, full, win)
 				}
 			}
 		}
 	}
-	obj := func(r result) int { return r.correct - 2*r.wrong }
-	sort.SliceStable(results, func(i, j int) bool {
-		if obj(results[i]) != obj(results[j]) {
-			return obj(results[i]) > obj(results[j])
+	t.Logf("%d long help texts compared", n)
+}
+
+// TestArchetypeCalibration shows, for each lead, how many choices would
+// count as clear and how often those are right (MINT_ARCHETYPE_BENCH=
+// calibrate; tunable programs only).
+func TestArchetypeCalibration(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "calibrate" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=calibrate")
+	}
+	rs, _ := runArchBench(t, func(c archCase) bool { return c.tunable() })
+	for lead := 1; lead <= 12; lead++ {
+		var clear, clearRight, close, closeRight int
+		for _, r := range rs {
+			right := r.choice.ID == r.Want
+			if r.choice.Lead >= lead {
+				clear++
+				if right {
+					clearRight++
+				}
+			} else {
+				close++
+				if right {
+					closeRight++
+				}
+			}
 		}
-		return results[i].wrong < results[j].wrong
-	})
-	c, a, x := benchScore(defaultWeights, dev)
-	t.Logf("current defaults: correct %d abstained %d wrong %d (objective %d) of %d dev programs", c, a, x, c-2*x, len(dev))
-	for i, r := range results {
-		if i == 15 {
-			break
-		}
-		t.Logf("objective %3d  correct %2d abstained %2d wrong %2d  %+v", obj(r), r.correct, r.abstained, r.wrong, r.w)
+		t.Logf("lead>=%2d: clear %3d (%3.0f%%) right %3.0f%% | close %3d right %3.0f%%", lead, clear,
+			100*float64(clear)/float64(len(rs)), 100*float64(clearRight)/float64(max(clear, 1)), close, 100*float64(closeRight)/float64(max(close, 1)))
 	}
 }

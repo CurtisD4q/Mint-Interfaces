@@ -75,6 +75,7 @@ type ArchetypeDef struct {
 	TargetLabel       string        `json:"target_label,omitempty"`
 	TargetPlaceholder string        `json:"target_placeholder,omitempty"`
 	PollInterval      time.Duration `json:"poll_interval,omitempty"`
+	DefaultExt        string        `json:"default_ext,omitempty"` // for saved output, when nothing better is known
 
 	// Data is how sensitive this kind of program's results usually are
 	// ("", DataSensitive or DataSecret), for programs not classified on
@@ -119,27 +120,27 @@ var archetypeRegistry = []ArchetypeDef{
 		Runs: "Once, at once.", Shows: "A single answer, kept in a history.",
 		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0, ArchetypeRunner, 0.4), feat(FeatTarget, 1.0, FeatHistory, 0.8, FeatCollapsible, 0.2)},
 		TargetLabel: "Question or expression", TargetPlaceholder: "e.g. 2^10, now, 3 miles in km"},
-	{ID: "look-up", Name: "Look up", Group: GroupAnswer,
+	{ID: "look-up", DefaultExt: "txt", Name: "Look up", Group: GroupAnswer,
 		Is: "Looks a name up somewhere else and shows its records.", Takes: "A name, address or key, and what kind of record.",
 		Runs: "Once.", Shows: "The records as a table.",
 		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0, ArchetypeScanner, 0.3), feat(FeatTarget, 1.0, FeatTable, 0.8, FeatHistory, 0.6, FeatProfiles, 0.3)},
 		TargetLabel: "Name to look up", TargetPlaceholder: "e.g. example.com",
 		Data: DataSensitive, DataReason: "lookups can gather information about people and organisations"},
-	{ID: "inspect", Name: "Inspect", Group: GroupAnswer,
+	{ID: "inspect", DefaultExt: "txt", Name: "Inspect", Group: GroupAnswer,
 		Is: "Describes one item in detail.", Takes: "One file, device or object.",
 		Runs: "Once.", Shows: "A report in folding sections.",
 		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0, ArchetypeRunner, 0.3), feat(FeatTarget, 1.0, FeatCollapsible, 0.9, FeatTable, 0.4, FeatFileOutput, 0.3)},
 		TargetLabel: "Item to inspect", TargetPlaceholder: "e.g. /usr/bin/ls"},
-	{ID: "list", Name: "List", Group: GroupAnswer,
+	{ID: "list", DefaultExt: "txt", Name: "List", Group: GroupAnswer,
 		Is: "Lists the items of a collection.", Takes: "Optionally a filter and the columns to show.",
 		Runs: "Once, refreshed on demand.", Shows: "A sortable table; a row opens its detail.",
 		Prefer: Preferences{lay(ArchetypeExplorer, 1.0, ArchetypeMonitor, 0.4), feat(FeatTable, 1.0, FeatDynamicChoices, 0.5, FeatRowActions, 0.3, FeatFileOutput, 0.3)}},
-	{ID: "search", Name: "Search", Group: GroupAnswer,
+	{ID: "search", DefaultExt: "matches.txt", Name: "Search", Group: GroupAnswer,
 		Is: "Finds what matches a pattern.", Takes: "A pattern and where to look.",
 		Runs: "As a job that can take a while.", Shows: "The matches; each opens where it was found.",
 		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0), feat(FeatTarget, 1.0, FeatTable, 0.7, FeatCollapsible, 0.6, FeatHistory, 0.5, FeatProgress, 0.4, FeatFileOutput, 0.3)},
 		TargetLabel: "Pattern", TargetPlaceholder: "e.g. TODO"},
-	{ID: "query", Name: "Query", Group: GroupAnswer,
+	{ID: "query", DefaultExt: "out.txt", Name: "Query", Group: GroupAnswer,
 		Is: "Runs a query language over data.", Takes: "An expression or program, and the data.",
 		Runs: "Once.", Shows: "The result as a table or text.",
 		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0, ArchetypeRunner, 0.3), feat(FeatTarget, 1.0, FeatTable, 0.7, FeatProfiles, 0.6, FeatHistory, 0.6, FeatFileOutput, 0.5)},
@@ -160,7 +161,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Runs: "Repeats until stopped.", Shows: "Live numbers and a table.",
 		Prefer:       Preferences{lay(ArchetypeMonitor, 1.0), feat(FeatLiveRefresh, 1.0, FeatTable, 0.8, FeatHistory, 0.3)},
 		PollInterval: 2 * time.Second},
-	{ID: "follow", Name: "Follow", Group: GroupObserve,
+	{ID: "follow", DefaultExt: "log", Name: "Follow", Group: GroupObserve,
 		Is: "Shows events as they happen.", Takes: "A source and a filter.",
 		Runs: "Until stopped.", Shows: "A growing log, newest at the bottom.",
 		Prefer: Preferences{lay(ArchetypeMonitor, 1.0), feat(FeatFollow, 1.0, FeatCollapsible, 0.5, FeatFileOutput, 0.3)},
@@ -172,12 +173,12 @@ var archetypeRegistry = []ArchetypeDef{
 		Data:   DataSensitive, DataReason: "recordings can capture passwords, private messages or what is on screen"},
 
 	// ---- Act on targets ----
-	{ID: "probe", Name: "Probe", Group: GroupTargets,
+	{ID: "probe", DefaultExt: "txt", Name: "Probe", Group: GroupTargets,
 		Is: "Checks targets and gives one result for each.", Takes: "A list of hosts or targets, and options.",
 		Runs: "As a job.", Shows: "One row per target, filling in live.",
 		Prefer:      Preferences{lay(ArchetypeScanner, 1.0), feat(FeatTarget, 1.0, FeatTable, 1.0, FeatProfiles, 0.7, FeatFileOutput, 0.6, FeatProgress, 0.5, FeatRoot, 0.5, FeatHistory, 0.5)},
 		TargetLabel: "Targets", TargetPlaceholder: "e.g. 192.168.1.0/24"},
-	{ID: "audit", Name: "Audit", Group: GroupTargets,
+	{ID: "audit", DefaultExt: "report.txt", Name: "Audit", Group: GroupTargets,
 		Is: "Runs checks and lists findings.", Takes: "Something to check (a path, a system) and a rule level.",
 		Runs: "As a job.", Shows: "Findings grouped by severity; each opens its detail.",
 		Prefer:      Preferences{lay(ArchetypeRunner, 1.0, ArchetypeScanner, 0.4), feat(FeatFindings, 1.0, FeatTarget, 0.7, FeatTable, 0.6, FeatCollapsible, 0.6, FeatFileOutput, 0.5, FeatHistory, 0.5)},
@@ -193,7 +194,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Is: "Turns an input into an output of another form.", Takes: "An input file, an output file, and a format.",
 		Runs: "As a job with progress.", Shows: "Progress, then the output file.",
 		Prefer: Preferences{lay(ArchetypeRunner, 1.0), feat(FeatFileOutput, 1.0, FeatProgress, 0.7, FeatProfiles, 0.6, FeatCollapsible, 0.3)}},
-	{ID: "filter", Name: "Filter", Group: GroupMake,
+	{ID: "filter", DefaultExt: "txt", Name: "Filter", Group: GroupMake,
 		Is: "Transforms text: input in, output out.", Takes: "Text or a file, and options.",
 		Runs: "Once.", Shows: "The output text.",
 		Prefer: Preferences{lay(ArchetypeRunner, 1.0, ArchetypeExplorer, 0.3), feat(FeatCollapsible, 0.7, FeatFileOutput, 0.6, FeatProfiles, 0.3)}},
@@ -281,7 +282,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Prefer: Preferences{lay(ArchetypeRunner, 1.0), feat(FeatTranscript, 1.0, FeatHistory, 0.6, FeatCollapsible, 0.4)}},
 
 	// ---- Anything else ----
-	{ID: "general", Name: "General", Group: GroupOther,
+	{ID: "general", DefaultExt: "txt", Name: "General", Group: GroupOther,
 		Is: "Anything else: a command and its output.", Takes: "Arguments and options.",
 		Runs: "Once.", Shows: "The output.",
 		Prefer: Preferences{lay(ArchetypeRunner, 1.0), feat(FeatCollapsible, 0.6, FeatFileOutput, 0.4, FeatHistory, 0.3)}},
@@ -389,6 +390,9 @@ func (a ArchetypeDef) ApplyTo(spec *ToolSpec) {
 	}
 	if spec.PollInterval <= 0 && a.PollInterval > 0 {
 		spec.PollInterval = a.PollInterval
+	}
+	if spec.DefaultExt == "" && a.DefaultExt != "" {
+		spec.DefaultExt = a.DefaultExt
 	}
 	if b.Has(FeatFileOutput) {
 		spec.OutputsFile = true

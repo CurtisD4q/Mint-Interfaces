@@ -9,43 +9,37 @@ import (
 
 func TestChoiceConfidence(t *testing.T) {
 	for _, c := range []struct {
-		arch, tpl int
-		want      string
-	}{{3, 3, ConfidenceClear}, {9, 9, ConfidenceClear}, {2, 9, ConfidenceClose}, {9, 2, ConfidenceClose}, {0, 0, ConfidenceClose}} {
-		if got := choiceConfidence(c.arch, c.tpl); got != c.want {
-			t.Errorf("leads %d/%d: %s, want %s", c.arch, c.tpl, got, c.want)
+		lead int
+		want string
+	}{{clearLead, ConfidenceClear}, {clearLead + 9, ConfidenceClear}, {clearLead - 1, ConfidenceClose}, {0, ConfidenceClose}} {
+		if got := choiceConfidence(c.lead); got != c.want {
+			t.Errorf("lead %d: %s, want %s", c.lead, got, c.want)
 		}
-	}
-	// A clear archetype with no word evidence for any of its templates gets
-	// the archetype's general template, and that is a close call.
-	c := chooseTemplate("tick9", appkit.ToolSpec{}, "", "Usage: tick9 [-v] [delay [count]]\n")
-	if c.Archetype != appkit.ArchetypeMonitor || c.ArchetypeLead < clearArchetypeLead || c.Confidence != ConfidenceClose {
-		t.Errorf("fallback within a clear archetype: %+v", c)
 	}
 }
 
-// The build output says how the template was chosen, and for a close call
+// The build output says how the archetype was chosen, and for a close call
 // what else it might be and the commands to check and change it.
-func TestPrintTemplateChoice(t *testing.T) {
-	out := func(program string, c TemplateChoice, forced string) string {
+func TestPrintArchetypeChoice(t *testing.T) {
+	out := func(program string, c ArchetypeChoice, forced string) string {
 		var b strings.Builder
-		printTemplateChoice(&b, program, c, forced)
+		printArchetypeChoice(&b, program, c, forced)
 		return b.String()
 	}
-	if s := out("nmap", TemplateChoice{ID: "T12", Archetype: appkit.ArchetypeScanner, Confidence: ConfidenceListed}, ""); !strings.Contains(s, "T12 network-scanner") || !strings.Contains(s, "listed") {
+	if s := out("nmap", ArchetypeChoice{ID: "probe", Confidence: ConfidenceListed}, ""); !strings.Contains(s, "Probe") || !strings.Contains(s, "listed") {
 		t.Errorf("listed: %q", s)
 	}
-	if s := out("tree", TemplateChoice{ID: "T25", Archetype: appkit.ArchetypeExplorer, Confidence: ConfidenceClear}, ""); !strings.Contains(s, "clear choice") || !strings.Contains(s, "mint-gen --explain tree") || strings.Contains(s, "CLOSE") {
+	if s := out("tree", ArchetypeChoice{ID: "list", Confidence: ConfidenceClear}, ""); !strings.Contains(s, "clear choice") || !strings.Contains(s, "mint-gen --explain tree") || strings.Contains(s, "CLOSE") {
 		t.Errorf("clear: %q", s)
 	}
-	close := TemplateChoice{ID: "T06", Archetype: appkit.ArchetypeRunner, Confidence: ConfidenceClose, Alternatives: []string{"T25", "T24"}}
+	close := ArchetypeChoice{ID: "convert", Confidence: ConfidenceClose, Alternatives: []appkit.ArchetypeID{"search", "look-up"}}
 	s := out("fzf", close, "")
-	for _, want := range []string{"CLOSE CALL", "also likely: T25 content-searcher, T24 disk-inspector", "mint-gen --explain fzf", "mint-gen --template T25 fzf"} {
+	for _, want := range []string{"CLOSE CALL", "also likely: Search, Look up (look-up)", "mint-gen --explain fzf", "mint-gen --archetype search fzf"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("close call: missing %q in %q", want, s)
 		}
 	}
-	if s := out("fzf", close, "T25"); !strings.Contains(s, "chosen with --template") || strings.Contains(s, "CLOSE") {
+	if s := out("fzf", close, "search"); !strings.Contains(s, "chosen with --archetype") || strings.Contains(s, "CLOSE") {
 		t.Errorf("forced: %q", s)
 	}
 	// A name that is not a plain word is quoted in the commands, and control
@@ -62,21 +56,33 @@ func TestPrintTemplateChoice(t *testing.T) {
 	}
 }
 
-// --explain shows the archetypes, the templates within the chosen one, and
-// the commands for the alternatives.
-func TestExplainTemplateChoice(t *testing.T) {
-	c := chooseTemplate("finder9", appkit.ToolSpec{}, manWithName("finder9", "search files for lines that match a pattern", ""), "Usage: finder9 [options] PATTERN [FILE]...\n")
+// --explain shows the archetype, what it means, the evidence, and the
+// commands for the alternatives.
+func TestExplainArchetypeChoice(t *testing.T) {
+	c := chooseArchetype("finder9", manWithName("finder9", "search files for lines that match a pattern", ""), "Usage: finder9 [options] PATTERN [FILE]...\n")
 	var b strings.Builder
-	explainTemplateChoice(&b, "finder9", c)
+	explainArchetypeChoice(&b, "finder9", c)
 	s := b.String()
-	for _, want := range []string{"Template: T25", "Archetype: explorer", "takes a pattern or query", "Within it:", "it leads the next archetype by"} {
+	for _, want := range []string{"Archetype: Search", "Finds what matches a pattern.", "Evidence:", "takes a pattern (PATTERN)", "it leads the next by"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
 	b.Reset()
-	explainTemplateChoice(&b, "nmap", TemplateChoice{ID: "T12", Confidence: ConfidenceListed, Why: "listed for nmap"})
-	if !strings.Contains(b.String(), "listed for this program") || strings.Contains(b.String(), "Archetype:") {
+	explainArchetypeChoice(&b, "nmap", ArchetypeChoice{ID: "probe", Confidence: ConfidenceListed, Why: "listed for nmap"})
+	if !strings.Contains(b.String(), "listed for this program") || strings.Contains(b.String(), "Evidence:") {
 		t.Errorf("listed: %s", b.String())
+	}
+}
+
+// --archetype takes an archetype by ID or name, or an old template ID or slug.
+func TestResolveArchetypeFlag(t *testing.T) {
+	for v, want := range map[string]appkit.ArchetypeID{"probe": "probe", "Look up": "look-up", "T12": "probe", "network-scanner": "probe", "T20": "follow"} {
+		if a, ok := resolveArchetypeFlag(v); !ok || a.ID != want {
+			t.Errorf("%q: %s %v, want %s", v, a.ID, ok, want)
+		}
+	}
+	if _, ok := resolveArchetypeFlag("T99"); ok {
+		t.Error("T99 accepted")
 	}
 }
