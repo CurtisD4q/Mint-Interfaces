@@ -1,0 +1,50 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Trivy",
+          "rules": [
+            {
+              "id": "CVE-2023-0001",
+              "shortDescription": {"text": "openssl: overflow"},
+              "defaultConfiguration": {"level": "error"},
+              "help": {"text": "Upgrade openssl to 3.0.8"},
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2023-0001",
+              "properties": {"security-severity": "9.8", "tags": ["vulnerability", "CRITICAL"]}
+            },
+            {
+              "id": "DS002",
+              "defaultConfiguration": {"level": "warning"},
+              "properties": {"security-severity": "4.0"}
+            },
+            {
+              "id": "LOW-RULE",
+              "defaultConfiguration": {"level": "note"}
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2023-0001",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {"text": "Package: openssl\nInstalled Version: 3.0.2"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "file:///srv/app/my%20lib/package-lock.json"}, "region": {"startLine": 12, "startColumn": 3}}}]
+        },
+        {
+          "ruleId": "DS002",
+          "message": {"text": "Image user should not be 'root'"},
+          "locations": [{"physicalLocation": {"artifactLocation": {"uri": "Dockerfile"}, "region": {"startLine": 1}}}]
+        },
+        {
+          "ruleIndex": 2,
+          "message": {"text": "minor thing"}
+        }
+      ]
+    }
+  ]
+}

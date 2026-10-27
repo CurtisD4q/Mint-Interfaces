@@ -193,6 +193,9 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	if d, ok := appkit.KnownDiffSpec(spec.BinaryName()); ok && spec.Diff == nil {
 		spec.Diff = &d
 	}
+	if f, ok := appkit.KnownFindingsSpec(spec.BinaryName()); ok && spec.Findings == nil {
+		spec.Findings = &f
+	}
 	// One answer for what the tool reads and writes (see BuildIOModel).
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)

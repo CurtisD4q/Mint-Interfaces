@@ -130,6 +130,7 @@ type ToolSpec struct {
 	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
 	Diff              *DiffSpec        `json:"diff,omitempty"`               // Mixin: WithDiff (Compare)
+	Findings          *FindingsSpec    `json:"findings,omitempty"`           // Mixin: WithFindings (Audit)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
@@ -226,12 +227,14 @@ type ToolApp struct {
 	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
 
-	memSetting   *bool    // InMemory as saved in settings (nil: never chosen)
-	diskDir      string   // the results folder to return to when InMemory is turned off
-	memBacked    bool     // the in-memory folder really is in memory (tmpfs)
-	lastData     string   // level the last run's output turned out to have
-	lastFindings []string // kinds of secret found in the last run's output
-	diffOK       bool     // WithDiff: the last run printed a format the differences view reads
+	memSetting   *bool           // InMemory as saved in settings (nil: never chosen)
+	diskDir      string          // the results folder to return to when InMemory is turned off
+	memBacked    bool            // the in-memory folder really is in memory (tmpfs)
+	lastData     string          // level the last run's output turned out to have
+	lastFindings []string        // kinds of secret found in the last run's output
+	diffOK       bool            // WithDiff: the last run printed a format the differences view reads
+	findings     *findingsReport // WithFindings: what the last run found
+	findingsOK   bool            // WithFindings: the last run printed a format the findings view reads
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -782,10 +785,25 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
 		args = append(args, a.Spec.ApplyArgs...)
 	}
+	prefix := len(args) // subcommand or apply words
 	flagArgs, outPath, stdin := a.composeFlagArgs(mask)
 	args = append(args, flagArgs...)
-	args, _ = a.diffArgs(args)
+	args, _ = a.diffArgs(args, prefix)
+	args, _ = a.findingsArgs(args, prefix)
 	return args, outPath, stdin
+}
+
+// argPrefixLen is how many leading words of the argument list are the
+// subcommand (or apply) words, before any options.
+func (a *ToolApp) argPrefixLen() int {
+	if a.Spec.Archetype == ArchetypeSuite && len(a.Spec.Subcommands) > 0 {
+		if sub := a.activeSubcommandSpec(); sub != nil {
+			return len(sub.Args)
+		}
+	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
+		return len(a.Spec.ApplyArgs)
+	}
+	return 0
 }
 
 // CommandPreview returns the full shell-like command preview string.
@@ -991,6 +1009,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	env := a.secretEnv(false)
 	useStdin := len(stdinSecrets) > 0
 
+	_, findingsOK := a.findingsArgs(args, a.argPrefixLen())
 	started := time.Now()
 	cmdLine := a.CommandPreview()
 	shownTarget := maskFreeText(a.Target, a.secretFlagNames())
@@ -998,13 +1017,15 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	runLevel, _ := a.DataLevel()
 
 	job := runner.Start(runner.Cmd{
-		Name:    bin,
-		Args:    cmdArgs,
-		Env:     env,
-		Input:   useStdin,
-		Redact:  masker.Redact,
-		OKExits: a.Spec.ExitMeanings,
+		Name:      bin,
+		Args:      cmdArgs,
+		Env:       env,
+		Input:     useStdin,
+		Redact:    masker.Redact,
+		OKExits:   a.Spec.ExitMeanings,
+		RawStdout: a.findingsRawLimit(),
 		OnExit: func(j *runner.Job) {
+			a.readFindings(j, findingsOK)
 			lines := j.Lines()
 			if outPath != "" && !a.toolWritesOutput() {
 				_ = mint.SaveLogLines(outPath, lines)
@@ -1078,7 +1099,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		job.CloseInput()
 	}
 
-	_, diffOK := a.diffArgs(args)
+	_, diffOK := a.diffArgs(args, a.argPrefixLen())
 	a.mu.Lock()
 	a.activeJob = job
 	a.lastOut = outPath
@@ -1760,6 +1781,9 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 
 		var actRows []mint.Row
 		if row, ok := a.diffActionRow(); ok {
+			actRows = append(actRows, row)
+		}
+		if row, ok := a.findingsActionRow(); ok {
 			actRows = append(actRows, row)
 		}
 		actRows = append(actRows,
