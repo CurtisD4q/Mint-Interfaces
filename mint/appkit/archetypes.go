@@ -492,6 +492,11 @@ func (a *ToolApp) confirmAndRun(c *mint.Ctx, summary string) {
 			a.freeTextOK = fp
 		}
 	}
+	if a.Spec.Transcript != nil {
+		// The session is the job: its screen starts the program.
+		c.Push(a.TranscriptScreen())
+		return
+	}
 	if _, err := a.StartJob(); err != nil {
 		c.ToastError(err.Error())
 		return

@@ -343,6 +343,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if tr := spec.Transcript; tr != nil {
+		fmt.Fprintf(&buf, "\t\tTranscript: &appkit.TranscriptSpec{Adapter: %q},\n", tr.Adapter)
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
 	}

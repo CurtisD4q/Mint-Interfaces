@@ -20,6 +20,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/runner"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/secure"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/transcript"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 )
 
@@ -135,6 +136,7 @@ type ToolSpec struct {
 	Preview           *PreviewSpec     `json:"preview,omitempty"`            // Mixin: WithPreview (Edit files)
 	Follow            *FollowSpec      `json:"follow,omitempty"`             // Mixin: WithFollow (Follow)
 	Service           *ServiceSpec     `json:"service,omitempty"`            // Mixin: WithService (Serve)
+	Transcript        *TranscriptSpec  `json:"transcript,omitempty"`         // Mixin: WithTranscript (Session)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
@@ -241,6 +243,8 @@ type ToolApp struct {
 	findingsOK   bool            // WithFindings: the last run printed a format the findings view reads
 	rules        *reorderState   // WithReorder: the rule order screen
 	svcProbe     serviceProbe    // WithService: cached socket scan
+
+	session *transcript.Session // WithTranscript: the open session
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -255,6 +259,11 @@ func New(spec ToolSpec) *ToolApp {
 	}
 
 	ApplySafetyDefaults(&spec)
+	if spec.Transcript != nil {
+		// A session's output is its transcript, even when the program's
+		// template (sqlite3's Query one, say) saves output to a file.
+		spec.OutputsFile = false
+	}
 	if spec.Archetype == "" {
 		spec.Archetype = ArchetypeRunner
 	}

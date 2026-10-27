@@ -145,6 +145,7 @@ func (c *canvas) footer(h, w int, hints string, status []Badge) {
 	}
 	width := max(0, w-2)
 	c.put(h-1, 2, C.Dim+strings.Repeat(" ", width)+Reset)
+	hints = fitHints(hints, w-3)
 	hcol := max(2, w-1-VLen(hints))
 	room := hcol - 1 - 3 // cells from column 3 up to one gap before the hints
 	showHints := true

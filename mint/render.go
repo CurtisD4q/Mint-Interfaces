@@ -113,11 +113,41 @@ func (c *canvas) chromeFooter(h, w int, keys string) {
 		width = 0
 	}
 	c.put(h-1, 2, C.Dim+strings.Repeat(" ", width)+Reset)
+	keys = fitHints(keys, w-3)
 	col := w - 1 - VLen(keys)
 	if col < 2 {
 		col = 2
 	}
 	c.put(h-1, col, C.Muted+keys+Reset)
+}
+
+// fitHints shortens a footer's key hints ("  ↑↓ move   Enter open  ") to
+// at most room cells, so they never run past the frame. Whole hints are
+// dropped from the left, where the general ones (moving, scrolling) are;
+// the screen's own keys and "close" are at the right.
+func fitHints(keys string, room int) string {
+	if room <= 0 {
+		return ""
+	}
+	if VLen(keys) <= room {
+		return keys
+	}
+	var hints []string
+	for _, h := range strings.Split(keys, "  ") {
+		if h = strings.TrimSpace(h); h != "" {
+			hints = append(hints, h)
+		}
+	}
+	for len(hints) > 1 {
+		hints = hints[1:]
+		if s := " " + strings.Join(hints, "   ") + " "; VLen(s) <= room {
+			return s
+		}
+	}
+	if len(hints) == 1 {
+		return Truncate(" "+hints[0]+" ", room)
+	}
+	return Truncate(keys, room)
 }
 
 func (c *canvas) scrollbar(col, top, rows, thumb, tpos int) {
