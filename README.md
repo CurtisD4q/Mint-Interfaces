@@ -388,7 +388,9 @@ python3 tools/check_catalogue.py
   - `monitor` (`ArchetypeMonitor` — `T17`–`T20`): Live system resource monitors, service/daemon controllers, process inspectors, and journal/log analysers.
   - `explorer` (`ArchetypeExplorer` — `T24`–`T27`): Disk/filesystem inspectors, file/content searchers, structured data (`jq`/`yq`/`sqlite3`) explorers, and documentation browsers.
   - `suite` (`ArchetypeSuite` — `T08`–`T09`, `T21`–`T23`, `T28`): Multi-subcommand suites for archives, backups, VCS (`git`/`gh`), containers (`docker`/`kubectl`), package managers, and cron/timers.
-- **Composable Mixins** (the original 8; `go run ./tools/mint-gen --list-templates` lists all): `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
+- **Composable Mixins** (15; `go run ./tools/mint-gen --list-templates` lists them):
+  - The original 8: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
+  - 7 for the program shapes the base layouts don't cover: `WithDiff` (Compare: `diff`, `cmp`), `WithFindings` (Audit: `shellcheck`, `lynis`, SARIF), `WithPreview` (Edit files: `rm`, `cp`, `mv`, `rsync`), `WithFollow` (Follow: `tail -F`, `journalctl -f`), `WithService` (Serve: `python -m http.server`, `nc -l`), `WithTranscript` (Session: `psql`, `sqlite3`, `gdb`, `redis-cli`) and `WithReorder` (Rules: `iptables`, `nft`, `ufw`, `ip rule`). mint-gen attaches the ones that are safe to offer by itself; [`CATALOGUE.md`](CATALOGUE.md) Part E describes each.
 
 `tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
 
