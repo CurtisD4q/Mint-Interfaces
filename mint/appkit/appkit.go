@@ -1010,6 +1010,11 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	useStdin := len(stdinSecrets) > 0
 
 	_, findingsOK := a.findingsArgs(args, a.argPrefixLen())
+	var scope scanScope
+	if a.Spec.Findings != nil {
+		wd, _ := os.Getwd()
+		scope = newScanScope(wd, splitShellWords(a.Target))
+	}
 	started := time.Now()
 	cmdLine := a.CommandPreview()
 	shownTarget := maskFreeText(a.Target, a.secretFlagNames())
@@ -1025,7 +1030,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		OKExits:   a.Spec.ExitMeanings,
 		RawStdout: a.findingsRawLimit(),
 		OnExit: func(j *runner.Job) {
-			a.readFindings(j, findingsOK)
+			a.readFindings(j, findingsRun{readable: findingsOK, scope: scope, key: targetKey(a.Spec.Name, args)})
 			lines := j.Lines()
 			if outPath != "" && !a.toolWritesOutput() {
 				_ = mint.SaveLogLines(outPath, lines)

@@ -161,9 +161,14 @@ func (a *ToolApp) findingsRawLimit() int {
 type findingsReport struct {
 	res     findings.Result
 	err     error
-	cutOff  bool // the output was longer than rawStdoutLimit
 	minimum findings.Severity
 	groupBy findings.GroupBy
+	newOnly bool
+
+	scope scanScope       // what the run was asked to scan, for source context
+	isNew map[string]bool // fingerprints not in the last run of this target
+	fixed int             // findings of the last run that are gone
+	first bool            // no earlier run of this target to compare with
 }
 
 // ParseFindings reads the findings of job's run.
@@ -303,19 +308,30 @@ func countsSummary(fs []findings.Finding) string {
 	return strings.Join(parts, " · ")
 }
 
+// findingsRun is what StartJob records for reading a run's findings.
+type findingsRun struct {
+	readable bool
+	scope    scanScope
+	key      string // identifies the target, for "new since last run"
+}
+
 // readFindings parses job's findings once it has finished; StartJob's
 // OnExit calls it.
-func (a *ToolApp) readFindings(job *runner.Job, readable bool) {
+func (a *ToolApp) readFindings(job *runner.Job, run findingsRun) {
 	if a.Spec.Findings == nil {
 		return
 	}
-	rep := &findingsReport{minimum: findings.Info}
-	if readable {
+	rep := &findingsReport{minimum: findings.Info, scope: run.scope, first: true}
+	if run.readable {
 		rep.res, rep.err = a.ParseFindings(job)
+		if rep.err == nil && job.State() == runner.Done {
+			rep.isNew, rep.fixed, rep.first = a.compareWithLastRun(run.key, rep.res.Findings)
+		}
 	}
+	readable := run.readable
 	a.mu.Lock()
 	if old := a.findings; old != nil {
-		rep.minimum, rep.groupBy = old.minimum, old.groupBy // keep the view's choices
+		rep.minimum, rep.groupBy, rep.newOnly = old.minimum, old.groupBy, old.newOnly // keep the view's choices
 	}
 	a.findings = rep
 	a.findingsOK = readable
@@ -342,6 +358,7 @@ func (a *ToolApp) FindingsScreen() *mint.Screen {
 		all := rep.res.Findings
 		controls := []mint.Row{
 			mint.Value(mint.ValueOpts{Label: "Found", Get: func() string { return countsSummary(all) }}),
+			mint.Value(mint.ValueOpts{Label: "Since the last run", Get: func() string { return sinceLastRun(rep) }}),
 			mint.Picker(mint.PickerOpts{ID: "findings:group", Label: "Group by", Options: groupNames,
 				Get: func() string { return groupNames[rep.groupBy] },
 				Set: func(v string) {
@@ -363,14 +380,31 @@ func (a *ToolApp) FindingsScreen() *mint.Screen {
 					}
 				}}),
 		}
+		if !rep.first {
+			controls = append(controls, mint.Toggle(mint.ToggleOpts{ID: "findings:new", Label: "Only new findings",
+				Get: func() bool { return rep.newOnly },
+				Set: func(v bool) { a.mu.Lock(); rep.newOnly = v; a.mu.Unlock() }}))
+		}
 		if rep.res.Capped {
 			controls = append(controls, mint.Label(mint.StyleCaption, fmt.Sprintf("Showing the first %d findings; the report has more.", findings.MaxFindings)))
 		}
 		sections := []mint.Section{{Name: "Findings", Rows: controls}}
-		groups := findings.GroupFindings(all, rep.groupBy, rep.minimum)
+		shown := all
+		if rep.newOnly && !rep.first {
+			shown = nil
+			for _, f := range all {
+				if rep.isNew[f.Fingerprint()] {
+					shown = append(shown, f)
+				}
+			}
+		}
+		groups := findings.GroupFindings(shown, rep.groupBy, rep.minimum)
 		if len(groups) == 0 {
 			msg := "No findings."
-			if len(all) > 0 {
+			switch {
+			case rep.newOnly && len(all) > 0:
+				msg = "No new findings at this level or above."
+			case len(all) > 0:
 				msg = "No findings at this level or above."
 			}
 			sections = append(sections, mint.Section{Rows: []mint.Row{mint.Note(msg)}})
@@ -380,11 +414,15 @@ func (a *ToolApp) FindingsScreen() *mint.Screen {
 			for _, f := range g.Findings {
 				f := f
 				label := findingLabel(f, rep.groupBy)
+				hint := f.Severity.String()
+				if rep.isNew[f.Fingerprint()] {
+					hint = "new · " + hint
+				}
 				rows = append(rows, mint.Action(mint.ActionOpts{
 					Label: label,
-					Hint:  f.Severity.String(),
+					Hint:  hint,
 					OnActivate: func(c *mint.Ctx) {
-						c.Push(a.findingDetail(f))
+						c.Push(a.findingDetail(f, rep.scope))
 					},
 				}))
 			}
@@ -432,15 +470,42 @@ func firstLine(s string) string {
 	return s
 }
 
-// findingDetail shows everything about one finding.
-func (a *ToolApp) findingDetail(f findings.Finding) *mint.Screen {
+// findingDetail shows everything about one finding, and the source
+// around it when the file is one the run was asked to scan.
+func (a *ToolApp) findingDetail(f findings.Finding, scope scanScope) *mint.Screen {
+	src, srcErr := scope.readContext(f.File, f.Line)
 	return mint.ViewStyled(mint.ViewStyledOpts{
 		Title:  a.Spec.Name + " — " + f.Severity.Title() + " " + f.Rule,
 		Status: a.statusBadges,
 		Lines: func(w int) []mint.StyledLine {
-			return findingDetailLines(f, w)
+			out := findingDetailLines(f, w)
+			if f.File == "" || f.Line < 1 {
+				return out
+			}
+			out = append(out, mint.StyledLine{}, mint.StyledLine{Anchor: true, Segs: []mint.Seg{{Text: "Source", Role: mint.RoleAccent}}})
+			if srcErr != nil {
+				return append(out, mint.StyledLine{Segs: []mint.Seg{{Text: "Not shown: " + srcErr.Error(), Role: mint.RoleMuted}}})
+			}
+			return append(out, contextStyled(src, f.Line, f.Col, w)...)
 		},
 	})
+}
+
+// sinceLastRun is "3 new · 2 fixed", or why there is nothing to compare.
+func sinceLastRun(rep *findingsReport) string {
+	if rep.first {
+		return "first run of this target"
+	}
+	n := 0
+	for _, f := range rep.res.Findings {
+		if rep.isNew[f.Fingerprint()] {
+			n++
+		}
+	}
+	if n == 0 && rep.fixed == 0 {
+		return "no change"
+	}
+	return fmt.Sprintf("%d new · %d fixed", n, rep.fixed)
 }
 
 func findingDetailLines(f findings.Finding, width int) []mint.StyledLine {
