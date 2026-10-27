@@ -125,7 +125,9 @@ var archetypeSignals = map[string][]string{
 
 var archetypeSignalList = buildSignals(archetypeSignals)
 
-// How strong a behaviour cue is; its points come from archWeights.Cue.
+// How strong a behaviour cue is. Its points are the points of the part of
+// the help it was found in (archWeights.CueZone), scaled by its strength
+// (archWeights.CueStrength).
 type cueLevel int
 
 const (
@@ -138,6 +140,7 @@ const (
 // cueHit is one behaviour cue found for an archetype.
 type cueHit struct {
 	level cueLevel
+	zone  int // the part of the help it was found in: zoneName … zoneBody
 	why   string
 }
 
@@ -148,7 +151,9 @@ var (
 	reArgURL     = regexp.MustCompile(`(?i)^(?:urls?|uris?|links?|remote|source-url)$`)
 	reArgPattern = regexp.MustCompile(`(?i)^(?:patterns?|regex|regexp|search|term|terms|keywords?|glob)$`)
 	reArgQuery   = regexp.MustCompile(`(?i)^(?:filter|expression|expr|sql|query|statement|script-text|program-text)$`)
-	reArgCommand = regexp.MustCompile(`(?i)^(?:command|cmd|utility|program|prog)$`)
+	// A placeholder for one of the program's own commands.
+	reArgSubcommand = regexp.MustCompile(`(?i)^(?:command|commands|cmd|subcommand|subcommands|group|object|mode|action|verb)$`)
+	reArgCommand    = regexp.MustCompile(`(?i)^(?:command|cmd|utility|program|prog)$`)
 	// What follows a wrapped COMMAND: its own arguments.
 	reArgOfCommand = regexp.MustCompile(`^(?:arg|args|argument|arguments|initial-arguments|command-args|options?|parameters?)$`)
 	reArgSource    = regexp.MustCompile(`(?i)^(?:source|src|from)$`)
@@ -207,13 +212,13 @@ const minKindCommands = 3
 // program works.
 func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 	out := map[appkit.ArchetypeID][]cueHit{}
-	add := func(id appkit.ArchetypeID, level cueLevel, why string) {
+	add := func(id appkit.ArchetypeID, zone int, level cueLevel, why string) {
 		for _, h := range out[id] {
 			if h.why == why {
 				return
 			}
 		}
-		out[id] = append(out[id], cueHit{level, why})
+		out[id] = append(out[id], cueHit{level, zone, why})
 	}
 
 	// The usage lines' arguments.
@@ -223,34 +228,34 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 		w := a.word
 		switch {
 		case reArgTargets.MatchString(w) || (a.repeat && reArgOneName.MatchString(w)):
-			add("probe", cueMedium, "takes many targets ("+a.raw+")")
+			add("probe", zoneUsage, cueMedium, "takes many targets ("+a.raw+")")
 		case reArgURL.MatchString(w):
-			add("transfer", cueMedium, "takes a URL ("+a.raw+")")
+			add("transfer", zoneUsage, cueMedium, "takes a URL ("+a.raw+")")
 		case reArgPattern.MatchString(w):
-			add("search", cueMedium, "takes a pattern ("+a.raw+")")
+			add("search", zoneUsage, cueMedium, "takes a pattern ("+a.raw+")")
 		case reArgQuery.MatchString(w):
-			add("query", cueMedium, "takes an expression or program ("+a.raw+")")
+			add("query", zoneUsage, cueMedium, "takes an expression or program ("+a.raw+")")
 		case reArgCommand.MatchString(w):
 			if a.withArgs {
 				wrapCmd = a.raw
 			}
 		case reArgPair.MatchString(w):
-			add("compare", cueMedium, "takes two inputs ("+a.raw+")")
+			add("compare", zoneUsage, cueMedium, "takes two inputs ("+a.raw+")")
 		case reArgTopic.MatchString(w):
-			add("read", cueMedium, "takes a topic or page ("+a.raw+")")
+			add("read", zoneUsage, cueMedium, "takes a topic or page ("+a.raw+")")
 		case reArgDevice.MatchString(w):
-			add("device", cueWeak, "takes a device ("+a.raw+")")
-			add("inspect", cueWeak, "takes a device ("+a.raw+")")
+			add("device", zoneUsage, cueWeak, "takes a device ("+a.raw+")")
+			add("inspect", zoneUsage, cueWeak, "takes a device ("+a.raw+")")
 		case reArgKV.MatchString(w):
-			add("settings", cueMedium, "takes a key or key=value ("+a.raw+")")
+			add("settings", zoneUsage, cueMedium, "takes a key or key=value ("+a.raw+")")
 		case reArgTime.MatchString(w):
-			add("schedule", cueMedium, "takes a time ("+a.raw+")")
+			add("schedule", zoneUsage, cueMedium, "takes a time ("+a.raw+")")
 		case reArgRepeat.MatchString(w):
-			add("watch", cueMedium, "repeats on an interval ("+a.raw+")")
+			add("watch", zoneUsage, cueMedium, "repeats on an interval ("+a.raw+")")
 		case reArgOneName.MatchString(w):
-			add("look-up", cueMedium, "takes a name ("+a.raw+")")
+			add("look-up", zoneUsage, cueMedium, "takes a name ("+a.raw+")")
 		case reArgAsk.MatchString(w):
-			add("ask", cueWeak, "takes a number or question ("+a.raw+")")
+			add("ask", zoneUsage, cueWeak, "takes a number or question ("+a.raw+")")
 		}
 	}
 	has := func(re *regexp.Regexp) bool {
@@ -263,17 +268,17 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 	}
 	switch {
 	case has(reArgSource) && has(reArgDest):
-		add("mirror", cueWeak, "takes a source and a destination")
-		add("edit-files", cueWeak, "takes a source and a destination")
+		add("mirror", zoneUsage, cueWeak, "takes a source and a destination")
+		add("edit-files", zoneUsage, cueWeak, "takes a source and a destination")
 	case has(reArgInput) && has(reArgOutput):
-		add("convert", cueMedium, "takes an input and an output")
+		add("convert", zoneUsage, cueMedium, "takes an input and an output")
 	}
 
 	// Subcommands, and what they are called. A COMMAND in the usage of a
 	// program with subcommands is one of them, not a command it runs.
 	subs := suiteCommandNames(p.manLines, p.helpLines)
 	if wrapCmd != "" && len(subs) < 2 {
-		add("wrap", cueStrong, "runs a command it is given ("+wrapCmd+" with its arguments)")
+		add("wrap", zoneUsage, cueStrong, "runs a command it is given ("+wrapCmd+" with its arguments)")
 	}
 	if len(subs) >= 2 {
 		// A name counts as itself and by its first part: "list-keys" is
@@ -297,68 +302,82 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 				best, bestN = k.id, n
 			}
 		}
+		// The subcommands count as part of the usage when a usage line
+		// has a place for them ("git [options] <command>"), and as part of
+		// the rest of the help when only a list names them.
+		subZone := zoneBody
+		if has(reArgSubcommand) {
+			subZone = zoneUsage
+		}
 		// A kind needs several of the commands and a real share of them,
 		// not two of sixty.
 		if bestN >= minKindCommands && bestN*6 >= len(subs) {
-			add(best, cueStrong, fmt.Sprintf("its subcommands manage %s (%d of %d)", best, bestN, len(subs)))
+			add(best, subZone, cueStrong, fmt.Sprintf("its subcommands manage %s (%d of %d)", best, bestN, len(subs)))
 		} else if len(subs) >= manySubcommands {
-			add("toolkit", cueStrong, fmt.Sprintf("has %d subcommands of many kinds", len(subs)))
+			add("toolkit", subZone, cueStrong, fmt.Sprintf("has %d subcommands of many kinds", len(subs)))
 		} else {
-			add("toolkit", cueMedium, fmt.Sprintf("has %d subcommands", len(subs)))
+			add("toolkit", subZone, cueMedium, fmt.Sprintf("has %d subcommands", len(subs)))
 		}
 	}
 
 	// Options.
 	body := p.Body
 	if reOptFollow.MatchString(body) {
-		add("follow", cueMedium, "it can follow new output")
+		add("follow", zoneBody, cueMedium, "it can follow new output")
 	}
 	if reOptListen.MatchString(body) {
-		add("serve", cueMedium, "it listens for connections")
+		add("serve", zoneBody, cueMedium, "it listens for connections")
 	}
 	if reOptCommand.MatchString(body) || reOptBatch.MatchString(body) {
-		add("session", cueMedium, "it takes commands to run in its session")
+		add("session", zoneBody, cueMedium, "it takes commands to run in its session")
 	}
 	if reOptRepeat.MatchString(body) {
-		add("watch", cueWeak, "an option repeats it")
+		add("watch", zoneBody, cueWeak, "an option repeats it")
 	}
 	if reOptDryRun.MatchString(body) {
-		add("edit-files", cueWeak, "it has a dry run")
-		add("mirror", cueWeak, "it has a dry run")
+		add("edit-files", zoneBody, cueWeak, "it has a dry run")
+		add("mirror", zoneBody, cueWeak, "it has a dry run")
 	}
 	if n := len(reOptLoad.FindAllString(body, 4)); n >= 2 {
-		add("measure", cueMedium, "it sets a load: concurrency, requests, duration or runs")
+		add("measure", zoneBody, cueMedium, "it sets a load: concurrency, requests, duration or runs")
 	}
 	if reOptFormat.MatchString(body) {
-		add("convert", cueWeak, "it chooses a format")
+		add("convert", zoneBody, cueWeak, "it chooses a format")
 	}
 	if len(args) == 0 && reOptLength.MatchString(body) {
-		add("generate", cueWeak, "it takes only settings (length, count…)")
+		add("generate", zoneBody, cueWeak, "it takes only settings (length, count…)")
 	}
 
 	// What it says it does.
 	about := p.Summary + "\n" + p.Description
+	// Where it says it: the summary, else the description.
+	saidIn := func(re *regexp.Regexp) int {
+		if re.MatchString(p.Summary) {
+			return zoneSummary
+		}
+		return zoneDescription
+	}
 	// "Display information about logical volumes" lists; "display
 	// information about a file" inspects.
 	// What it lists or reports is the files it is given when its usage
 	// takes files: "print the strings in files" inspects them.
 	switch {
 	case (reSaysLists.MatchString(p.Summary) || reSaysReports.MatchString(about)) && has(reArgFile) && reSaysFiles.MatchString(p.Summary):
-		add("inspect", cueMedium, "it reports on the files it is given")
+		add("inspect", zoneSummary, cueMedium, "it reports on the files it is given")
 	case reSaysLists.MatchString(p.Summary):
-		add("list", cueMedium, "it lists things")
+		add("list", zoneSummary, cueMedium, "it lists things")
 	case reSaysReports.MatchString(about) && len(args) > 0:
-		add("inspect", cueMedium, "it reports on its input")
+		add("inspect", saidIn(reSaysReports), cueMedium, "it reports on its input")
 	case reSaysReports.MatchString(about):
 		// Nothing goes in: it reports on the system.
-		add("inspect", cueWeak, "it reports on the system")
+		add("inspect", saidIn(reSaysReports), cueWeak, "it reports on the system")
 	}
 	if reSaysStdin.MatchString(about) {
-		add("filter", cueMedium, "it reads standard input and writes standard output")
+		add("filter", saidIn(reSaysStdin), cueMedium, "it reads standard input and writes standard output")
 	}
 
 	// General: anything, a little.
-	add("general", cueBase, "it runs and prints (the usual kind)")
+	add("general", zoneName, cueBase, "it runs and prints (the usual kind)")
 	return out
 }
 
@@ -399,29 +418,35 @@ func usageArgs(usage []string) []usageArg {
 
 // archWeights weigh the evidence for archetypes.
 type archWeights struct {
-	Cue           [4]int       // points for a base, weak, medium and strong behaviour cue
-	Words         scoreWeights // the archetype phrases
-	Template      scoreWeights // the template phrases, read as evidence for the archetype each template stands for
-	TemplateShare int          // percent of the best template score of an archetype that is added to it
-	Related       int          // per related program (SEE ALSO) on the archetype lists, at most two per archetype
-	ClearLead     int          // the lead over the next archetype a clear choice needs
+	CueZone       [numZones]int // points for a behaviour cue by where it was found: name, summary, description, usage, rest
+	CueStrength   [4]int        // percent of those points for a base, weak, medium and strong cue
+	Words         scoreWeights  // the archetype phrases
+	Template      scoreWeights  // the template phrases, read as evidence for the archetype each template stands for
+	TemplateShare int           // percent of the best template score of an archetype that is added to it
+	Related       int           // per related program (SEE ALSO) on the archetype lists, at most two per archetype
+	ClearLead     int           // the lead over the next archetype a clear choice needs
 }
 
+// defaultArchWeights split the points by where the evidence was found, for
+// behaviour cues and phrases alike: usage 45, summary 20, description 20,
+// the rest of the help 10, the name 5. The usage shows most directly how a
+// program is used.
 var defaultArchWeights = archWeights{
-	Cue: [4]int{1, 2, 4, 6},
-	Words: func() scoreWeights {
-		w := defaultWeights
-		w.BodyCap, w.Related = 3, 0
-		return w
-	}(),
+	CueZone:     [numZones]int{zoneName: 5, zoneSummary: 20, zoneDescription: 20, zoneUsage: 45, zoneBody: 10},
+	CueStrength: [4]int{cueBase: 20, cueWeak: 35, cueMedium: 70, cueStrong: 100},
+	Words: scoreWeights{
+		Name: 5, Summary: 20, Description: 20, Usage: 45, Body: 10,
+		WeakName: 2, WeakSummary: 8, WeakDescription: 8, WeakUsage: 18,
+		BodyHits: 2, BodyCap: 30,
+	},
 	Template: func() scoreWeights {
 		w := defaultWeights
 		w.Related = 0
 		return w
 	}(),
 	TemplateShare: 0,
-	Related:       2,
-	ClearLead:     4,
+	Related:       10, // SEE ALSO is in the rest of the help
+	ClearLead:     16,
 }
 
 // archEvidence is what was found in a program's help, before weighing.
@@ -475,7 +500,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	for _, def := range appkit.AllArchetypeDefs() {
 		s := ArchetypeScore{ID: def.ID}
 		for _, h := range ev.cues[def.ID] {
-			s.Score += w.Cue[h.level]
+			s.Score += w.CueZone[h.zone] * w.CueStrength[h.level] / 100
 			s.Hits = append(s.Hits, h.why)
 		}
 		if ws, ok := words[def.ID]; ok {

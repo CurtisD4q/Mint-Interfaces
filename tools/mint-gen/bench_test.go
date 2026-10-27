@@ -265,7 +265,7 @@ func TestArchetypeCalibration(t *testing.T) {
 		t.Skip("set MINT_ARCHETYPE_BENCH=calibrate")
 	}
 	rs, _ := runArchBench(t, func(c archCase) bool { return c.tunable() })
-	for lead := 1; lead <= 12; lead++ {
+	for _, lead := range []int{1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 45, 50} {
 		var clear, clearRight, close, closeRight int
 		for _, r := range rs {
 			right := r.choice.ID == r.Want
@@ -311,23 +311,24 @@ func TestArchetypeTuning(t *testing.T) {
 		p.Related = nil
 		docs = append(docs, doc{c, findArchEvidence(p)})
 	}
+	// The split by where evidence was found stays fixed (usage 45, summary
+	// 20, description 20, rest 10, name 5); the search varies how strong
+	// cues count within it and the limits.
 	var grid []archWeights
-	for _, weak := range []int{1, 2} {
-		for _, med := range []int{3, 4, 5} {
-			for _, strong := range []int{6, 8} {
-				for _, summ := range []int{4, 5, 6} {
-					for _, desc := range []int{2, 3, 4} {
-						for _, usage := range []int{1, 2, 3} {
-							for _, bodyCap := range []int{2, 3, 5} {
-								for _, share := range []int{0, 30, 60, 100} {
-									for _, rel := range []int{0, 2} {
-										w := defaultArchWeights
-										w.Cue = [4]int{1, weak, med, strong}
-										w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap = summ, desc, usage, bodyCap
-										w.TemplateShare, w.Related = share, rel
-										grid = append(grid, w)
-									}
-								}
+	for _, base := range []int{10, 20} {
+		for _, weak := range []int{25, 35, 50} {
+			for _, med := range []int{55, 70, 85} {
+				for _, weakWord := range []int{30, 40, 55} {
+					for _, bodyCap := range []int{20, 30, 50} {
+						for _, share := range []int{0, 30, 60} {
+							for _, rel := range []int{0, 10} {
+								w := defaultArchWeights
+								w.CueStrength = [4]int{base, weak, med, 100}
+								ww := &w.Words
+								ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
+								ww.BodyCap = bodyCap
+								w.TemplateShare, w.Related = share, rel
+								grid = append(grid, w)
 							}
 						}
 					}
@@ -335,6 +336,15 @@ func TestArchetypeTuning(t *testing.T) {
 			}
 		}
 	}
+	// The scorer before the split, for comparison: cue points by strength
+	// alone, phrases by the old part points.
+	prev := defaultArchWeights
+	prev.CueZone = [numZones]int{100, 100, 100, 100, 100}
+	prev.CueStrength = [4]int{1, 2, 4, 6}
+	prev.Words = defaultWeights
+	prev.Words.BodyCap, prev.Words.Related = 3, 0
+	prev.Related = 2
+	grid = append(grid, prev)
 	// Score every program once per set of weights (in parallel), then
 	// cross-validate from the table of right answers.
 	ok := make([][]bool, len(grid))
@@ -392,6 +402,9 @@ func TestArchetypeTuning(t *testing.T) {
 		}
 	}
 	t.Logf("current weights: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
+	if np, _ := right(len(grid)-1, func(int) bool { return true }); true {
+		t.Logf("previous scorer: %d/%d (%.1f%%)", np, tot, 100*float64(np)/float64(tot))
+	}
 	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
 	// The best on all tunable programs.
 	type res struct {
@@ -406,7 +419,7 @@ func TestArchetypeTuning(t *testing.T) {
 	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
 	for i := 0; i < 10; i++ {
 		w := all[i].w
-		t.Logf("%d/%d cue %v summary %d desc %d usage %d bodycap %d template %d%% related %d", all[i].n, tot,
-			w.Cue, w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap, w.TemplateShare, w.Related)
+		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d template %d%% related %d", all[i].n, tot,
+			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.TemplateShare, w.Related)
 	}
 }

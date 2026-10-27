@@ -431,7 +431,9 @@ func helpSummary(name string, helpLines []string) string {
 		if strings.HasPrefix(lower, "usage:") || strings.HasPrefix(lower, "synopsis") {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "-") {
+		// The summary comes before the options and before any section
+		// ("Commands:"), not from a line of a section's list.
+		if strings.HasPrefix(trimmed, "-") || isHelpSectionHeader(l) {
 			break
 		}
 		if !looksLikeSummary(name, trimmed) {
