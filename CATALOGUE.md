@@ -622,9 +622,9 @@ func tableExample(rawLines []string) mint.Row {
 }
 ```
 
-## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (6 Archetypes · 8 Mixins · 28 Templates)
+## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (6 Archetypes · Mixins · 28 Templates)
 
-For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **8 Composable Mixins**, and **28 Template Types (`T01`–`T28`)**:
+For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **Composable Mixins** (add-ons), and **28 Template Types (`T01`–`T28`)**:
 
 - **6 Base Archetypes (`appkit.Archetype`)**:
   - `ArchetypeConfig` (`"config"` — State Editor: reads live state, renders controls/rules, applies changes).
@@ -633,8 +633,9 @@ For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarat
   - `ArchetypeMonitor` (`"monitor"` — Live Poller & Controller: periodic `Poll` command $\rightarrow$ gauges & live `mint.Table` $\rightarrow$ per-row actions).
   - `ArchetypeExplorer` (`"explorer"` — Query $\rightarrow$ Results $\rightarrow$ Detail: search/query bar $\rightarrow$ parsed `mint.Table` or `mint.Collapsible` sections).
   - `ArchetypeSuite` (`"suite"` — Multi-Subcommand Manager: top `SubcommandSpec` selector where each mode runs its own subcommand, table view, or action form).
-- **8 Composable Mixins (`appkit.Mixins`)**:
+- **Composable Mixins** — the original 8 (`appkit.Mixins`):
   - `WithFileOutput` (`OutputsFile`, `OutputFlag`, `DefaultExt`), `WithTableOutput` (`TableOutput`, `TableColumns`), `WithCollapsibleOutput` (`CollapsibleOutput`, `ChunkSize`), `WithProfiles` (`Profiles`), `WithDynamicChoices` (`FlagSpec.ChoicesCmd`), `WithRootAuth` (`NeedsRoot`), `WithConfirm` (`ConfirmRun`), and `WithHistory` (`KeepHistory`).
+  - Each mixin registers itself (`registerMixin` in the file that implements it) with the `ToolSpec` fields that switch it on and an optional `Validate`. `appkit.MixinInfos()` lists them all, `ToolSpec.EnabledMixinNames()` lists those a spec uses, and `ToolSpec.Validate()` checks their settings; mint-gen refuses to write a spec that fails it.
 - **28 Template Types (`T01`–`T28`)**:
   - Setting `Template: "T12"` (or `"network-scanner"`) on `appkit.ToolSpec` automatically applies its archetype, mixins, target labels, subcommands, and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-templates`).
 

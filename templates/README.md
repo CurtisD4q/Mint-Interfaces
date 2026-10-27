@@ -1,6 +1,6 @@
-# Mint Templates — 6 Base Archetypes, 8 Mixins & 28 Template Types (`T01`–`T28`)
+# Mint Templates — 6 Base Archetypes, Mixins & 28 Template Types (`T01`–`T28`)
 
-Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archetypes**, **8 Composable Mixins**, and **28 Template Types (`T01`–`T28`)** provided by `mint/appkit` and automatically detected by `tools/mint-gen`.
+Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archetypes**, **Composable Mixins** (add-ons), and **28 Template Types (`T01`–`T28`)** provided by `mint/appkit` and automatically detected by `tools/mint-gen`.
 
 ---
 
@@ -18,7 +18,7 @@ Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archety
 
 ---
 
-## 2. The 8 Composable Mixins (`mint/appkit`)
+## 2. The Composable Mixins (`mint/appkit`)
 
 | Mixin | `ToolSpec` Fields | Behaviour Added |
 |---|---|---|

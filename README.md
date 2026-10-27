@@ -379,7 +379,7 @@ python3 tools/check_catalogue.py
 
 ### Turnkey CLI apps (`mint/appkit`) and automated scaffolding (`tools/mint-gen`)
 
-`mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **8 Composable Mixins**, and **28 Template Types (`T01`–`T28`)** (see [`templates/README.md`](templates/README.md)):
+`mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **Composable Mixins** (add-ons), and **28 Template Types (`T01`–`T28`)** (see [`templates/README.md`](templates/README.md)):
 
 - **6 Base Archetypes** (`templates/config`, `templates/runner`, `templates/scanner`, `templates/monitor`, `templates/explorer`, `templates/suite`):
   - `config` (`ArchetypeConfig` — `T01`–`T04`): System, dotfile, hardware, and firewall rule-table configurators.
@@ -388,7 +388,7 @@ python3 tools/check_catalogue.py
   - `monitor` (`ArchetypeMonitor` — `T17`–`T20`): Live system resource monitors, service/daemon controllers, process inspectors, and journal/log analysers.
   - `explorer` (`ArchetypeExplorer` — `T24`–`T27`): Disk/filesystem inspectors, file/content searchers, structured data (`jq`/`yq`/`sqlite3`) explorers, and documentation browsers.
   - `suite` (`ArchetypeSuite` — `T08`–`T09`, `T21`–`T23`, `T28`): Multi-subcommand suites for archives, backups, VCS (`git`/`gh`), containers (`docker`/`kubectl`), package managers, and cron/timers.
-- **8 Composable Mixins**: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
+- **Composable Mixins** (the original 8; `go run ./tools/mint-gen --list-templates` lists all): `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
 
 `tools/mint-gen` checks whether a command can run inside a pure detached TUI, auto-classifies any CLI tool into `T01`–`T28`, and scaffolds a complete `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, and `<tool>-mint.el`) from its `man` page and `--help` output.
 
@@ -399,7 +399,7 @@ python3 tools/check_catalogue.py
    ```bash
    go run ./tools/mint-gen --check nmap
    ```
-   *(You can also run `go run ./tools/mint-gen --list-templates` to see all 28 available templates `T01`–`T28`, 6 base archetypes, and 8 mixins.)*
+   *(You can also run `go run ./tools/mint-gen --list-templates` to see all 28 available templates `T01`–`T28`, 6 base archetypes, and the composable mixins.)*
 
 2. **Generate and compile the interface in one command**
    Run `mint-gen` with `--build` (or pass `--template T12` if you want to override the auto-detected template):
