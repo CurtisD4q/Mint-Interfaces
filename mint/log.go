@@ -26,7 +26,56 @@ var ansiEsc = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:
 // CleanLine strips terminal escape sequences and control characters, expands
 // tabs to 8-column stops, and resolves backspace overstrikes (\b / 0x08, as
 // produced by man pages like N\bNA\bAM\bME\bE or _\bX).
+//
+// Text from a program is untrusted, so CleanLine also:
+//   - drops C1 control characters (U+0080–U+009F). Some terminals treat
+//     U+009B as an escape sequence introducer, the same as ESC [;
+//   - drops the Unicode line and paragraph separators (U+2028, U+2029);
+//   - shows bidirectional embedding, override and isolate controls
+//     (U+202A–U+202E, U+2066–U+2069) as a visible marker such as <U+202E>
+//     instead of letting them reorder what is displayed ("Trojan Source").
+//
+// The directional marks LRM, RLM and ALM, and the joiners ZWJ and ZWNJ,
+// are kept: real Arabic, Hebrew, Persian, Indic and emoji text needs them.
+// CleanLineVisible also marks invisible characters, for views where two
+// lines that look the same must not hide a difference.
 func CleanLine(raw string) string {
+	return cleanLine(raw, false)
+}
+
+// CleanLineVisible is CleanLine for views that compare or audit text (diffs,
+// findings, file previews, rule lists): zero-width and other invisible
+// characters are shown as markers too, so nothing in the line is hidden.
+func CleanLineVisible(raw string) string {
+	return cleanLine(raw, true)
+}
+
+// isBidiControl reports whether r is a bidirectional embedding, override or
+// isolate control, which changes the displayed order of the text around it.
+func isBidiControl(r rune) bool {
+	return (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069)
+}
+
+// isInvisible reports whether r is a format character that takes no space
+// and has no legitimate use that would be lost by showing it as a marker.
+func isInvisible(r rune) bool {
+	switch r {
+	case 0x200B, // zero width space
+		0x2060, // word joiner
+		0xFEFF, // zero width no-break space (BOM)
+		0x180E, // Mongolian vowel separator
+		0x00AD: // soft hyphen
+		return true
+	}
+	return false
+}
+
+// RuneMarker is how a hidden or reordering character is shown: <U+202E>.
+func RuneMarker(r rune) string {
+	return fmt.Sprintf("<U+%04X>", r)
+}
+
+func cleanLine(raw string, visible bool) string {
 	s := ansiEsc.ReplaceAllString(raw, "")
 	var out []rune
 	col := 0
@@ -49,6 +98,14 @@ func CleanLine(raw string) string {
 			// dropped
 		case r < 32 || r == 0x7f:
 			// drop other control characters
+		case r >= 0x80 && r <= 0x9f:
+			// drop C1 control characters (U+009B is CSI on some terminals)
+		case r == 0x2028 || r == 0x2029:
+			// drop line and paragraph separators
+		case isBidiControl(r) || (visible && isInvisible(r)):
+			m := RuneMarker(r)
+			out = append(out, []rune(m)...)
+			col += len(m)
 		case r == utf8.RuneError && size == 1:
 			// drop invalid UTF-8 byte
 		default:
