@@ -198,7 +198,7 @@ nohup wrap fresh
 flock wrap fresh
 darkhttpd serve fresh
 webfsd serve fresh
-mini-httpd serve fresh
+mini_httpd serve fresh
 bc ask fresh
 units ask fresh
 cal ask fresh
