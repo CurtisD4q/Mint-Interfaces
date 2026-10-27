@@ -14,6 +14,9 @@ package main
 // Programs are split into a dev set (tune on it) and a held-out set (never
 // looked at while tuning) by a hash of the name, so the held-out numbers
 // show how the scorer does on programs it was not tuned for.
+// testdata/template_benchmark_new.txt holds programs labelled after the
+// scorer was first tuned and before they were first run. The same hash
+// splits them into new-dev (may be tuned on) and new-test (never).
 
 import (
 	"bufio"
@@ -30,10 +33,36 @@ import (
 
 type benchCase struct {
 	Name, Want, Source string
+	New                bool // from the new set
+}
+
+// benchSet names the set a program is in: dev, held-out, new-dev or
+// new-test.
+func benchSet(c benchCase) string {
+	switch {
+	case c.New && heldOut(c.Name):
+		return "new-test"
+	case c.New:
+		return "new-dev"
+	case heldOut(c.Name):
+		return "held-out"
+	}
+	return "dev"
+}
+
+// tunable reports whether tuning may look at a program.
+func tunable(c benchCase) bool {
+	set := benchSet(c)
+	return set == "dev" || set == "new-dev"
 }
 
 func loadBenchCases(t *testing.T) []benchCase {
-	f, err := os.Open("testdata/template_benchmark.txt")
+	out := loadBenchFile(t, "testdata/template_benchmark.txt", false)
+	return append(out, loadBenchFile(t, "testdata/template_benchmark_new.txt", true)...)
+}
+
+func loadBenchFile(t *testing.T, path string, isNew bool) []benchCase {
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +78,7 @@ func loadBenchCases(t *testing.T) []benchCase {
 		if len(f) < 3 {
 			t.Fatalf("bad line %q", line)
 		}
-		out = append(out, benchCase{f[0], f[1], f[2]})
+		out = append(out, benchCase{f[0], f[1], f[2], isNew})
 	}
 	return out
 }
@@ -65,6 +94,10 @@ func heldOut(name string) bool {
 // benchHelp returns the program's man and help text, from the cache or
 // read now.
 func benchHelp(t *testing.T, cache, name string) (man, help string, ok bool) {
+	if cache == "" || !filepath.IsAbs(cache) {
+		// Never cache into the source folder: help text is not ours to commit.
+		t.Fatalf("the help cache must be an absolute path, not %q", cache)
+	}
 	path := filepath.Join(cache, name+".json")
 	if b, err := os.ReadFile(path); err == nil {
 		var srcs []HelpSource
@@ -155,21 +188,22 @@ func TestTemplateBenchmark(t *testing.T) {
 	sort.Slice(results, func(i, j int) bool { return results[i].Want+results[i].Name < results[j].Want+results[j].Name })
 	if os.Getenv("MINT_TEMPLATE_BENCH") == "all" {
 		for _, r := range results {
-			set := "dev"
-			if heldOut(r.Name) {
-				set = "held-out"
-			}
+			set := benchSet(r.benchCase)
 			t.Logf("%-8s %-13s want %s got %s  %-16s %s   [%s]", set, r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
 		}
 	} else {
 		for _, r := range results {
-			if !heldOut(r.Name) && (r.Verdict == "wrong" || r.Verdict == "abstained") {
-				t.Logf("dev      %-13s want %s got %s  %-16s %s   [%s]", r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
+			if tunable(r.benchCase) && (r.Verdict == "wrong" || r.Verdict == "abstained") {
+				t.Logf("%-8s %-13s want %s got %s  %-16s %s   [%s]", benchSet(r.benchCase), r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
 			}
 		}
 	}
-	report("dev", func(r benchResult) bool { return !heldOut(r.Name) })
-	report("held-out", func(r benchResult) bool { return heldOut(r.Name) })
+	for _, set := range []string{"dev", "held-out", "new-dev", "new-test"} {
+		set := set
+		report(set, func(r benchResult) bool { return benchSet(r.benchCase) == set })
+	}
+	report("tunable", func(r benchResult) bool { return tunable(r.benchCase) })
+	report("untuned", func(r benchResult) bool { return !tunable(r.benchCase) })
 	report("all", func(benchResult) bool { return true })
 	if len(missing) > 0 {
 		t.Logf("not installed (skipped): %s", strings.Join(missing, " "))
@@ -191,7 +225,7 @@ func loadBenchInputs(t *testing.T, cache string) []benchInput {
 			continue
 		}
 		ml, hl := cleanLines(man), cleanLines(help)
-		ev := findEvidence(c.Name, extractSummary(c.Name, ml, hl), usageLines(c.Name, ml, hl), man+"\n"+help, seeAlsoPrograms(man))
+		ev := findEvidence(programTextFrom(c.Name, man, help))
 		out = append(out, benchInput{benchCase: c, ev: ev, hasSub: hasSubcommands(man, help, ml, hl)})
 	}
 	return out
@@ -235,7 +269,7 @@ func TestTemplateTuning(t *testing.T) {
 	}
 	var dev []benchInput
 	for _, in := range loadBenchInputs(t, cache) {
-		if !heldOut(in.Name) {
+		if tunable(in.benchCase) {
 			dev = append(dev, in)
 		}
 	}
@@ -246,16 +280,16 @@ func TestTemplateTuning(t *testing.T) {
 	var results []result
 	base := defaultWeights
 	for _, summ := range []int{4, 5, 6} {
-		for _, weakSumm := range []int{2, 3, 4} {
-			for _, usage := range []int{1, 2, 3} {
-				for _, bodyCap := range []int{2, 3, 4, 6} {
-					for _, rel := range []int{0, 1, 2, 3} {
-						for _, relCap := range []int{2, 4, 6} {
-							for _, minScore := range []int{3, 4, 5} {
-								for _, margin := range []int{1, 2, 3} {
+		for _, weakSumm := range []int{2, 3} {
+			for _, desc := range []int{0, 2, 3, 4} {
+				for _, weakDesc := range []int{0, 1} {
+					for _, bodyCap := range []int{2, 4, 6} {
+						for _, rel := range []int{0, 2} {
+							for _, minScore := range []int{4, 5, 6} {
+								for _, margin := range []int{2, 3, 4} {
 									w := base
-									w.Summary, w.WeakSummary, w.Usage, w.BodyCap = summ, weakSumm, usage, bodyCap
-									w.Related, w.RelatedCap, w.MinScore, w.MinMargin = rel, relCap, minScore, margin
+									w.Summary, w.WeakSummary, w.Description, w.WeakDescription = summ, weakSumm, desc, weakDesc
+									w.BodyCap, w.Related, w.MinScore, w.MinMargin = bodyCap, rel, minScore, margin
 									c, a, x := benchScore(w, dev)
 									results = append(results, result{w, c, a, x})
 								}

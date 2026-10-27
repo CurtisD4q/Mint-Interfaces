@@ -341,7 +341,28 @@ func cleanLines(raw string) []string {
 }
 
 func extractSummary(name string, manLines, helpLines []string) string {
-	// Check man NAME section first
+	// The man page's NAME line, the help's first description, then the
+	// first sentence of the man page's DESCRIPTION: the first that says
+	// something ("Hyperfine", "DNF Command Reference" and "Supervisorctl
+	// Documentation" do not), else the first there is.
+	cands := []string{manNameSummary(manLines), helpSummary(name, helpLines), manDescriptionSentence(manLines)}
+	for _, c := range cands {
+		if informativeSummary(name, c) {
+			return c
+		}
+	}
+	// None says much: the one that says most ("A command-line
+	// benchmarking tool" over "Hyperfine"), the first on a tie.
+	best, most := "", -1
+	for _, c := range cands {
+		if n := summaryWords(name, c); c != "" && n > most {
+			best, most = c, n
+		}
+	}
+	return best
+}
+
+func manNameSummary(manLines []string) string {
 	inName := false
 	for _, l := range manLines {
 		trimmed := strings.TrimSpace(l)
@@ -362,7 +383,11 @@ func extractSummary(name string, manLines, helpLines []string) string {
 			return capitalizeFirst(trimmed)
 		}
 	}
-	// Fallback to first descriptive line in --help
+	return ""
+}
+
+// helpSummary is the first descriptive line of the help.
+func helpSummary(name string, helpLines []string) string {
 	for _, l := range helpLines {
 		trimmed := strings.TrimSpace(l)
 		if trimmed == "" {
@@ -388,6 +413,102 @@ func extractSummary(name string, manLines, helpLines []string) string {
 	return ""
 }
 
+// extractDescription is the opening of the man page's DESCRIPTION: its
+// first paragraph, at most about 600 characters. It says what a program
+// is ("CVS is a version control system…"); the rest of a long man page
+// mentions much that it is not.
+func extractDescription(manLines []string) string {
+	text := manDescriptionParagraph(manLines)
+	if len(text) > 600 {
+		if cut := strings.LastIndex(text[:600], ". "); cut > 100 {
+			text = text[:cut+1]
+		} else {
+			text = text[:strings.LastIndexByte(text[:600], ' ')]
+		}
+	}
+	return text
+}
+
+// manDescriptionSentence is the first sentence of the man page's
+// DESCRIPTION, at most about 160 characters.
+func manDescriptionSentence(manLines []string) string {
+	text := manDescriptionParagraph(manLines)
+	if i := strings.Index(text, ". "); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimRight(text, ".:")
+	if len(text) > 160 {
+		cut := strings.LastIndexByte(text[:160], ' ')
+		if cut < 40 {
+			cut = 160
+		}
+		text = text[:cut]
+	}
+	if len(text) < 10 || !reHasLower.MatchString(text) {
+		return ""
+	}
+	return capitalizeFirst(text)
+}
+
+// manDescriptionParagraph is the first paragraph of the man page's
+// DESCRIPTION, as one line.
+func manDescriptionParagraph(manLines []string) string {
+	var para []string
+	in := false
+	for _, l := range manLines {
+		trimmed := strings.TrimSpace(l)
+		if !in {
+			in = trimmed == "DESCRIPTION" && isManSectionHeader(l)
+			continue
+		}
+		if isManSectionHeader(l) || (trimmed == "" && len(para) > 0) {
+			break
+		}
+		if trimmed == "" {
+			continue
+		}
+		// A word split at the line end ("dis-" / "tributions") is joined.
+		if n := len(para); n > 0 && strings.HasSuffix(para[n-1], "-") && trimmed[0] >= 'a' && trimmed[0] <= 'z' {
+			para[n-1] = strings.TrimSuffix(para[n-1], "-") + trimmed
+		} else {
+			para = append(para, trimmed)
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(para, " ")), " ")
+}
+
+// Words that say nothing about what a program does.
+var summaryFiller = map[string]bool{
+	"a": true, "an": true, "the": true, "of": true, "for": true, "and": true, "to": true,
+	"documentation": true, "docs": true, "reference": true, "command": true, "commands": true,
+	"manual": true, "man": true, "page": true, "pages": true, "program": true, "utility": true,
+	"tool": true, "cli": true, "line": true, "version": true,
+}
+
+var reWord = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*`)
+
+// informativeSummary reports whether a summary has at least two words
+// besides the program's name and filler.
+func informativeSummary(name, s string) bool {
+	return summaryWords(name, s) >= 2
+}
+
+// summaryWords counts a summary's words besides the program's name and
+// filler.
+func summaryWords(name, s string) int {
+	self := map[string]bool{strings.ToLower(name): true}
+	for _, part := range regexp.MustCompile(`[-_.]+`).Split(strings.ToLower(name), -1) {
+		self[part] = true
+	}
+	n := 0
+	for _, w := range reWord.FindAllString(strings.ToLower(s), -1) {
+		if !self[w] && !summaryFiller[w] {
+			n++
+		}
+	}
+	return n
+}
+
 var (
 	reVersionLine = regexp.MustCompile(`(?i)\b(?:version|v)\s*\d+(?:\.\d+)+|copyright|\(c\)\s*\d{4}`)
 	reHasLower    = regexp.MustCompile(`[a-z]`)
@@ -404,6 +525,14 @@ func looksLikeSummary(name, line string) bool {
 	}
 	lower := strings.ToLower(t)
 	if strings.HasPrefix(lower, "or:") || strings.HasPrefix(lower, "usage") {
+		return false
+	}
+	// "supervisorctl -- control applications…": the name and a description.
+	if f := strings.ToLower(strings.Fields(t)[0]); (f == strings.ToLower(name) || strings.HasSuffix(f, "/"+strings.ToLower(name))) && reManName.MatchString(t) && !reVersionLine.MatchString(t) {
+		return true
+	}
+	// A usage fragment: "((-u|--update) | [-p|--platform PLATFORM]".
+	if strings.ContainsAny(t[:1], "([{<|") || strings.Count(t, "|")+strings.Count(t, "[")+strings.Count(t, "<") >= 3 {
 		return false
 	}
 	// "top [options]", "/usr/bin/ln [OPTION]...": a usage line, unless a

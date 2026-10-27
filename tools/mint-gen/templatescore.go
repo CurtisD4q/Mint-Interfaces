@@ -22,7 +22,7 @@ import (
 // ("SQL injection" is security evidence, not also "SQL" data evidence).
 var templateSignals = map[string][]string{
 	"T01": {"sysctl|hostnamectl|timedatectl|localectl", "kernel parameter", "system clock|system time|time and date|date and time",
-		"time zone|timezone", "system locale|locale", "~hostname|host name", "keyboard layout", "ntp|time synchronization"},
+		"time zone|timezone", "system locale|locale", "~hostname|host name", "system hostname|static hostname", "keyboard layout", "ntp|time synchronization"},
 	"T02": {"dotfile", "get and set", "config key|configuration key|configuration value", "user configuration",
 		"settings database|configuration database|configuration system", "dconf|gsettings|gconf|xfconf", "schema", "~settings", "~key"},
 	"T03": {"sound card|soundcard|audio mixer|mixer", "alsa", "pulseaudio|pipewire", "backlight|brightness", "bluetooth",
@@ -67,11 +67,11 @@ var templateSignals = map[string][]string{
 	"T22": {"container", "docker|podman", "kubernetes|k8s", "virtual machine|hypervisor|virtualization|libvirt", "~pod", "~guest"},
 	"T23": {"package manager|package management", "install packages|install package|remove packages|upgrade packages", "plugin manager",
 		"~package", "~install", "~upgrade", "~dependency", "rpm|dpkg|pypi"},
-	"T24": {"block device", "partition|partition table", "mounted filesystems", "~file system|filesystem", "disk usage|disk space", "~disk",
+	"T24": {"block device", "partition|partition table", "mounted filesystems", "~file system|filesystem", "disk usage|disk space|space usage|file space", "~disk",
 		"inode", "~mount", "persistent storage", "s.m.a.r.t|smart", "hard disk|hard drive|nvme|sata"},
 	"T25": {"~search", "find files", "regular expression|regex", "file type", "printable strings", "metadata", "~matching", "locate",
 		"list information", "directory contents|list directory", "match patterns|lines that match|matching lines", "~pattern"},
-	"T26": {"~json|yaml|csv|tsv", "json processor", "~sql|database", "~query", "stream editor", "~line", "line by line", "~field",
+	"T26": {"~json|yaml|csv|tsv", "json processor", "~sql|database", "sqlite|database shell|sql shell", "~query", "stream editor", "~line", "line by line", "~field",
 		"~column", "random permutation|shuffle", "concatenate", "paragraph", "tab", "characterwise", "~sorted",
 		"pattern scanning and processing|text processing|transform text"},
 	"T27": {"manual page|man page|manual", "reference manual", "~documentation", "info document|texinfo", "whatis", "tldr", "pager",
@@ -85,20 +85,20 @@ var templateSignals = map[string][]string{
 // the template benchmark (bench_test.go) on its dev programs and checked on
 // its held-out ones.
 type scoreWeights struct {
-	Name, Summary, Usage, Body       int // a word in the program's name, summary, usage lines, rest of its help
-	WeakName, WeakSummary, WeakUsage int // weak words (see templateSignals); they never count in the body
-	BodyHits                         int // at most this many body matches per idea…
-	BodyCap                          int // …and this many body points per template, so a long man page cannot win on length
-	Related, RelatedCap              int // per related program (man SEE ALSO) in the template's list, and the most per template
-	MinScore, MinMargin              int // the winner needs at least MinScore, and MinMargin more than the runner-up
+	Name, Summary, Description, Usage, Body           int // a word in the program's name, summary, description, usage lines, rest of its help
+	WeakName, WeakSummary, WeakDescription, WeakUsage int // weak words (see templateSignals); they never count in the body
+	BodyHits                                          int // at most this many body matches per idea…
+	BodyCap                                           int // …and this many body points per template, so a long man page cannot win on length
+	Related, RelatedCap                               int // per related program (man SEE ALSO) in the template's list, and the most per template
+	MinScore, MinMargin                               int // the winner needs at least MinScore, and MinMargin more than the runner-up
 }
 
 var defaultWeights = scoreWeights{
-	Name: 8, Summary: 5, Usage: 2, Body: 1,
-	WeakName: 3, WeakSummary: 2, WeakUsage: 1,
+	Name: 8, Summary: 5, Description: 3, Usage: 2, Body: 1,
+	WeakName: 3, WeakSummary: 2, WeakDescription: 1, WeakUsage: 1,
 	BodyHits: 2, BodyCap: 4,
 	Related: 2, RelatedCap: 4,
-	MinScore: 4, MinMargin: 2,
+	MinScore: 4, MinMargin: 3,
 }
 
 // signal is one idea of one template.
@@ -136,6 +136,15 @@ func signalPattern(phrase string) string {
 	return strings.Join(words, `[\s/-]+`)
 }
 
+// neutralPhrases mean something else than the shorter signals inside
+// them: a "user interface" is not a network interface, and a "command
+// line" is not a line of text. They score nothing, but as longer matches
+// they hide the shorter ones (see zoneMatches).
+var neutralPhrases = []string{
+	"user interface|command line interface|graphical interface|programming interface|text interface|terminal interface|web interface",
+	"command line|cmd line",
+}
+
 var templateSignalList = func() []signal {
 	var out []signal
 	ids := make([]string, 0, len(templateSignals))
@@ -143,8 +152,12 @@ var templateSignalList = func() []signal {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	for _, id := range ids {
-		for _, entry := range templateSignals[id] {
+	all := map[string][]string{"": neutralPhrases} // "": scores for no template
+	for id, entries := range templateSignals {
+		all[id] = entries
+	}
+	for _, id := range append([]string{""}, ids...) {
+		for _, entry := range all[id] {
 			weak := strings.HasPrefix(entry, "~")
 			ways := strings.Split(strings.TrimPrefix(entry, "~"), "|")
 			var alts []string
@@ -175,10 +188,18 @@ type signalMatch struct {
 // zoneMatches counts each idea's matches in text, dropping any match that
 // lies inside a longer match of any template: the longer phrase is the
 // meaning ("SQL injection", not "SQL").
-func zoneMatches(text string) map[int]int {
+//
+// In prose (a description or a whole man page), a match joined to more of
+// a word by a hyphen is part of an option or key name, not prose:
+// "--layout", "kill-line", "--smart-case". The summary and usage lines
+// keep it ("--json" in a usage line is a fair hint).
+func zoneMatches(text string, prose bool) map[int]int {
 	var all []signalMatch
 	for i, s := range templateSignalList {
 		for _, loc := range s.re.FindAllStringSubmatchIndex(text, -1) {
+			if prose && inHyphenatedName(text, loc[2], loc[3]) {
+				continue
+			}
 			all = append(all, signalMatch{i, loc[2], loc[3]})
 		}
 	}
@@ -205,21 +226,46 @@ func zoneMatches(text string) map[int]int {
 // name, summary, usage lines and the rest of its help, and by the related
 // programs its man page names (see seeAlsoPrograms), best first.
 func ScoreTemplates(name, summary string, usage []string, body string, related []string) []TemplateScore {
-	return scoreEvidence(defaultWeights, findEvidence(name, summary, usage, body, related))
+	return scoreEvidence(defaultWeights, findEvidence(programText{Name: name, Summary: summary, Usage: usage, Body: body, Related: related}))
+}
+
+// programText is what the scorer reads about a program.
+type programText struct {
+	Name        string
+	Summary     string   // one line: what it is (see extractSummary)
+	Description string   // the opening of the man page's DESCRIPTION (see extractDescription)
+	Usage       []string // usage lines
+	Body        string   // all of the man page and help
+	Related     []string // programs from SEE ALSO
+}
+
+// programTextFrom gathers a programText from man and help text.
+func programTextFrom(name, manText, helpText string) programText {
+	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
+	return programText{
+		Name:        name,
+		Summary:     extractSummary(name, manLines, helpLines),
+		Description: extractDescription(manLines),
+		Usage:       usageLines(name, manLines, helpLines),
+		Body:        manText + "\n" + helpText,
+		Related:     seeAlsoPrograms(manText),
+	}
 }
 
 // templateEvidence is what was found in a program's help, before weighing:
 // how often each idea appears in each zone, and the related programs that
 // a template lists. Finding it is the slow part; weighing it is quick.
 type templateEvidence struct {
-	zones   [4]map[int]int // name, summary, usage, body: idea index -> matches
-	related []string       // related programs (not the program itself) that a template lists
+	zones   [numZones]map[int]int // see zoneLabels: idea index -> matches
+	related []string              // related programs (not the program itself) that a template lists
 }
 
-func findEvidence(name, summary string, usage []string, body string, related []string) templateEvidence {
+func findEvidence(p programText) templateEvidence {
+	name, summary, usage, body, related := p.Name, p.Summary, p.Usage, p.Body, p.Related
 	var ev templateEvidence
-	// A program's own name is never evidence about itself: "crontab" in
-	// crontab's help says nothing a template's tool list does not.
+	// A program's own name in its usage and help is not evidence about
+	// itself: "crontab" all through crontab's help says nothing a
+	// template's tool list does not.
 	self := regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.-])` + regexp.QuoteMeta(strings.ToLower(name)) + `($|[^A-Za-z0-9_-])`)
 	// Matches cannot share the character between two uses of the name
 	// ("crontab crontab"), so repeat until none is left. Each pass removes
@@ -237,10 +283,12 @@ func findEvidence(name, summary string, usage []string, body string, related []s
 	if !strings.ContainsAny(name, "-_") {
 		nameZone = "" // a one-word name is the program itself
 	}
-	texts := [4]string{nameZone, mask(summary), mask(strings.Join(usage, "\n")), mask(body)}
+	// The summary is the exception: there the name is used as a word
+	// ("Print sensors information", "maintain crontab files").
+	texts := [numZones]string{nameZone, summary, mask(p.Description), mask(strings.Join(usage, "\n")), mask(body)}
 	for z, text := range texts {
 		if text != "" {
-			ev.zones[z] = zoneMatches(text)
+			ev.zones[z] = zoneMatches(text, z == zoneDescription || z == zoneBody)
 		}
 	}
 	for _, r := range related {
@@ -254,12 +302,34 @@ func findEvidence(name, summary string, usage []string, body string, related []s
 	return ev
 }
 
-var zoneLabels = [4]string{"name", "summary", "usage", "body"}
+// inHyphenatedName reports whether text[start:end] is joined by a hyphen
+// to a letter or digit on either side, or follows one ("--layout").
+func inHyphenatedName(text string, start, end int) bool {
+	isWordByte := func(b byte) bool {
+		return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+	}
+	if start > 0 && text[start-1] == '-' {
+		return true
+	}
+	return end+1 < len(text) && text[end] == '-' && isWordByte(text[end+1])
+}
+
+// The zones a program's text is read in, most telling first.
+const (
+	zoneName = iota
+	zoneSummary
+	zoneDescription
+	zoneUsage
+	zoneBody
+	numZones
+)
+
+var zoneLabels = [numZones]string{"name", "summary", "description", "usage", "body"}
 
 // scoreEvidence weighs evidence with w, best template first.
 func scoreEvidence(w scoreWeights, ev templateEvidence) []TemplateScore {
-	strong := [4]int{w.Name, w.Summary, w.Usage, w.Body}
-	weak := [4]int{w.WeakName, w.WeakSummary, w.WeakUsage, 0}
+	strong := [numZones]int{w.Name, w.Summary, w.Description, w.Usage, w.Body}
+	weak := [numZones]int{w.WeakName, w.WeakSummary, w.WeakDescription, w.WeakUsage, 0}
 	scores := map[string]*TemplateScore{}
 	get := func(id string) *TemplateScore {
 		if scores[id] == nil {
@@ -276,6 +346,9 @@ func scoreEvidence(w scoreWeights, ev templateEvidence) []TemplateScore {
 		sort.Ints(idx)
 		for _, i := range idx {
 			s := templateSignalList[i]
+			if s.template == "" {
+				continue // a neutral phrase
+			}
 			pts := strong[z]
 			if s.weak {
 				pts = weak[z]
@@ -284,7 +357,7 @@ func scoreEvidence(w scoreWeights, ev templateEvidence) []TemplateScore {
 				continue
 			}
 			ts := get(s.template)
-			if z != 3 {
+			if z != zoneBody {
 				ts.Score += pts
 				ts.Hits = append(ts.Hits, zoneLabels[z]+": "+s.label)
 				continue
@@ -408,10 +481,7 @@ func chooseTemplate(bin string, spec appkit.ToolSpec, manText, helpText string) 
 // program no list knows (the template benchmark uses it directly).
 func scoreTemplateChoice(name, manText, helpText string) TemplateChoice {
 	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
-	usage := usageLines(name, manLines, helpLines)
-	// The real summary only: not the "<Name> command-line interface" stand-in.
-	summary := extractSummary(name, manLines, helpLines)
-	scores := ScoreTemplates(name, summary, usage, manText+"\n"+helpText, seeAlsoPrograms(manText))
+	scores := scoreEvidence(defaultWeights, findEvidence(programTextFrom(name, manText, helpText)))
 	if id, why := pickTemplate(scores); id != "" {
 		return TemplateChoice{ID: id, Why: why, Scores: scores}
 	} else if hasSubcommands(manText, helpText, manLines, helpLines) {
