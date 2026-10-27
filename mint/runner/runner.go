@@ -712,6 +712,14 @@ func (j *Job) TailLines(n int) (tail []mint.LogLine, total int) {
 	return out, j.dropped + len(j.lines)
 }
 
+// PID is the process ID of the program, which also leads its process
+// group; 0 if it never started.
+func (j *Job) PID() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.pid
+}
+
 // Since returns the lines from absolute line number from on (counting
 // from 0 since the job started, including lines dropped to keep within
 // MaxLines), the absolute number of the first line returned (later than

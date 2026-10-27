@@ -314,6 +314,25 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if v := spec.Service; v != nil {
+		fmt.Fprintf(&buf, "\t\tService: &appkit.ServiceSpec{Adapter: %q", v.Adapter)
+		if v.DefaultPort != 0 {
+			fmt.Fprintf(&buf, ", DefaultPort: %d", v.DefaultPort)
+		}
+		for _, x := range []struct{ name, val string }{{"DefaultBind", v.DefaultBind}, {"Scheme", v.Scheme},
+			{"PortFlag", v.PortFlag}, {"BindFlag", v.BindFlag}, {"DirFlag", v.DirFlag}} {
+			if x.val != "" {
+				fmt.Fprintf(&buf, ", %s: %q", x.name, x.val)
+			}
+		}
+		if v.ServesDir {
+			buf.WriteString(", ServesDir: true")
+		}
+		if v.PortLast {
+			buf.WriteString(", PortLast: true")
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
 	}
