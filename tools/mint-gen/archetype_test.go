@@ -108,3 +108,82 @@ func TestArchetypeSignalsCoverAll(t *testing.T) {
 		}
 	}
 }
+
+// What a program lists or reports is the files it is given when its usage
+// takes files and its summary says so; without files, plural things are
+// listed. "status" and "process" are not plurals.
+func TestFilesAreInspected(t *testing.T) {
+	for _, c := range []struct {
+		name, man, help string
+		want            appkit.ArchetypeID
+	}{
+		{"cnt9", "NAME\n       cnt9 - print line and byte counts for each file\n", "Usage: cnt9 [OPTION]... [FILE]...\n", "inspect"},
+		{"syms9", "NAME\n       syms9 - list symbols from object files\n", "Usage: syms9 [option(s)] [file(s)]\n", "inspect"},
+		{"procs9", "NAME\n       procs9 - report the processes of the current users\n", "Usage: procs9 [options]\n", "list"},
+		// A FILE it can read its records from does not make it inspect.
+		{"users9", "NAME\n       users9 - show the users that are logged on\n", "Usage: users9 [OPTION]... [ FILE | ARG1 ARG2 ]\n", "list"},
+	} {
+		if got := archOf(t, c.name, c.man, c.help); got.ID != c.want {
+			t.Errorf("%s: %s, want %s %v", c.name, got.ID, c.want, got.Scores[:3])
+		}
+	}
+	for _, s := range []string{"display file system status", "show the process", "print an analysis"} {
+		if reSaysLists.MatchString(s) {
+			t.Errorf("taken for a list: %q", s)
+		}
+	}
+	if !reSaysLists.MatchString("show the processes") {
+		t.Error("plural missed")
+	}
+}
+
+// "[FILE]..." is the word "file"; an argument that is only brackets is
+// none.
+func TestUsageArgWords(t *testing.T) {
+	var words []string
+	for _, a := range usageArgs([]string{"x [OPTION]... [FILE]... [ ] <host>..."}) {
+		words = append(words, a.word)
+	}
+	if got := strings.Join(words, " "); got != "file host" {
+		t.Errorf("words: %q", got)
+	}
+}
+
+// Subcommands of one kind decide the archetype only when there are at
+// least three of them and they are a real share; many subcommands of mixed
+// kinds make a toolkit.
+func TestSubcommandKindShare(t *testing.T) {
+	cmds := func(names ...string) string {
+		s := "Usage: s9 COMMAND\n\nCommands:\n"
+		for _, n := range names {
+			s += "  " + n + "    Do " + n + "\n"
+		}
+		return s
+	}
+	cueOf := func(help string) map[appkit.ArchetypeID][]cueHit {
+		return archetypeCues(programTextFrom("s9", "", help))
+	}
+	strong := func(cues map[appkit.ArchetypeID][]cueHit, id appkit.ArchetypeID) bool {
+		for _, h := range cues[id] {
+			if h.level == cueStrong {
+				return true
+			}
+		}
+		return false
+	}
+	// Two of a kind are not enough.
+	if c := cueOf(cmds("commit", "log", "alpha")); strong(c, "history") {
+		t.Errorf("two decided: %v", c)
+	}
+	if c := cueOf(cmds("commit", "log", "tag", "alpha")); !strong(c, "history") {
+		t.Errorf("three missed: %v", c)
+	}
+	// Three of twenty-four are not a share; many mixed commands are a toolkit.
+	many := []string{"commit", "log", "tag"}
+	for _, n := range strings.Fields("aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu") {
+		many = append(many, n+"x")
+	}
+	if c := cueOf(cmds(many...)); strong(c, "history") || !strong(c, "toolkit") {
+		t.Errorf("mixed: %v", c)
+	}
+}

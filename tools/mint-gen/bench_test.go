@@ -283,3 +283,99 @@ func TestArchetypeCalibration(t *testing.T) {
 			100*float64(clear)/float64(len(rs)), 100*float64(clearRight)/float64(max(clear, 1)), close, 100*float64(closeRight)/float64(max(close, 1)))
 	}
 }
+
+// TestArchetypeTuning searches the global weights (archWeights) on the
+// tunable programs, and estimates how well the search itself generalises
+// by 5-fold cross-validation: choose on four fifths, measure on the rest
+// (MINT_ARCHETYPE_BENCH=tune).
+func TestArchetypeTuning(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "tune" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=tune")
+	}
+	type doc struct {
+		c  archCase
+		ev archEvidence
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.Related = nil
+		docs = append(docs, doc{c, findArchEvidence(p)})
+	}
+	var grid []archWeights
+	for _, weak := range []int{1, 2} {
+		for _, med := range []int{3, 4, 5} {
+			for _, strong := range []int{6, 8} {
+				for _, summ := range []int{4, 5, 6} {
+					for _, desc := range []int{2, 3, 4} {
+						for _, usage := range []int{1, 2, 3} {
+							for _, bodyCap := range []int{2, 3, 5} {
+								for _, share := range []int{0, 30, 60, 100} {
+									for _, rel := range []int{0, 2} {
+										w := defaultArchWeights
+										w.Cue = [4]int{1, weak, med, strong}
+										w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap = summ, desc, usage, bodyCap
+										w.TemplateShare, w.Related = share, rel
+										grid = append(grid, w)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	right := func(w archWeights, keep func(int) bool) (n, total int) {
+		for i, d := range docs {
+			if !keep(i) {
+				continue
+			}
+			total++
+			if scoreArchEvidence(w, d.ev)[0].ID == d.c.Want {
+				n++
+			}
+		}
+		return
+	}
+	fold := func(i int) int { return i % 5 }
+	// Cross-validation of the search.
+	cvRight, cvTotal := 0, 0
+	for f := 0; f < 5; f++ {
+		best, bestN := defaultArchWeights, -1
+		for _, w := range grid {
+			if n, _ := right(w, func(i int) bool { return fold(i) != f }); n > bestN {
+				best, bestN = w, n
+			}
+		}
+		n, tot := right(best, func(i int) bool { return fold(i) == f })
+		cvRight += n
+		cvTotal += tot
+	}
+	n0, tot := right(defaultArchWeights, func(int) bool { return true })
+	t.Logf("current weights: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
+	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
+	// The best on all tunable programs.
+	type res struct {
+		w archWeights
+		n int
+	}
+	var all []res
+	for _, w := range grid {
+		n, _ := right(w, func(int) bool { return true })
+		all = append(all, res{w, n})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
+	for i := 0; i < 10; i++ {
+		w := all[i].w
+		t.Logf("%d/%d cue %v summary %d desc %d usage %d bodycap %d template %d%% related %d", all[i].n, tot,
+			w.Cue, w.Words.Summary, w.Words.Description, w.Words.Usage, w.Words.BodyCap, w.TemplateShare, w.Related)
+	}
+}
