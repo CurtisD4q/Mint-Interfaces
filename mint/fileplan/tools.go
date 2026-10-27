@@ -284,16 +284,13 @@ func (pl *planner) copyOrMove(move bool, o opts) {
 		}
 		if fi.IsDir() && strings.HasPrefix(target+string(filepath.Separator), src+string(filepath.Separator)) {
 			if !move && recursive {
-				// GNU cp copies what it can, then reports the error.
+				// GNU cp creates the target, copies entries in the order
+				// it reads them, and stops at the target itself: how
+				// much is copied first depends on that order.
 				if _, err := os.Lstat(target); err != nil {
-					pl.walk(src, func(path string, sfi fs.FileInfo) {
-						rel, _ := filepath.Rel(src, path)
-						if path != target && !strings.HasPrefix(path, target+string(filepath.Separator)) {
-							pl.add(Effect{Kind: Create, Path: filepath.Join(target, rel), IsDir: sfi.IsDir(), Size: size(sfi)})
-						}
-					})
+					pl.add(Effect{Kind: Create, Path: target, IsDir: true})
 				}
-				pl.add(Effect{Kind: Fail, Path: src, IsDir: true, Note: "can't copy a folder into itself: cp copies part of it, then stops with an error"})
+				pl.add(Effect{Kind: Fail, Path: src, IsDir: true, Note: "can't copy a folder into itself: cp may copy some of its files into " + filepath.Base(target) + " first, then stops with an error"})
 				continue
 			}
 			pl.add(Effect{Kind: Fail, Path: src, IsDir: true, Note: "can't move a folder into itself"})

@@ -125,46 +125,49 @@ type scenario struct {
 	// (mv -n fails since 9.2 when it skips a file); only the files are
 	// compared.
 	exitVaries bool
+	// unsure: real paths under this prefix may or may not appear (the
+	// tool's result there depends on directory read order).
+	unsure string
 }
 
 var scenarios = []scenario{
-	{"rm files", []string{"a=1", "b=2", "c=3"}, "rm", []string{"--", "a", "b"}, false, false},
-	{"rm folder without -r", []string{"d/x=1"}, "rm", []string{"--", "d"}, true, false},
-	{"rm -r folder", []string{"d/x=1", "d/e/y=2", "keep=3"}, "rm", []string{"-r", "--", "d"}, false, false},
-	{"rm -rf missing", []string{"a=1"}, "rm", []string{"-rf", "--", "nope", "a"}, false, false},
-	{"rm missing", []string{"a=1"}, "rm", []string{"--", "nope", "a"}, true, false},
-	{"rm symlink to folder", []string{"d/x=1", "l=->d"}, "rm", []string{"-r", "--", "l"}, false, false},
-	{"rm -rf link/ empties the target", []string{"target/a=1", "target/s/b=2", "link=->target"}, "rm", []string{"-rf", "--", "link/"}, true, true},
-	{"rm -rf link removes the link", []string{"target/a=1", "link=->target"}, "rm", []string{"-rf", "--", "link"}, false, false},
-	{"rm -d empty", []string{"e=/"}, "rm", []string{"-d", "--", "e"}, false, false},
-	{"rm -d not empty", []string{"e/x=1"}, "rm", []string{"-d", "--", "e"}, true, false},
-	{"rm dash name", []string{"-rf=dash", "x=1"}, "rm", []string{"--", "-rf"}, false, false},
-	{"rm dot", []string{"a=1"}, "rm", []string{"-rf", "--", "."}, true, false},
+	{"rm files", []string{"a=1", "b=2", "c=3"}, "rm", []string{"--", "a", "b"}, false, false, ""},
+	{"rm folder without -r", []string{"d/x=1"}, "rm", []string{"--", "d"}, true, false, ""},
+	{"rm -r folder", []string{"d/x=1", "d/e/y=2", "keep=3"}, "rm", []string{"-r", "--", "d"}, false, false, ""},
+	{"rm -rf missing", []string{"a=1"}, "rm", []string{"-rf", "--", "nope", "a"}, false, false, ""},
+	{"rm missing", []string{"a=1"}, "rm", []string{"--", "nope", "a"}, true, false, ""},
+	{"rm symlink to folder", []string{"d/x=1", "l=->d"}, "rm", []string{"-r", "--", "l"}, false, false, ""},
+	{"rm -rf link/ empties the target", []string{"target/a=1", "target/s/b=2", "link=->target"}, "rm", []string{"-rf", "--", "link/"}, true, true, ""},
+	{"rm -rf link removes the link", []string{"target/a=1", "link=->target"}, "rm", []string{"-rf", "--", "link"}, false, false, ""},
+	{"rm -d empty", []string{"e=/"}, "rm", []string{"-d", "--", "e"}, false, false, ""},
+	{"rm -d not empty", []string{"e/x=1"}, "rm", []string{"-d", "--", "e"}, true, false, ""},
+	{"rm dash name", []string{"-rf=dash", "x=1"}, "rm", []string{"--", "-rf"}, false, false, ""},
+	{"rm dot", []string{"a=1"}, "rm", []string{"-rf", "--", "."}, true, false, ""},
 
-	{"cp to new name", []string{"a=1"}, "cp", []string{"--", "a", "b"}, false, false},
-	{"cp over file", []string{"a=1", "b=2"}, "cp", []string{"--", "a", "b"}, false, false},
-	{"cp -n", []string{"a=1", "b=2"}, "cp", []string{"-n", "--", "a", "b"}, false, false},
-	{"cp -u older source", []string{"a=1", "b=2"}, "cp", []string{"-u", "--", "a", "b"}, false, false},
-	{"cp -u newer source", []string{"b=2", "a=1"}, "cp", []string{"-u", "--", "a", "b"}, false, false},
-	{"cp into folder", []string{"a=1", "d=/"}, "cp", []string{"--", "a", "d"}, false, false},
-	{"cp many into folder", []string{"a=1", "b=2", "d/a=old"}, "cp", []string{"--", "a", "b", "d"}, false, false},
-	{"cp -t", []string{"a=1", "d=/"}, "cp", []string{"-t", "d", "--", "a"}, false, false},
-	{"cp folder without -r", []string{"s/x=1"}, "cp", []string{"--", "s", "t"}, true, false},
-	{"cp -r to new", []string{"s/x=1", "s/y/z=2"}, "cp", []string{"-r", "--", "s", "t"}, false, false},
-	{"cp -r into existing", []string{"s/x=1", "t/s/x=old", "t/other=o"}, "cp", []string{"-r", "--", "s", "t"}, false, false},
-	{"cp -rT merge", []string{"s/x=1", "s/n=new", "t/x=old", "t/keep=k"}, "cp", []string{"-rT", "--", "s", "t"}, false, false},
-	{"cp folder into itself", []string{"s/x=1"}, "cp", []string{"-r", "--", "s", "s/in"}, true, false},
-	{"cp file over folder", []string{"a=1", "d/a/x=1"}, "cp", []string{"--", "a", "d"}, true, false},
-	{"cp many, not a folder", []string{"a=1", "b=2", "c=3"}, "cp", []string{"--", "a", "b", "c"}, true, false},
+	{"cp to new name", []string{"a=1"}, "cp", []string{"--", "a", "b"}, false, false, ""},
+	{"cp over file", []string{"a=1", "b=2"}, "cp", []string{"--", "a", "b"}, false, false, ""},
+	{"cp -n", []string{"a=1", "b=2"}, "cp", []string{"-n", "--", "a", "b"}, false, false, ""},
+	{"cp -u older source", []string{"a=1", "b=2"}, "cp", []string{"-u", "--", "a", "b"}, false, false, ""},
+	{"cp -u newer source", []string{"b=2", "a=1"}, "cp", []string{"-u", "--", "a", "b"}, false, false, ""},
+	{"cp into folder", []string{"a=1", "d=/"}, "cp", []string{"--", "a", "d"}, false, false, ""},
+	{"cp many into folder", []string{"a=1", "b=2", "d/a=old"}, "cp", []string{"--", "a", "b", "d"}, false, false, ""},
+	{"cp -t", []string{"a=1", "d=/"}, "cp", []string{"-t", "d", "--", "a"}, false, false, ""},
+	{"cp folder without -r", []string{"s/x=1"}, "cp", []string{"--", "s", "t"}, true, false, ""},
+	{"cp -r to new", []string{"s/x=1", "s/y/z=2"}, "cp", []string{"-r", "--", "s", "t"}, false, false, ""},
+	{"cp -r into existing", []string{"s/x=1", "t/s/x=old", "t/other=o"}, "cp", []string{"-r", "--", "s", "t"}, false, false, ""},
+	{"cp -rT merge", []string{"s/x=1", "s/n=new", "t/x=old", "t/keep=k"}, "cp", []string{"-rT", "--", "s", "t"}, false, false, ""},
+	{"cp folder into itself", []string{"s/x=1"}, "cp", []string{"-r", "--", "s", "s/in"}, true, false, "s/in/"},
+	{"cp file over folder", []string{"a=1", "d/a/x=1"}, "cp", []string{"--", "a", "d"}, true, false, ""},
+	{"cp many, not a folder", []string{"a=1", "b=2", "c=3"}, "cp", []string{"--", "a", "b", "c"}, true, false, ""},
 
-	{"mv rename", []string{"a=1"}, "mv", []string{"--", "a", "b"}, false, false},
-	{"mv over file", []string{"a=1", "b=2"}, "mv", []string{"--", "a", "b"}, false, false},
-	{"mv -n", []string{"a=1", "b=2"}, "mv", []string{"-n", "--", "a", "b"}, false, true},
-	{"mv into folder", []string{"a=1", "d=/"}, "mv", []string{"--", "a", "d"}, false, false},
-	{"mv folder", []string{"s/x=1", "s/y/z=2"}, "mv", []string{"--", "s", "t"}, false, false},
-	{"mv folder onto empty folder", []string{"s/x=1", "t=/"}, "mv", []string{"-T", "--", "s", "t"}, false, false},
-	{"mv folder onto full folder", []string{"s/x=1", "t/y=2"}, "mv", []string{"-T", "--", "s", "t"}, true, false},
-	{"mv missing", []string{"a=1"}, "mv", []string{"--", "nope", "a", "d"}, true, false},
+	{"mv rename", []string{"a=1"}, "mv", []string{"--", "a", "b"}, false, false, ""},
+	{"mv over file", []string{"a=1", "b=2"}, "mv", []string{"--", "a", "b"}, false, false, ""},
+	{"mv -n", []string{"a=1", "b=2"}, "mv", []string{"-n", "--", "a", "b"}, false, true, ""},
+	{"mv into folder", []string{"a=1", "d=/"}, "mv", []string{"--", "a", "d"}, false, false, ""},
+	{"mv folder", []string{"s/x=1", "s/y/z=2"}, "mv", []string{"--", "s", "t"}, false, false, ""},
+	{"mv folder onto empty folder", []string{"s/x=1", "t=/"}, "mv", []string{"-T", "--", "s", "t"}, false, false, ""},
+	{"mv folder onto full folder", []string{"s/x=1", "t/y=2"}, "mv", []string{"-T", "--", "s", "t"}, true, false, ""},
+	{"mv missing", []string{"a=1"}, "mv", []string{"--", "nope", "a", "d"}, true, false, ""},
 }
 
 // Each scenario's plan, applied to the tree, must give what the real
@@ -205,6 +208,13 @@ func TestPlansMatchRealTools(t *testing.T) {
 				if v == "?" {
 					if _, ok := got[k]; ok {
 						want[k] = got[k]
+					}
+				}
+			}
+			if sc.unsure != "" {
+				for k := range got {
+					if strings.HasPrefix(k, sc.unsure) {
+						delete(got, k)
 					}
 				}
 			}
