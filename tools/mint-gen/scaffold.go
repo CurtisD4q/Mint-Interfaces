@@ -284,6 +284,36 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if f := spec.Follow; f != nil {
+		fmt.Fprintf(&buf, "\t\tFollow: &appkit.FollowSpec{Format: %q", f.Format)
+		for _, x := range []struct {
+			name string
+			v    []string
+		}{{"FollowArgs", f.FollowArgs}, {"FollowFlags", f.FollowFlags}, {"FormatArgs", f.FormatArgs},
+			{"FormatFlags", f.FormatFlags}, {"ReadableFlags", f.ReadableFlags}} {
+			if len(x.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", x.name, goStrings(x.v))
+			}
+		}
+		if f.AutoStart {
+			buf.WriteString(", AutoStart: true")
+		}
+		if f.Restart != "" {
+			fmt.Fprintf(&buf, ", Restart: %q", f.Restart)
+		}
+		for i, l := range f.Levels {
+			if i == 0 {
+				buf.WriteString(", Levels: []appkit.FollowLevel{")
+			} else {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "{Level: %q, Regex: %q}", l.Level, l.Regex)
+			if i == len(f.Levels)-1 {
+				buf.WriteString("}")
+			}
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
 	}
