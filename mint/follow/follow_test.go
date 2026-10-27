@@ -130,22 +130,28 @@ func TestDropsOldest(t *testing.T) {
 	}
 }
 
-// Filtering stays fast: a hostile pattern can't hang the view.
+// Filtering stays fast: a pattern that is catastrophic for a backtracking
+// engine costs about the same as a simple one here. Compared with a
+// baseline, not a clock, so slow machines and -race don't matter.
 func TestRegexIsLinear(t *testing.T) {
 	var b Buffer
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
 		b.Add(mint.LogLine{Text: strings.Repeat("a", 16000) + "!"})
 	}
-	start := time.Now()
-	// Catastrophic for a backtracking engine; linear for Go's.
-	if err := b.SetFilter(`(a+)+$`, true); err != nil {
-		t.Fatal(err)
+	timeOf := func(pattern string) time.Duration {
+		start := time.Now()
+		if err := b.SetFilter(pattern, true); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(start)
 	}
+	base := timeOf(`a+$`)
+	evil := timeOf(`(a+)+$`)
 	if b.Len() != 0 {
 		t.Fatal("matched a line ending in !")
 	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("filtering took %v", d)
+	if evil > 20*base+50*time.Millisecond {
+		t.Fatalf("(a+)+$ took %v, a+$ took %v", evil, base)
 	}
 }
 
