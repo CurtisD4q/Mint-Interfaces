@@ -430,23 +430,25 @@ type archWeights struct {
 // defaultArchWeights give behaviour cues and phrases alike their points
 // by where they were found: usage 30, summary 25, description 20, name 15,
 // the rest of the help 10. A cue's strength is a percent of its part's
-// points.
+// points; the strengths, the weak-word points, the body limit and the
+// share of the old template phrases were chosen by a cross-validated
+// search within that split (MINT_ARCHETYPE_BENCH=tune).
 var defaultArchWeights = archWeights{
 	CueZone:     [numZones]int{zoneName: 15, zoneSummary: 25, zoneDescription: 20, zoneUsage: 30, zoneBody: 10},
-	CueStrength: [4]int{cueBase: 20, cueWeak: 35, cueMedium: 70, cueStrong: 100},
+	CueStrength: [4]int{cueBase: 15, cueWeak: 75, cueMedium: 127, cueStrong: 150},
 	Words: scoreWeights{
 		Name: 15, Summary: 25, Description: 20, Usage: 30, Body: 10,
-		WeakName: 6, WeakSummary: 10, WeakDescription: 8, WeakUsage: 12,
-		BodyHits: 2, BodyCap: 20,
+		WeakName: 8, WeakSummary: 13, WeakDescription: 11, WeakUsage: 16,
+		BodyHits: 2, BodyCap: 30,
 	},
 	Template: func() scoreWeights {
 		w := defaultWeights
 		w.Related = 0
 		return w
 	}(),
-	TemplateShare: 0,
+	TemplateShare: 60,
 	Related:       10, // SEE ALSO is in the rest of the help
-	ClearLead:     12,
+	ClearLead:     32, // calibrated: clear choices are right about 85% of the time
 }
 
 // archEvidence is what was found in a program's help, before weighing.
