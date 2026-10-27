@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// shArgs runs script with sh -c. Tests use a shell to make test programs;
+// the runner itself never does.
+func shArgs(script string) []string { return []string{"-c", script} }
+
 func texts(j *Job) []string {
 	var out []string
 	for _, l := range j.Lines() {
@@ -45,7 +49,7 @@ func TestDoneAndOutput(t *testing.T) {
 }
 
 func TestExitCode(t *testing.T) {
-	j := Start(Cmd{Shell: "echo oops >&2; exit 3", Label: "thing"})
+	j := Start(Cmd{Name: "sh", Args: shArgs("echo oops >&2; exit 3"), Label: "thing"})
 	waitOrFail(t, j, 5*time.Second)
 	if j.State() != Failed || j.ExitCode() != 3 {
 		t.Fatalf("state %v code %d", j.State(), j.ExitCode())
@@ -74,7 +78,7 @@ func TestMissingProgram(t *testing.T) {
 }
 
 func TestCarriageReturnRedraw(t *testing.T) {
-	j := Start(Cmd{Shell: `printf 'start\n10%%\r50%%\r100%%\ndone\r\n'; printf 'a\rb'`, Progress: Percent})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`printf 'start\n10%%\r50%%\r100%%\ndone\r\n'; printf 'a\rb'`), Progress: Percent})
 	waitOrFail(t, j, 5*time.Second)
 	if got := strings.Join(texts(j), "|"); got != "start|100%|done|b" {
 		t.Fatalf("lines %q", got)
@@ -85,7 +89,7 @@ func TestCarriageReturnRedraw(t *testing.T) {
 }
 
 func TestProgressWhileRunning(t *testing.T) {
-	j := Start(Cmd{Shell: `printf '37%%\r'; sleep 2`, Progress: Percent})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`printf '37%%\r'; sleep 2`), Label: "printf", Progress: Percent})
 	defer j.Stop()
 	deadline := time.Now().Add(2 * time.Second)
 	for j.Percent() != 37 && time.Now().Before(deadline) {
@@ -103,7 +107,7 @@ func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
 func TestStopKillsChildren(t *testing.T) {
 	// The shell starts two background sleeps and prints their pids.
-	j := Start(Cmd{Shell: `sleep 60 & echo $!; sleep 60 & echo $!; wait`})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`sleep 60 & echo $!; sleep 60 & echo $!; wait`), Label: "sleep"})
 	var pids []int
 	deadline := time.Now().Add(3 * time.Second)
 	for len(pids) < 2 && time.Now().Before(deadline) {
@@ -135,7 +139,7 @@ func TestStopKillsChildren(t *testing.T) {
 }
 
 func TestStopEscalatesToKill(t *testing.T) {
-	j := Start(Cmd{Shell: `trap '' TERM; echo ready; while :; do sleep 0.1; done`})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`trap '' TERM; echo ready; while :; do sleep 0.1; done`)})
 	for len(j.Lines()) == 0 {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -151,7 +155,7 @@ func TestStopEscalatesToKill(t *testing.T) {
 }
 
 func TestTimeout(t *testing.T) {
-	j := Start(Cmd{Shell: "sleep 30", Timeout: 300 * time.Millisecond})
+	j := Start(Cmd{Name: "sh", Args: shArgs("sleep 30"), Label: "sleep", Timeout: 300 * time.Millisecond})
 	waitOrFail(t, j, 5*time.Second)
 	if j.State() != TimedOut || j.Badge().Text != "sleep timed out" {
 		t.Fatalf("state %v badge %q", j.State(), j.Badge().Text)
@@ -159,7 +163,7 @@ func TestTimeout(t *testing.T) {
 }
 
 func TestInput(t *testing.T) {
-	j := Start(Cmd{Shell: `read a; read b; echo "got $a and $b"`, Input: true})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`read a; read b; echo "got $a and $b"`), Input: true})
 	if err := j.SendLine("hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -170,14 +174,14 @@ func TestInput(t *testing.T) {
 	if got := strings.Join(texts(j), "|"); got != "got hello and world" {
 		t.Fatalf("lines %q", got)
 	}
-	if err := Start(Cmd{Shell: "true"}).SendLine("x"); err == nil {
+	if err := Start(Cmd{Name: "sh", Args: shArgs("true")}).SendLine("x"); err == nil {
 		t.Fatal("SendLine without Input should fail")
 	}
 }
 
 func TestNoTerminalAccess(t *testing.T) {
 	// A job must not be able to open the controlling terminal.
-	j := Start(Cmd{Shell: `if (: </dev/tty) 2>/dev/null; then echo tty; else echo notty; fi`})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`if (: </dev/tty) 2>/dev/null; then echo tty; else echo notty; fi`)})
 	waitOrFail(t, j, 5*time.Second)
 	if got := strings.Join(texts(j), "|"); got != "notty" {
 		t.Fatalf("got %q", got)
@@ -185,7 +189,7 @@ func TestNoTerminalAccess(t *testing.T) {
 }
 
 func TestLineCap(t *testing.T) {
-	j := Start(Cmd{Shell: "seq 1 20000", MaxLines: 100})
+	j := Start(Cmd{Name: "sh", Args: shArgs("seq 1 20000"), MaxLines: 100})
 	waitOrFail(t, j, 10*time.Second)
 	l := texts(j)
 	if len(l) != 100 || l[0] != "19901" || l[99] != "20000" {
@@ -197,7 +201,7 @@ func TestLineCap(t *testing.T) {
 }
 
 func TestCleanOutput(t *testing.T) {
-	j := Start(Cmd{Shell: `printf '\033[1;31mred\033[0m\tx\n\033]0;title\007ok\n'`})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`printf '\033[1;31mred\033[0m\tx\n\033]0;title\007ok\n'`)})
 	waitOrFail(t, j, 5*time.Second)
 	if got := strings.Join(texts(j), "|"); got != "red     x|ok" {
 		t.Fatalf("lines %q", got)
@@ -206,7 +210,7 @@ func TestCleanOutput(t *testing.T) {
 
 func TestBackgroundChildHoldingOutput(t *testing.T) {
 	// The program exits at once but leaves a child holding stdout open.
-	j := Start(Cmd{Shell: `sleep 30 & echo $!`})
+	j := Start(Cmd{Name: "sh", Args: shArgs(`sleep 30 & echo $!`)})
 	waitOrFail(t, j, 5*time.Second)
 	if j.State() != Done {
 		t.Fatalf("state %v", j.State())
@@ -217,7 +221,7 @@ func TestBackgroundChildHoldingOutput(t *testing.T) {
 }
 
 func TestChanged(t *testing.T) {
-	j := Start(Cmd{Shell: "echo a"})
+	j := Start(Cmd{Name: "sh", Args: shArgs("echo a")})
 	waitOrFail(t, j, 5*time.Second)
 	if !j.Changed() {
 		t.Fatal("first Changed should be true")
@@ -228,8 +232,8 @@ func TestChanged(t *testing.T) {
 }
 
 func TestStopAll(t *testing.T) {
-	a := Start(Cmd{Shell: "sleep 30"})
-	b := Start(Cmd{Shell: "sleep 30"})
+	a := Start(Cmd{Name: "sh", Args: shArgs("sleep 30")})
+	b := Start(Cmd{Name: "sh", Args: shArgs("sleep 30")})
 	StopAll()
 	if a.State() != Stopped || b.State() != Stopped {
 		t.Fatalf("states %v %v", a.State(), b.State())
@@ -267,7 +271,7 @@ func TestParsers(t *testing.T) {
 }
 
 func TestStopSignal(t *testing.T) {
-	j := Start(Cmd{Shell: `trap 'echo got INT; exit 3' INT; echo ready; while :; do sleep 0.1; done`,
+	j := Start(Cmd{Name: "sh", Args: shArgs(`trap 'echo got INT; exit 3' INT; echo ready; while :; do sleep 0.1; done`),
 		StopSignal: syscall.SIGINT})
 	for len(j.Lines()) == 0 {
 		time.Sleep(10 * time.Millisecond)
@@ -283,7 +287,7 @@ func TestTailLinesAndSlice(t *testing.T) {
 	if DefaultMaxLines != 50000 {
 		t.Fatalf("DefaultMaxLines = %d, want 50000", DefaultMaxLines)
 	}
-	j := Start(Cmd{Shell: "seq 1 10"})
+	j := Start(Cmd{Name: "sh", Args: shArgs("seq 1 10")})
 	waitOrFail(t, j, 5*time.Second)
 	tail, total := j.TailLines(3)
 	if total != 10 || len(tail) != 3 || tail[0].Text != "8" || tail[2].Text != "10" {
@@ -303,7 +307,7 @@ func TestSlowReaderKeepsAllOutput(t *testing.T) {
 		}
 		return Percent(line)
 	}
-	j := Start(Cmd{Shell: "seq 1 30000", Progress: slow})
+	j := Start(Cmd{Name: "sh", Args: shArgs("seq 1 30000"), Progress: slow})
 	waitOrFail(t, j, 30*time.Second)
 	if total, last := j.Total(), j.Tail(1)[0].Text; total != 30000 || last != "30000" {
 		t.Fatalf("got %d lines, last %q; want 30000 lines ending \"30000\"", total, last)
@@ -311,7 +315,7 @@ func TestSlowReaderKeepsAllOutput(t *testing.T) {
 }
 
 func TestRedactRewritesLines(t *testing.T) {
-	j := Start(Cmd{Shell: "echo 'pw=hunter22'; echo 'pw=hunter22' >&2; exit 3",
+	j := Start(Cmd{Name: "sh", Args: shArgs("echo 'pw=hunter22'; echo 'pw=hunter22' >&2; exit 3"),
 		Redact: func(s string) string { return strings.ReplaceAll(s, "hunter22", "***") }})
 	j.Wait()
 	for _, l := range j.Lines() {

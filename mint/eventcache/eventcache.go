@@ -18,8 +18,10 @@ import (
 type Options struct {
 	// Fetchers produce the value of each named slice.
 	Fetchers map[string]func() any
-	// Stream is an optional shell command that prints one event per line.
-	Stream string
+	// Stream is an optional program, with its arguments, that prints one
+	// event per line: {"nmcli", "monitor"}. It runs directly, never
+	// through a shell.
+	Stream []string
 	// Classify maps an event line to the slice it affects. Returning "" (or
 	// leaving Classify nil) marks every slice dirty.
 	Classify func(line string) string
@@ -30,7 +32,7 @@ type Cache struct {
 	fetchers  map[string]func() any
 	values    map[string]any
 	dirty     map[string]bool
-	streamCmd string
+	streamCmd []string
 	classify  func(string) string
 	started   bool
 
@@ -44,7 +46,7 @@ func New(o Options) *Cache {
 		fetchers:  o.Fetchers,
 		values:    map[string]any{},
 		dirty:     map[string]bool{},
-		streamCmd: o.Stream,
+		streamCmd: append([]string(nil), o.Stream...),
 		classify:  o.Classify,
 	}
 	if c.fetchers == nil {
@@ -62,8 +64,8 @@ func (c *Cache) Start() bool {
 		return true
 	}
 	c.started = true
-	if c.streamCmd != "" {
-		c.job = runner.Start(runner.Cmd{Shell: c.streamCmd, Label: "events"})
+	if len(c.streamCmd) > 0 {
+		c.job = runner.Start(runner.Cmd{Name: c.streamCmd[0], Args: c.streamCmd[1:], Label: "events"})
 		c.seen = 0
 	}
 	return true
