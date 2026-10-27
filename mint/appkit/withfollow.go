@@ -158,7 +158,10 @@ type followSource struct {
 }
 
 func (a *ToolApp) newFollowSource() *followSource {
-	pats, _ := compileLevels(a.Spec.Follow.Levels)
+	var pats []follow.LevelPattern
+	if a.Spec.Follow != nil {
+		pats, _ = compileLevels(a.Spec.Follow.Levels)
+	}
 	return &followSource{a: a, buf: &follow.Buffer{Format: a.followFormat(), Patterns: pats}, backoff: time.Second, now: time.Now}
 }
 
@@ -231,7 +234,7 @@ func (s *followSource) Poll() bool {
 		}
 	}
 	// Stopped by the user, or timed out: don't restart.
-	if s.a.Spec.Follow.Restart == "on-exit" && (job.State() == runner.Done || job.State() == runner.Failed) &&
+	if s.a.Spec.Follow != nil && s.a.Spec.Follow.Restart == "on-exit" && (job.State() == runner.Done || job.State() == runner.Failed) &&
 		s.now().Sub(s.exitAt) >= s.backoff {
 		s.backoff = min(s.backoff*2, 30*time.Second)
 		if _, err := s.a.StartJob(); err != nil {

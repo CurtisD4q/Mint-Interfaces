@@ -496,6 +496,10 @@ func (a *ToolApp) confirmAndRun(c *mint.Ctx, summary string) {
 		c.ToastError(err.Error())
 		return
 	}
+	if a.Spec.Service != nil {
+		c.Push(a.ServiceScreen())
+		return
+	}
 	if a.Spec.Follow != nil {
 		c.Push(a.FollowScreen())
 		return

@@ -133,6 +133,7 @@ type ToolSpec struct {
 	Findings          *FindingsSpec    `json:"findings,omitempty"`           // Mixin: WithFindings (Audit)
 	Preview           *PreviewSpec     `json:"preview,omitempty"`            // Mixin: WithPreview (Edit files)
 	Follow            *FollowSpec      `json:"follow,omitempty"`             // Mixin: WithFollow (Follow)
+	Service           *ServiceSpec     `json:"service,omitempty"`            // Mixin: WithService (Serve)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
@@ -237,6 +238,7 @@ type ToolApp struct {
 	diffOK       bool            // WithDiff: the last run printed a format the differences view reads
 	findings     *findingsReport // WithFindings: what the last run found
 	findingsOK   bool            // WithFindings: the last run printed a format the findings view reads
+	svcProbe     serviceProbe    // WithService: cached socket scan
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -793,6 +795,7 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 	args, _ = a.diffArgs(args, prefix)
 	args, _ = a.findingsArgs(args, prefix)
 	args = a.followArgs(args, prefix)
+	args = a.withServiceArgs(args, prefix)
 	return args, outPath, stdin
 }
 
@@ -2048,6 +2051,10 @@ func (a *ToolApp) BuildApp() *mint.App {
 	}
 
 	var items []mint.HomeItem
+	if a.Spec.Service != nil {
+		items = append(items, mint.HomeItem{Icon: "◉", Label: "Server", Desc: "Start, stop and see where " + a.Spec.Name + " is listening", Open: a.ServiceScreen})
+		primaryLabel = "Options"
+	}
 	if a.Spec.Follow != nil {
 		// Stream first: the log, then the options.
 		items = append(items, mint.HomeItem{Icon: "↧", Label: "Live log", Desc: "Follow " + a.Spec.Name + "'s output as it arrives", Open: a.FollowScreen})
