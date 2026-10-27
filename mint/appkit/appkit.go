@@ -129,6 +129,7 @@ type ToolSpec struct {
 	StatusArgs        []string         `json:"status_args,omitempty"`        // Read-only command that shows current state (Config/Monitor)
 	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
+	Diff              *DiffSpec        `json:"diff,omitempty"`               // Mixin: WithDiff (Compare)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
@@ -230,6 +231,7 @@ type ToolApp struct {
 	memBacked    bool     // the in-memory folder really is in memory (tmpfs)
 	lastData     string   // level the last run's output turned out to have
 	lastFindings []string // kinds of secret found in the last run's output
+	diffOK       bool     // WithDiff: the last run printed a format the differences view reads
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
@@ -782,6 +784,7 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 	}
 	flagArgs, outPath, stdin := a.composeFlagArgs(mask)
 	args = append(args, flagArgs...)
+	args, _ = a.diffArgs(args)
 	return args, outPath, stdin
 }
 
@@ -1075,9 +1078,11 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 		job.CloseInput()
 	}
 
+	_, diffOK := a.diffArgs(args)
 	a.mu.Lock()
 	a.activeJob = job
 	a.lastOut = outPath
+	a.diffOK = diffOK
 	a.mu.Unlock()
 
 	return job, nil
@@ -1754,6 +1759,9 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 		)
 
 		var actRows []mint.Row
+		if row, ok := a.diffActionRow(); ok {
+			actRows = append(actRows, row)
+		}
 		actRows = append(actRows,
 			mint.Action(mint.ActionOpts{
 				Label: "Open full log viewer (search / horizontal scroll / save)…",

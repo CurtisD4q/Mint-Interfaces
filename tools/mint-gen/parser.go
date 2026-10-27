@@ -190,6 +190,9 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	}
 	tplExt := spec.DefaultExt // the template's, if it has one
 	appkit.ApplySafetyDefaults(&spec)
+	if d, ok := appkit.KnownDiffSpec(spec.BinaryName()); ok && spec.Diff == nil {
+		spec.Diff = &d
+	}
 	// One answer for what the tool reads and writes (see BuildIOModel).
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)
