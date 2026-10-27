@@ -130,6 +130,7 @@ type ToolSpec struct {
 	StatusArgs        []string         `json:"status_args,omitempty"`        // Read-only command that shows current state (Config/Monitor)
 	ReadOnly          bool             `json:"read_only,omitempty"`          // Running the tool only reports state, so a monitor may poll it
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
+	Reorder           *ReorderSpec     `json:"reorder,omitempty"`            // Mixin: WithReorder (Rules)
 	Diff              *DiffSpec        `json:"diff,omitempty"`               // Mixin: WithDiff (Compare)
 	Findings          *FindingsSpec    `json:"findings,omitempty"`           // Mixin: WithFindings (Audit)
 	Preview           *PreviewSpec     `json:"preview,omitempty"`            // Mixin: WithPreview (Edit files)
@@ -240,6 +241,7 @@ type ToolApp struct {
 	diffOK       bool            // WithDiff: the last run printed a format the differences view reads
 	findings     *findingsReport // WithFindings: what the last run found
 	findingsOK   bool            // WithFindings: the last run printed a format the findings view reads
+	rules        *reorderState   // WithReorder: the rule order screen
 	svcProbe     serviceProbe    // WithService: cached socket scan
 
 	session *transcript.Session // WithTranscript: the open session
@@ -751,6 +753,9 @@ func (a *ToolApp) expiredSecrets() []string {
 
 // Close wipes every secret. appkit.Run calls it when the interface closes.
 func (a *ToolApp) Close() {
+	if a.Spec.Reorder != nil {
+		a.closeReorder() // a change not kept by now goes back
+	}
 	a.mu.Lock()
 	st := a.store
 	a.store = nil
@@ -2060,6 +2065,9 @@ func (a *ToolApp) BuildApp() *mint.App {
 	}
 
 	var items []mint.HomeItem
+	if a.Spec.Reorder != nil {
+		items = append(items, mint.HomeItem{Icon: "⇅", Label: "Rule order", Desc: "Change the order of " + a.Spec.Name + "'s rules, with a way back", Open: a.ReorderScreen})
+	}
 	if a.Spec.Service != nil {
 		items = append(items, mint.HomeItem{Icon: "◉", Label: "Server", Desc: "Start, stop and see where " + a.Spec.Name + " is listening", Open: a.ServiceScreen})
 		primaryLabel = "Options"

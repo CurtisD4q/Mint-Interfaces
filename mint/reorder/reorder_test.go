@@ -343,3 +343,47 @@ func TestNFTTexts(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A backup restores the rules by hand: replayed into a fake, it gives
+// back the original order.
+func TestBackup(t *testing.T) {
+	for _, name := range adapters {
+		f, ad, scope := setup(name, 4)
+		before, _ := ad.List(ctx, f.run, scope)
+		text := Backup(before)
+		if !strings.HasPrefix(text, "# Rules of ") {
+			t.Fatalf("%s: %q", name, text)
+		}
+		_, p, _ := Prepare(ctx, ad, f.run, before, swapFree(before))
+		Apply(ctx, ad, f.run, before, p)
+		var body []string
+		for _, l := range strings.Split(text, "\n") {
+			if l != "" && !strings.HasPrefix(l, "#") {
+				body = append(body, l)
+			}
+		}
+		switch name {
+		case "iptables":
+			if _, err := f.run(ctx, Step{Name: "iptables-restore", Args: []string{"-c"}, Stdin: strings.Join(body, "\n") + "\n"}); err != nil {
+				t.Fatal(err)
+			}
+		case "nft":
+			if _, err := f.run(ctx, Step{Name: "nft", Args: []string{"-j", "-f", "-"}, Stdin: body[0]}); err != nil {
+				t.Fatal(err)
+			}
+		case "ufw":
+			f.ufw = nil
+			for _, l := range body {
+				w, _ := splitWords(strings.TrimPrefix(l, "ufw "))
+				f.ufwRun(w)
+			}
+		case "ip-rule":
+			f.rules = f.rules[:3]
+			for _, l := range body {
+				f.ipRun(strings.Fields(l)[1:])
+			}
+		}
+		got, _ := ad.List(ctx, f.run, scope)
+		expect(t, before, identity(len(before.Rules)), got)
+	}
+}
