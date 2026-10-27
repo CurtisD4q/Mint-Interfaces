@@ -83,7 +83,7 @@ git capture/log results/log
 hg capture/log results/log
 svn capture/log results/log
 docker capture/log results/log
-podman capture/log results/log
+podman capture/log/--out results/log
 virsh capture results
 apt capture/log results/log
 dnf capture/log results/log
@@ -112,7 +112,7 @@ ncdu -o/capture results
 iftop capture results
 siege capture/-l|--log results
 chronyc capture results
-crudini capture results
+crudini capture/--output results
 nmcli capture results
 ethtool capture results
 bridge capture results
