@@ -229,6 +229,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.Irreversible {
 		buf.WriteString("\t\tIrreversible:      true,\n")
 	}
+	if spec.OperandSeparator {
+		buf.WriteString("\t\tOperandSeparator:  true,\n")
+	}
 	if len(spec.StatusArgs) > 0 {
 		buf.WriteString("\t\tStatusArgs:        []string{")
 		for i, a := range spec.StatusArgs {
