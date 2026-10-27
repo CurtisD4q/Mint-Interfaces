@@ -1,0 +1,61 @@
+# A second, fresh set: programs the scorer was never tuned on, labelled
+# before the first run (git history shows the labels came first).
+# program template source
+# source: list = the template's tool list; judged = labelled by hand
+# (these programs are on no list, the case the scorer exists for).
+chronyc T01 judged
+crudini T02 judged
+nmcli T03 list
+ethtool T04 judged
+bridge T04 judged
+tc T04 judged
+ln T05 judged
+rm T05 judged
+rename T05 judged
+lame T06 judged
+ps2pdf T06 judged
+sox T06 list
+lftp T07 judged
+zstd T08 list
+rdiff-backup T09 judged
+duplicity T09 list
+meson T10 judged
+node T10 judged
+python3 T10 judged
+tox T10 judged
+iperf3 T11 list
+fping T12 list
+tcpflow T13 judged
+nslookup T14 list
+rkhunter T15 list
+ssh-keygen T16 judged
+certtool T16 judged
+md5sum T16 list
+mpstat T17 list
+service T18 list
+top T19 judged
+nice T19 judged
+renice T19 judged
+pstree T19 list
+logger T20 judged
+logrotate T20 judged
+lastlog T20 list
+bzr T21 judged
+cvs T21 judged
+buildah T22 judged
+skopeo T22 judged
+qemu-img T22 judged
+dpkg T23 judged
+npm T23 list
+fdisk T24 judged
+parted T24 judged
+findmnt T24 list
+fdfind T25 judged
+fzf T25 judged
+whereis T25 judged
+mawk T26 judged
+xmlstarlet T26 judged
+mlr T26 list
+less T27 judged
+apropos T27 list
+atq T28 list

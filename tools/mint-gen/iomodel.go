@@ -54,6 +54,8 @@ type IOModel struct {
 	Known     bool   // the tool is in the known-tools list
 	Usage     string // the first usage form
 	Template  TemplateChoice
+	HelpRead  []string // the help mint-gen read ("man page", "--help", "-h (the help says…)")
+	HelpNotes []string // help that could not be read, and why
 }
 
 // BuildIOModel combines the options' roles (ClassifyArg), the usage forms
@@ -106,8 +108,15 @@ func BuildIOModel(spec appkit.ToolSpec, syn Synopsis) IOModel {
 			}
 		}
 		_, ev := ClassifyArg(spec.Name, f)
-		if s := sortEvidence(ev); len(s) > 0 {
-			e.Why = s[0].Reason
+		// The strongest reason for the role it got, not for another role.
+		for _, x := range sortEvidence(ev) {
+			if x.Role == f.Role && x.Weight > 0 {
+				e.Why = x.Reason
+				break
+			}
+		}
+		if e.Why == "" {
+			e.Why = "no clear evidence either way"
 		}
 		add(e)
 	}
@@ -202,6 +211,14 @@ func applyIOModel(spec *appkit.ToolSpec, m IOModel) {
 func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 	p := func(format string, a ...any) { fmt.Fprint(w, safeTerminalText(fmt.Sprintf(format, a...))+"\n") }
 	p("%s: what goes in and what comes out", m.Tool)
+	if len(m.HelpRead) > 0 {
+		p("  Help:     %s", strings.Join(m.HelpRead, ", "))
+	} else if m.HelpNotes != nil {
+		p("  Help:     none could be read")
+	}
+	for _, n := range m.HelpNotes {
+		p("  Note:     %s", n)
+	}
 	if m.Template.ID != "" {
 		tpl, _ := appkit.LookupTemplate(m.Template.ID)
 		p("  Template: %s %s (%s)", m.Template.ID, tpl.Slug, m.Template.Why)

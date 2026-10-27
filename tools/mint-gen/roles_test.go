@@ -112,3 +112,72 @@ func TestFixedValueAlias(t *testing.T) {
 		}
 	}
 }
+
+// A folder option is never given the app's output file, however usual its
+// name: tcpflow's "-o outdir" is the folder it writes transcripts into.
+func TestFolderOptionsAreNotOutputFiles(t *testing.T) {
+	for _, c := range []struct {
+		flag, hint, desc string
+		want             appkit.ArgRole
+	}{
+		{"-o", "outdir", "Specifies the output directory where the transcript files will be written.", appkit.RoleOutputDir},
+		{"--dest", "destdir", "where to save the results", appkit.RoleOutputDir},
+		{"-C", "path", "the working directory to run in", appkit.RoleDir},
+		// A description about directories does not make a time or a name a folder.
+		{"--changed-since", "time", "List the files that have changed in the destination directory since the given time.", appkit.RoleValue},
+		{"--imap-mailbox", "imap_mailbox", "Name of the imap folder to store backups", appkit.RoleValue},
+	} {
+		f := appkit.FlagSpec{Flag: c.flag, Kind: appkit.FlagText, Hint: c.hint, Label: c.desc + " (" + c.flag + ")"}
+		role, ev := ClassifyArg("tool9", f)
+		if role == appkit.RoleOutputFile {
+			t.Errorf("%s %s: output file %v", c.flag, c.hint, ev)
+		}
+		if c.want == appkit.RoleValue && role != appkit.RoleValue {
+			t.Errorf("%s %s: %s, want a plain value %v", c.flag, c.hint, role, ev)
+		}
+		if c.want == appkit.RoleOutputDir && role != appkit.RoleOutputDir {
+			t.Errorf("%s %s: %s, want output dir %v", c.flag, c.hint, role, ev)
+		}
+	}
+}
+
+// "Send output (stdout) from podman to a file" writes the output, whatever
+// "from" suggests.
+func TestSendOutputToFile(t *testing.T) {
+	for _, desc := range []string{"Send output (stdout) from podman to a file", "Redirect the output of podman to the specified path"} {
+		f := appkit.FlagSpec{Flag: "--out", Kind: appkit.FlagFile, Hint: "path", Label: desc + " (--out)"}
+		if role, ev := ClassifyArg("tool9", f); role != appkit.RoleOutputFile {
+			t.Errorf("%q: %s %v", desc, role, ev)
+		}
+	}
+}
+
+// A "prefix" placeholder is a folder only when the description is about
+// paths: "--prefix=PREFIX install into PREFIX/bin", not "--default-search
+// PREFIX  Use this prefix for unqualified URLs".
+func TestPrefixPlaceholder(t *testing.T) {
+	folder := appkit.FlagSpec{Flag: "--prefix", Kind: appkit.FlagText, Hint: "PREFIX", Label: "install files under this directory (--prefix)"}
+	if role, ev := ClassifyArg("tool9", folder); role != appkit.RoleDir && role != appkit.RoleOutputDir {
+		t.Errorf("--prefix: %s %v", role, ev)
+	}
+	install := appkit.FlagSpec{Flag: "--prefix", Kind: appkit.FlagText, Hint: "prefix", Label: "Override the installation prefix (--prefix)"}
+	if role, ev := ClassifyArg("tool9", install); role != appkit.RoleDir && role != appkit.RoleOutputDir {
+		t.Errorf("installation prefix: %s %v", role, ev)
+	}
+	url := appkit.FlagSpec{Flag: "--default-search", Kind: appkit.FlagText, Hint: "PREFIX", Label: "Use this prefix for unqualified URLs, e.g. downloads two videos (--default-search)"}
+	if role, ev := ClassifyArg("tool9", url); role != appkit.RoleValue {
+		t.Errorf("--default-search: %s %v", role, ev)
+	}
+}
+
+// --explain gives the reason for the role an option got.
+func TestExplainReasonMatchesRole(t *testing.T) {
+	// The strongest evidence here is for an input file (+5, "reads"); the
+	// option's role is output file, so its reason must be the output one.
+	spec := appkit.ToolSpec{Name: "tool9", Flags: []appkit.FlagSpec{{Flag: "-o", Kind: appkit.FlagFile, Hint: "path",
+		Label: "write the result; reads the input first (-o)", Role: appkit.RoleOutputFile}}}
+	m := BuildIOModel(spec, Synopsis{})
+	if len(m.Outputs) != 1 || strings.Contains(m.Outputs[0].Why, "reads") {
+		t.Fatalf("outputs: %+v", m.Outputs)
+	}
+}

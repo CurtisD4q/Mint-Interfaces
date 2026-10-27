@@ -15,7 +15,10 @@ type Placeholder struct {
 }
 
 // Words that say nothing about what the value is.
-var vaguePlaceholderWords = map[string]bool{"value": true, "val": true, "arg": true, "args": true, "argument": true, "x": true, "param": true}
+// Go programs (podman, rclone, restic) name a value by its type, which
+// says no more: "--root string".
+var vaguePlaceholderWords = map[string]bool{"value": true, "val": true, "arg": true, "args": true, "argument": true, "x": true, "param": true,
+	"string": true, "str": true}
 
 // ParsePlaceholder reads a placeholder such as "=FILE", "<file>...",
 // "[=WHEN]", "{json|xml}" or "identity_file".
@@ -155,9 +158,22 @@ var (
 	reNameWithValue = regexp.MustCompile(`(-{1,2}[A-Za-z0-9][-A-Za-z0-9_.]*)[ =]([A-Z][A-Z0-9_-]{0,31}|<[^>\s]{1,32}>)`)
 	// A folder rather than a file.
 	reDirWord = regexp.MustCompile(`(?i)^(?:dir|dirs|directory|directories|folder|folders|dirname)$`)
+	// A folder word joined to another: "outdir", "destdir", "workdir".
+	reJoinedDirWord = regexp.MustCompile(`(?i)^(?:out|output|dest|target|work|working|src|source|base|log|cache|tmp|temp|save|download|build|root|data|home)(?:dir|directory|folder)$`)
+	// "the installation prefix": a folder.
+	reInstallWords = regexp.MustCompile(`(?i)\binstall(?:ation|ed|s)?\b`)
+	// A description about web addresses, not paths.
+	reURLWords = regexp.MustCompile(`(?i)\b(?:urls?|uris?|https?|web\s+address(?:es)?)\b`)
+	// A description that says the value is a folder: "the output
+	// directory", "destination folder", "directory to save into".
+	reDirDesc = regexp.MustCompile(`(?i)\b(?:output|destination|target|download|save|working|log|cache|temporary)\s+(?:directory|folder|dir)\b|\b(?:directory|folder)\s+(?:to|where|in\s+which|into)\b`)
 	// Any line that starts like an option: "-x", "--long", "-oN/-oX".
-	reOptionStart    = regexp.MustCompile(`^\s{1,12}--?[A-Za-z0-9]`)
-	reSlashGroupLine = regexp.MustCompile(`^\s{1,12}(-[A-Za-z0-9]{1,4}(?:/-?[A-Za-z0-9]{1,4})+)(\[[^\]\s]{1,32}\]|<[^>\s]{1,32}>)?(?:\s+(<[^>\s]{1,32}>|[A-Z][A-Z0-9_-]{1,15}|[a-z][a-z0-9_-]{0,31}))?:?(?:\s+(.*))?$`)
+	reOptionStart = regexp.MustCompile(`^\s{1,12}--?[A-Za-z0-9]`)
+	// One nmap-style name on its own, with a value: "-oX <file>  write XML",
+	// "-iL <inputfilename>: read targets". A dash, a lower-case letter, then
+	// one or two capitals or digits.
+	reCompactNameLine = regexp.MustCompile(`^\s{1,12}(-[a-z][A-Z0-9]{1,2}):?\s+(<[^>\s]{1,32}>|[A-Z][A-Z0-9_-]{1,15}|[a-z][a-z0-9_-]{0,31})(?::?\s{2,}|:\s+|\s*$)(.*)$`)
+	reSlashGroupLine  = regexp.MustCompile(`^\s{1,12}(-[A-Za-z0-9]{1,4}(?:/-?[A-Za-z0-9]{1,4})+)(\[[^\]\s]{1,32}\]|<[^>\s]{1,32}>)?(?:\s+(<[^>\s]{1,32}>|[A-Z][A-Z0-9_-]{1,15}|[a-z][a-z0-9_-]{0,31}))?:?(?:\s+(.*))?$`)
 )
 
 // scanOptionLine reads option lines that the main pattern (reOptLine) does
@@ -180,6 +196,9 @@ func scanOptionLine(line string) []OptionText {
 			out = append(out, OptionText{Names: []string{n}, Placeholder: ParsePlaceholder(ph), Desc: strings.TrimSpace(m[4])})
 		}
 		return out
+	}
+	if m := reCompactNameLine.FindStringSubmatch(line); m != nil {
+		return []OptionText{{Names: []string{m[1]}, Placeholder: ParsePlaceholder(m[2]), Desc: strings.TrimSpace(m[3])}}
 	}
 	if m := reMultiNameLine.FindStringSubmatch(line); m != nil {
 		var names []string

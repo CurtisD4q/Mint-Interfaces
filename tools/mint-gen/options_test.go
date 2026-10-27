@@ -132,3 +132,60 @@ func TestClassifyFlagTrustsPlaceholder(t *testing.T) {
 		}
 	}
 }
+
+// A short help table that leaves out an option's value does not hide the
+// man page's definition with the value; an optional value stays a switch,
+// and in a program with subcommands the first definition stays.
+func TestDefinitionWithValueWins(t *testing.T) {
+	help := "Usage: cronish [-s] [-t tab]\n\n -s  Serialize jobs\n -t  Use this table\n --json  Print JSON\n"
+	man := "NAME\n       cronish - run jobs\n\nOPTIONS\n       -t table\n              Use this table.\n\n       --json[=false]\n              Print JSON.\n"
+	kind := func(spec appkit.ToolSpec, flag string) appkit.FlagKind {
+		for _, f := range spec.Flags {
+			if f.Flag == flag {
+				return f.Kind
+			}
+		}
+		t.Fatalf("%s missing: %+v", flag, spec.Flags)
+		return ""
+	}
+	spec := ParseManAndHelp("cronish", man, help)
+	if k := kind(spec, "-t"); k == appkit.FlagBool {
+		t.Fatalf("-t stayed a switch")
+	}
+	if k := kind(spec, "--json"); k != appkit.FlagBool {
+		t.Fatalf("--json became %s", k)
+	}
+	if k := kind(spec, "-s"); k != appkit.FlagBool {
+		t.Fatalf("-s became %s", k)
+	}
+	suite := ParseManAndHelp("cronish", man, help+"\nAvailable commands:\n  run   Run jobs\n  list  List jobs\n")
+	if k := kind(suite, "-t"); k != appkit.FlagBool {
+		t.Fatalf("suite: -t replaced (%s)", k)
+	}
+}
+
+// Bulleted option lists and nmap-style names (masscan's man page):
+// "o   -oL <filename>: sets the output format to a simple list".
+func TestBulletedAndCompactOptions(t *testing.T) {
+	man := "NAME\n       scan9 - scan things\n\nOPTIONS\n" +
+		"       o   -oL <filename>: sets the output format to a simple list format and saves the output in\n           the given file.\n\n" +
+		"       o   --rate <packets-per-second>: specifies the desired rate\n\n" +
+		"       *  -iL <inputfilename>: reads a list of targets\n"
+	flags := map[string]appkit.FlagSpec{}
+	for _, f := range parseFlagsFromLines(cleanLines(man), true) {
+		flags[f.Flag] = f
+	}
+	for _, want := range []string{"-oL", "--rate", "-iL"} {
+		f, ok := flags[want]
+		if !ok || f.Kind == appkit.FlagBool {
+			t.Fatalf("%s: %+v (all: %v)", want, f, flags)
+		}
+	}
+	if !strings.Contains(flags["-oL"].Label, "simple list") {
+		t.Fatalf("-oL label: %q", flags["-oL"].Label)
+	}
+	// A plain sentence starting with "o" is not an option.
+	for _, f := range parseFlagsFromLines(cleanLines("NAME\n       x - y\n\nDESCRIPTION\n       o   the output goes to standard output\n"), true) {
+		t.Fatalf("parsed %+v", f)
+	}
+}

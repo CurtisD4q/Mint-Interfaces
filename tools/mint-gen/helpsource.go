@@ -20,6 +20,7 @@ type HelpSource struct {
 	Name string   // "man", "--help", "-h", "--help all", ...
 	Args []string // the arguments the program was run with
 	Text string
+	Why  string `json:",omitempty"` // why it was read, when not obvious ("the help says to run \"dig -h\"")
 }
 
 // Limits for reading help. A program cannot make mint-gen wait, fill its
@@ -45,6 +46,75 @@ var helpVariants = []struct {
 	{"--help=all", regexp.MustCompile(`(?:^|[\s"'\x60(])--help=all\b`), []string{"--help=all"}},
 	{"--help-all", regexp.MustCompile(`(?:^|[\s"'\x60(])--help-all\b`), []string{"--help-all"}},
 	{"--long-help", regexp.MustCompile(`(?:^|[\s"'\x60(])--long-help\b`), []string{"--long-help"}},
+	// ffmpeg's "-h long -- print more options" and zip's "-h2  show more
+	// help": only as an option line that says it gives more help.
+	{"-h long", regexp.MustCompile(`(?m)^\s*-h long\b.*\bmore (?:options|help)\b`), []string{"-h", "long"}},
+	{"-h2", regexp.MustCompile(`(?m)^\s*-h2\b.*\bmore help\b`), []string{"-h2"}},
+}
+
+// helpPointerArgs are the only argument lists mint-gen runs because a
+// program's help tells the reader to run them ("Use \"dig -h\" for the
+// complete list of options"). A pointer naming anything else (a command,
+// a file, "| more") is never followed: "dig help" would look up the
+// domain "help", and "ngrep help" would start a capture.
+var helpPointerArgs = [][]string{
+	{"-h"}, {"-?"}, {"-help"}, {"--help"}, {"--usage"}, {"--long-help"},
+	{"--help-all"}, {"--help=all"}, {"--help", "all"}, {"help"}, {"help", "all"},
+}
+
+// maxHelpRuns caps how many times a program is run for its help.
+const maxHelpRuns = 6
+
+// helpPointer is a command the help tells the reader to run.
+type helpPointer struct {
+	Args  []string
+	Quote string // the command as the help wrote it
+}
+
+// findHelpPointers finds quoted commands in a program's help that run the
+// program itself with only help arguments: "dig -h", `anacron -h',
+// 'ps --help <simple|list|all>' (taken as "ps --help all").
+func findHelpPointers(name, text string) []helpPointer {
+	if name == "" {
+		return nil
+	}
+	re := regexp.MustCompile(`["'\x60\x{2018}\x{201C}](?:[^\s"'\x60]*/)?` + regexp.QuoteMeta(name) + `((?:[ \t]+[^\s"'\x60\x{2019}\x{201D}]+)+)[ \t]*["'\x60\x{2019}\x{201D}]`)
+	var out []helpPointer
+	seen := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(text, 20) {
+		var args []string
+		for _, f := range strings.Fields(m[1]) {
+			if alt := strings.Trim(f, "<>{}[]()"); alt != f && strings.Contains(alt, "|") {
+				f = ""
+				for _, a := range strings.Split(alt, "|") {
+					if a == "all" {
+						f = "all"
+					}
+				}
+			}
+			args = append(args, f)
+		}
+		key := strings.Join(args, " ")
+		if seen[key] || !isHelpPointerArgs(args) {
+			continue
+		}
+		seen[key] = true
+		q := []rune(strings.Trim(m[0], "\"'\x60\u2018\u2019\u201C\u201D"))
+		if len(q) > 80 { // a long path before the name; this is only for display
+			q = append(q[:79], '…')
+		}
+		out = append(out, helpPointer{Args: args, Quote: string(q)})
+	}
+	return out
+}
+
+func isHelpPointerArgs(args []string) bool {
+	for _, a := range helpPointerArgs {
+		if strings.Join(a, "\x00") == strings.Join(args, "\x00") {
+			return true
+		}
+	}
+	return false
 }
 
 // helpRunner runs programs for their help text, as safely as a normal
@@ -109,19 +179,37 @@ func (r *helpRunner) env() []string {
 	return env
 }
 
-// run runs program with args and returns what it printed (standard output
-// and error together), at most helpMaxBytes.
+// run runs program with args and returns what it printed: standard output,
+// then standard error (many programs print their help there), each at most
+// helpMaxBytes. The two are kept apart, never interleaved: a program that
+// writes to both at once (man, with troff's warnings) would otherwise come
+// out mixed differently every run.
 func (r *helpRunner) run(program string, args ...string) (string, error) {
+	stdout, stderr, err := r.runStreams(program, args...)
+	switch {
+	case stderr == "":
+		return stdout, err
+	case stdout == "":
+		return stderr, err
+	}
+	if !strings.HasSuffix(stdout, "\n") {
+		stdout += "\n"
+	}
+	return stdout + stderr, err
+}
+
+// runStreams is run, with standard output and error returned separately.
+func (r *helpRunner) runStreams(program string, args ...string) (string, string, error) {
 	cmd := exec.Command(program, args...)
 	cmd.Dir = r.dir
 	cmd.Env = r.env()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: r.cred}
 	cmd.WaitDelay = 500 * time.Millisecond
-	out := &capBuffer{max: helpMaxBytes}
+	out, errOut := &capBuffer{max: helpMaxBytes}, &capBuffer{max: helpMaxBytes}
 	cmd.Stdout = out
-	cmd.Stderr = out
+	cmd.Stderr = errOut
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	pgid := cmd.Process.Pid // Setsid: the program leads its own process group
 	done := make(chan error, 1)
@@ -138,7 +226,7 @@ func (r *helpRunner) run(program string, args ...string) (string, error) {
 	}
 	// Anything the program started and left behind goes too.
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	return out.String(), err
+	return out.String(), errOut.String(), err
 }
 
 // capBuffer keeps the first max bytes written to it and discards the rest.
@@ -196,7 +284,9 @@ func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 	defer cleanup()
 
 	var out []HelpSource
-	if text, _ := r.run("man", "-P", "cat", name); looksLikeManPage(text) {
+	// The page is on standard output; standard error has only troff's
+	// warnings and "No manual entry".
+	if text, _, _ := r.runStreams("man", "-P", "cat", name); looksLikeManPage(text) {
 		out = append(out, HelpSource{Name: "man", Args: []string{"-P", "cat", name}, Text: text})
 	}
 
@@ -206,31 +296,111 @@ func CollectHelpNotes(bin string) ([]HelpSource, []string) {
 	}
 	help, runErr := r.run(path, "--help")
 	src := HelpSource{Name: "--help", Args: []string{"--help"}, Text: help}
-	if strings.TrimSpace(help) == "" {
+	crash := crashReport(help)
+	if strings.TrimSpace(help) == "" || crash != "" {
 		help, runErr = r.run(path, "-h")
 		src = HelpSource{Name: "-h", Args: []string{"-h"}, Text: help}
+		if c := crashReport(help); c != "" {
+			crash, help = c, ""
+		}
 	}
 	if strings.TrimSpace(help) == "" {
-		if errors.Is(runErr, os.ErrPermission) {
+		switch {
+		case crash != "":
+			notes = append(notes, fmt.Sprintf("%s crashed when asked for its help (%s), so only its man page was read; the program may be broken or missing a part", path, crash))
+		case errors.Is(runErr, os.ErrPermission):
 			notes = append(notes, fmt.Sprintf("could not run %s as %s to read its help (permission denied). "+
 				"mint-gen never runs a program as root just to read its help: run mint-gen as your normal user, "+
 				"or use a copy of the program that user can run.", path, r.user()))
-		} else {
+		default:
 			notes = append(notes, path+" printed no help for --help or -h")
 		}
 		return out, notes
 	}
 	out = append(out, src)
 
-	for _, v := range helpVariants {
-		if !v.re.MatchString(help) {
-			continue
+	// Fuller help the help points to: the variants it mentions, then the
+	// commands it says to run. Each argument list is run at most once.
+	ran := map[string]bool{"--help": true, src.Name: true}
+	runs := 1 + len(ran) // man, --help, and -h when --help printed nothing
+	try := func(args []string, why string) {
+		key := strings.Join(args, " ")
+		if ran[key] || runs >= maxHelpRuns {
+			return
 		}
-		if text, _ := r.run(path, v.args...); strings.TrimSpace(text) != "" && text != help {
-			out = append(out, HelpSource{Name: v.name, Args: v.args, Text: text})
+		ran[key] = true
+		runs++
+		if text, _ := r.run(path, args...); strings.TrimSpace(text) != "" && text != help {
+			out = append(out, HelpSource{Name: key, Args: args, Text: text, Why: why})
 		}
 	}
+	for _, v := range helpVariants {
+		if v.re.MatchString(help) {
+			try(v.args, "the help mentions "+v.name)
+		}
+	}
+	for _, p := range findHelpPointers(name, help) {
+		try(p.Args, "the help says to run \""+p.Quote+"\"")
+	}
+
+	if !hasManPage(out) && helpLineCount(out) < 6 {
+		notes = append(notes, fmt.Sprintf("%s has no man page and only a short usage message, so options it does not list there will be missing", name))
+	}
 	return out, notes
+}
+
+// Signs that a program crashed instead of printing its help.
+var crashSigns = []struct {
+	re   *regexp.Regexp
+	what string
+}{
+	{regexp.MustCompile(`(?m)^Traceback \(most recent call last\):`), "a Python error"},
+	{regexp.MustCompile(`error while loading shared libraries`), "a missing library"},
+	{regexp.MustCompile(`(?m)^Exception in thread "`), "a Java error"},
+	{regexp.MustCompile(`(?m)^(?:node:internal/|Error: Cannot find module )`), "a Node.js error"},
+	{regexp.MustCompile(`(?m)^.*: (?:cannot load such file|\(LoadError\))`), "a Ruby error"},
+}
+
+// reHelpOption is an option line as help prints it ("  -v, --verbose").
+var reHelpOption = regexp.MustCompile(`(?m)^\s{0,12}-{1,2}[A-Za-z0-9]`)
+
+// crashReport names the crash when text is a crash report rather than
+// help: a sign of a crash and no option lines. "" if it is not one.
+func crashReport(text string) string {
+	if reHelpOption.MatchString(text) {
+		return ""
+	}
+	for _, c := range crashSigns {
+		if c.re.MatchString(text) {
+			return c.what
+		}
+	}
+	return ""
+}
+
+func hasManPage(srcs []HelpSource) bool {
+	for _, s := range srcs {
+		if s.Name == "man" {
+			return true
+		}
+	}
+	return false
+}
+
+// helpLineCount counts the non-blank lines of help (not man) text.
+func helpLineCount(srcs []HelpSource) int {
+	n := 0
+	for _, s := range srcs {
+		if s.Name == "man" {
+			continue
+		}
+		for _, l := range strings.Split(s.Text, "\n") {
+			if strings.TrimSpace(l) != "" {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // user names who programs run as, for messages.

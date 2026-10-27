@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestTemplateWordsAreWholeWords(t *testing.T) {
 
 // A long man page cannot outweigh a clear summary.
 func TestBodyIsCapped(t *testing.T) {
-	body := strings.Repeat("archive compress decompress tarball ", 200)
+	body := "Shows the running processes.\n\nOPTIONS\n       " + strings.Repeat("archive compress decompress tarball ", 200)
 	got := chooseTemplate("proclook", appkit.ToolSpec{}, manWithName("proclook", "interactive process viewer", body), "")
 	if got.ID == "T08" {
 		t.Fatalf("the long man page won: %s (%s): %v", got.ID, got.Why, got.Scores)
@@ -56,6 +57,45 @@ func TestBodyIsCapped(t *testing.T) {
 		if s.ID == "T08" && s.Score > defaultWeights.BodyCap {
 			t.Fatalf("body score %d over the cap", s.Score)
 		}
+	}
+}
+
+// The opening of the DESCRIPTION is read on its own, each idea once,
+// however long it is; option names in it are not prose.
+func TestDescriptionZone(t *testing.T) {
+	man := manWithName("vcs9", "manage things", "Vcs9 is a version control system. "+strings.Repeat("It keeps every revision. ", 30)+"See --kill-line.")
+	got := scoreTemplateChoice("vcs9", man, "")
+	if got.ID != "T21" {
+		t.Fatalf("%s (%s) %v", got.ID, got.Why, got.Scores)
+	}
+	for _, s := range got.Scores {
+		n := 0
+		for _, h := range s.Hits {
+			if strings.HasPrefix(h, "description: ") {
+				n++
+			}
+		}
+		if s.ID == "T21" && n != 2 { // version control, revision
+			t.Fatalf("description hits: %v", s.Hits)
+		}
+		if s.ID == "T19" {
+			t.Fatalf("an option name counted as prose: %v", s.Hits)
+		}
+	}
+	if d := extractDescription(cleanLines(man)); len(d) > 600 {
+		t.Fatalf("description %d characters", len(d))
+	}
+}
+
+// A signal word joined to an option or key name by a hyphen is not prose.
+func TestHyphenatedNamesAreNotProse(t *testing.T) {
+	body := "  --smart-case   case-insensitive unless\n  --layout=TYPE\n  ctrl-k  kill-line\n"
+	if s := ScoreTemplates("finder9", "", nil, body, nil); len(s) != 0 {
+		t.Fatalf("option names scored: %v", s)
+	}
+	// In a usage line, "--json" is still a hint.
+	if s := ScoreTemplates("q9", "", []string{"q9 [--json] FILE"}, "", nil); len(s) == 0 || s[0].ID != "T26" {
+		t.Fatalf("usage: %v", s)
 	}
 }
 
@@ -97,7 +137,7 @@ func TestRelatedPrograms(t *testing.T) {
 		t.Fatalf("related: %v", rel)
 	}
 	got := scoreTemplateChoice("lookup2", man, "")
-	if got.ID != "T14" {
+	if len(got.Scores) == 0 || got.Scores[0].ID != "T14" || !strings.Contains(strings.Join(got.Scores[0].Hits, ","), "related: host,related: nslookup") {
 		t.Fatalf("%s (%s) %v", got.ID, got.Why, got.Scores)
 	}
 	// A program is never its own evidence.
@@ -127,6 +167,9 @@ func TestNoClearWinnerFallsBack(t *testing.T) {
 	scores := []TemplateScore{{ID: "T25", Score: 6}, {ID: "T26", Score: 5}}
 	if id, why := pickTemplate(scores); id != "" || !strings.Contains(why, "no clear winner") {
 		t.Fatalf("%q %q", id, why)
+	}
+	if id, _ := pickTemplate([]TemplateScore{{ID: "T19", Score: 7}, {ID: "T26", Score: 5}}); id != "" {
+		t.Fatal("a 2-point lead accepted")
 	}
 	if id, _ := pickTemplate([]TemplateScore{{ID: "T19", Score: 3}}); id != "" {
 		t.Fatal("too little evidence accepted")
@@ -173,5 +216,77 @@ func TestWordFormsCountOnce(t *testing.T) {
 	got := chooseTemplate("showit", appkit.ToolSpec{}, "", help)
 	if got.ID != "T05" {
 		t.Fatalf("one idea decided the template: %s (%s) %v", got.ID, got.Why, got.Scores)
+	}
+}
+
+// A summary that says nothing about the program gives way to one that
+// does: the help's first line, then the DESCRIPTION's first sentence.
+func TestSummaryFallbacks(t *testing.T) {
+	for _, c := range []struct{ name, man, help, want string }{
+		{"bench9", "NAME\n       bench9 - Bench9\n\nDESCRIPTION\n       A command-line benchmarking tool.\n", "", "A command-line benchmarking tool"},
+		{"pm9", "NAME\n       pm9 - PM9 Command Reference\n\nDESCRIPTION\n       PM9 is a package manager for RPM-based dis-\n       tributions. It does more.\n", "", "PM9 is a package manager for RPM-based distributions"},
+		{"ctl9", "NAME\n       ctl9 - Ctl9 Documentation\n", "ctl9 -- control applications run by daemon9 from the cmd line.\n\nUsage: ctl9 [options]\n", "Control applications run by daemon9 from the cmd line."},
+		// A usage fragment is not a summary.
+		{"pages9", "", "((-u|--update) | [-p|--platform PLATFORM] [-L LOCALE]\npages9 shows simple help pages\n", "Pages9 shows simple help pages"},
+		// A good NAME line is kept.
+		{"grab9", "NAME\n       grab9 - download files from the web\n\nDESCRIPTION\n       Grab9 is a program.\n", "", "Download files from the web"},
+	} {
+		if got := extractSummary(c.name, cleanLines(c.man), cleanLines(c.help)); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	// A copyright line that looks like "name - description" is not one.
+	if looksLikeSummary("tool9", "tool9 - Copyright (c) 2020 Someone") {
+		t.Error("copyright line taken as a summary")
+	}
+}
+
+// "user interface" is not a network interface and "command line" is not
+// a line of text, and the program's name counts in its own summary.
+func TestNeutralPhrasesAndNameInSummary(t *testing.T) {
+	for _, s := range ScoreTemplates("mgr9", "Management user interface", nil, "", nil) {
+		if s.ID == "T04" {
+			t.Fatalf("user interface counted as a network interface: %v", s.Hits)
+		}
+	}
+	for _, s := range ScoreTemplates("cli9", "a command line tool", nil, "", nil) {
+		if s.ID == "T26" {
+			t.Fatalf("command line counted as text lines: %v", s.Hits)
+		}
+	}
+	s := ScoreTemplates("sensors", "Print sensors information", nil, "", nil)
+	if len(s) == 0 || s[0].ID != "T17" {
+		t.Fatalf("name in summary: %v", s)
+	}
+}
+
+// In a long text the phrase search runs only around each phrase's first
+// word, and finds exactly what a search of the whole text finds.
+func TestWindowedSearchMatchesFull(t *testing.T) {
+	var b strings.Builder
+	for b.Len() <= longZone {
+		b.WriteString("filler text about nothing in particular. ")
+	}
+	b.WriteString("PACKET CAPTURE and Captures, xcapture, capturex, packet-capture, packet   capture,\n")
+	b.WriteString("queries query QUERIES; sql injection; SQL; compress compressed decompression; ")
+	b.WriteString("archive archive archive; port scanner; port; portable; i/o statistics; s.m.a.r.t data")
+	text := b.String()
+	lower := asciiLower(text)
+	if len(lower) != len(text) {
+		t.Fatal("lower case changed the length")
+	}
+	found := 0
+	for i, s := range templateSignalList {
+		full := fmt.Sprint(signalLocations(s, text, ""))
+		win := fmt.Sprint(signalLocations(s, text, lower))
+		if full != win {
+			t.Fatalf("signal %d (%s): full %s, windowed %s", i, s.label, full, win)
+		}
+		if full != "[]" {
+			found++
+		}
+	}
+	if found < 8 {
+		t.Fatalf("only %d signals matched; the test text is not testing much", found)
 	}
 }

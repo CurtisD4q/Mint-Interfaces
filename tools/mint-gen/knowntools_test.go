@@ -163,3 +163,16 @@ func TestSafeTerminalText(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// When the help does not show the listed output option, the list's option
+// is used; when the list does not name one, nothing is invented.
+func TestKnownMainOutputWithoutHelp(t *testing.T) {
+	spec, m := ParseManAndHelpIO("tcpdump", "", "Usage: tcpdump [-i interface] [expression]\n")
+	if spec.OutputFlag != "-w" || m.Save != SaveByOption {
+		t.Fatalf("OutputFlag %q, save %s", spec.OutputFlag, m.Save)
+	}
+	spec, m = ParseManAndHelpIO("grep", "", "Usage: grep [OPTION]... PATTERNS [FILE]...\n")
+	if spec.OutputFlag != "" || m.Save == SaveByOption {
+		t.Fatalf("grep: OutputFlag %q, save %s", spec.OutputFlag, m.Save)
+	}
+}

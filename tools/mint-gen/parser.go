@@ -20,13 +20,33 @@ var (
 )
 
 // ParseProgramIO is ParseProgram, also returning the input/output model
-// (for --explain).
+// (for --explain). The model lists the help that was read and the notes
+// on help that could not be, instead of printing them.
 func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 	name := filepath.Base(strings.TrimSpace(bin))
 	srcs, notes := CollectHelpNotes(bin)
-	printHelpNotes(notes)
 	manText, helpText := manAndHelp(srcs)
-	return ParseManAndHelpIO(name, manText, helpText)
+	spec, model := ParseManAndHelpIO(name, manText, helpText)
+	model.HelpRead = describeHelpSources(srcs)
+	model.HelpNotes = notes
+	return spec, model
+}
+
+// describeHelpSources names each piece of help read, and why when it was
+// read because the help pointed to it.
+func describeHelpSources(srcs []HelpSource) []string {
+	var out []string
+	for _, s := range srcs {
+		d := s.Name
+		if s.Name == "man" {
+			d = "man page"
+		}
+		if s.Why != "" {
+			d += " (" + s.Why + ")"
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // ParseProgram reads the program's man page, its --help (or -h) and any
@@ -80,13 +100,17 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// 3. Parse flags from both man page and --help, deduplicating by canonical flag
 	var flags []appkit.FlagSpec
 	seen := map[string]bool{}
+	at := map[string]int{} // flag -> index in flags
+	// In a program with subcommands, one option can mean different things
+	// in different commands (hg's -f), so the first definition stays.
+	suite := hasSubcommands(manText, helpText, manLines, helpLines)
 
 	outputDesc := "" // the output option's description, for chooseExtension
 	knownMain, hasKnownMain := KnownOption{}, false
 	if kt, ok := KnownToolIO(name); ok {
 		knownMain, hasKnownMain = kt.mainOutput()
 	}
-	addFlags := func(parsed []appkit.FlagSpec) {
+	addFlags := func(parsed []appkit.FlagSpec, optional map[string]bool) {
 		for _, f := range parsed {
 			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
 				continue
@@ -101,18 +125,34 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 				continue
 			}
 			if seen[f.Flag] {
+				// A short help table often leaves out an option's value
+				// ("-t  Use this anacrontab"); a definition that shows
+				// the value ("-t anacrontab") replaces it, in place. An
+				// optional value ("--json[=false]") is still a switch.
+				if i, ok := at[f.Flag]; ok && !suite && flags[i].Kind == appkit.FlagBool && f.Kind != appkit.FlagBool && !optional[f.Flag] {
+					flags[i] = f
+				}
 				continue
 			}
 			seen[f.Flag] = true
+			at[f.Flag] = len(flags)
 			flags = append(flags, f)
 		}
 	}
 
 	if len(helpLines) > 0 {
-		addFlags(parseFlagsFromLines(helpLines, false))
+		addFlags(parseFlagLines(helpLines, false))
 	}
 	if len(manLines) > 0 {
-		addFlags(parseFlagsFromLines(manLines, true))
+		addFlags(parseFlagLines(manLines, true))
+	}
+	// The known-tools list names this tool's output option, but the help
+	// did not show it (a short --help, an unusual man page): the list is
+	// checked by hand, so it is used as it is.
+	if hasKnownMain && !spec.OutputsFile && spec.OutputFlag == "" && !seen[knownMain.Flag] {
+		spec.OutputsFile = true
+		spec.OutputFlag = knownMain.Flag
+		seen[knownMain.Flag] = true
 	}
 
 	// Mark flags beyond the first 12 (or in non-primary sections) as Advanced so
@@ -309,7 +349,28 @@ func cleanLines(raw string) []string {
 }
 
 func extractSummary(name string, manLines, helpLines []string) string {
-	// Check man NAME section first
+	// The man page's NAME line, the help's first description, then the
+	// first sentence of the man page's DESCRIPTION: the first that says
+	// something ("Hyperfine", "DNF Command Reference" and "Supervisorctl
+	// Documentation" do not), else the first there is.
+	cands := []string{manNameSummary(manLines), helpSummary(name, helpLines), manDescriptionSentence(manLines)}
+	for _, c := range cands {
+		if informativeSummary(name, c) {
+			return c
+		}
+	}
+	// None says much: the one that says most ("A command-line
+	// benchmarking tool" over "Hyperfine"), the first on a tie.
+	best, most := "", -1
+	for _, c := range cands {
+		if n := summaryWords(name, c); c != "" && n > most {
+			best, most = c, n
+		}
+	}
+	return best
+}
+
+func manNameSummary(manLines []string) string {
 	inName := false
 	for _, l := range manLines {
 		trimmed := strings.TrimSpace(l)
@@ -330,7 +391,11 @@ func extractSummary(name string, manLines, helpLines []string) string {
 			return capitalizeFirst(trimmed)
 		}
 	}
-	// Fallback to first descriptive line in --help
+	return ""
+}
+
+// helpSummary is the first descriptive line of the help.
+func helpSummary(name string, helpLines []string) string {
 	for _, l := range helpLines {
 		trimmed := strings.TrimSpace(l)
 		if trimmed == "" {
@@ -356,7 +421,107 @@ func extractSummary(name string, manLines, helpLines []string) string {
 	return ""
 }
 
+// extractDescription is the opening of the man page's DESCRIPTION: its
+// first paragraph, at most about 600 characters. It says what a program
+// is ("CVS is a version control system…"); the rest of a long man page
+// mentions much that it is not.
+func extractDescription(manLines []string) string {
+	text := manDescriptionParagraph(manLines)
+	if len(text) > 600 {
+		if cut := strings.LastIndex(text[:600], ". "); cut > 100 {
+			text = text[:cut+1]
+		} else {
+			text = text[:strings.LastIndexByte(text[:600], ' ')]
+		}
+	}
+	return text
+}
+
+// manDescriptionSentence is the first sentence of the man page's
+// DESCRIPTION, at most about 160 characters.
+func manDescriptionSentence(manLines []string) string {
+	text := manDescriptionParagraph(manLines)
+	if i := strings.Index(text, ". "); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimRight(text, ".:")
+	if len(text) > 160 {
+		cut := strings.LastIndexByte(text[:160], ' ')
+		if cut < 40 {
+			cut = 160
+		}
+		text = text[:cut]
+	}
+	if len(text) < 10 || !reHasLower.MatchString(text) {
+		return ""
+	}
+	return capitalizeFirst(text)
+}
+
+// manDescriptionParagraph is the first paragraph of the man page's
+// DESCRIPTION, as one line.
+func manDescriptionParagraph(manLines []string) string {
+	var para []string
+	in := false
+	for _, l := range manLines {
+		trimmed := strings.TrimSpace(l)
+		if !in {
+			in = trimmed == "DESCRIPTION" && isManSectionHeader(l)
+			continue
+		}
+		if isManSectionHeader(l) || (trimmed == "" && len(para) > 0) {
+			break
+		}
+		if trimmed == "" {
+			continue
+		}
+		// A word split at the line end ("dis-" / "tributions") is joined.
+		if n := len(para); n > 0 && strings.HasSuffix(para[n-1], "-") && trimmed[0] >= 'a' && trimmed[0] <= 'z' {
+			para[n-1] = strings.TrimSuffix(para[n-1], "-") + trimmed
+		} else {
+			para = append(para, trimmed)
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(para, " ")), " ")
+}
+
+// Words that say nothing about what a program does.
+var summaryFiller = map[string]bool{
+	"a": true, "an": true, "the": true, "of": true, "for": true, "and": true, "to": true,
+	"documentation": true, "docs": true, "reference": true, "command": true, "commands": true,
+	"manual": true, "man": true, "page": true, "pages": true, "program": true, "utility": true,
+	"tool": true, "cli": true, "line": true, "version": true,
+}
+
+var reWord = regexp.MustCompile(`[A-Za-z][A-Za-z0-9]*`)
+
+// informativeSummary reports whether a summary has at least two words
+// besides the program's name and filler.
+func informativeSummary(name, s string) bool {
+	return summaryWords(name, s) >= 2
+}
+
+// summaryWords counts a summary's words besides the program's name and
+// filler.
+func summaryWords(name, s string) int {
+	self := map[string]bool{strings.ToLower(name): true}
+	for _, part := range regexp.MustCompile(`[-_.]+`).Split(strings.ToLower(name), -1) {
+		self[part] = true
+	}
+	n := 0
+	for _, w := range reWord.FindAllString(strings.ToLower(s), -1) {
+		if !self[w] && !summaryFiller[w] {
+			n++
+		}
+	}
+	return n
+}
+
 var (
+	// "   o   -oL ..." / "   *  --foo": a bullet before an option.
+	reBulletOption = regexp.MustCompile(`^(\s{0,12})([o*\x{2022}\x{00B7}]\s{1,4})(--?[A-Za-z0-9].*)$`)
+	// The ":" right after an option's value in such a list: "-oL <filename>: sets".
+	reBulletColon = regexp.MustCompile(`^\s*--?[A-Za-z0-9][-A-Za-z0-9]*\s+(?:<[^>\s]+>|[A-Z][A-Z0-9_-]+|[a-z][a-z0-9_-]*)(:\s+)\S`)
 	reVersionLine = regexp.MustCompile(`(?i)\b(?:version|v)\s*\d+(?:\.\d+)+|copyright|\(c\)\s*\d{4}`)
 	reHasLower    = regexp.MustCompile(`[a-z]`)
 )
@@ -372,6 +537,14 @@ func looksLikeSummary(name, line string) bool {
 	}
 	lower := strings.ToLower(t)
 	if strings.HasPrefix(lower, "or:") || strings.HasPrefix(lower, "usage") {
+		return false
+	}
+	// "supervisorctl -- control applications…": the name and a description.
+	if f := strings.ToLower(strings.Fields(t)[0]); (f == strings.ToLower(name) || strings.HasSuffix(f, "/"+strings.ToLower(name))) && reManName.MatchString(t) && !reVersionLine.MatchString(t) {
+		return true
+	}
+	// A usage fragment: "((-u|--update) | [-p|--platform PLATFORM]".
+	if strings.ContainsAny(t[:1], "([{<|") || strings.Count(t, "|")+strings.Count(t, "[")+strings.Count(t, "<") >= 3 {
 		return false
 	}
 	// "top [options]", "/usr/bin/ln [OPTION]...": a usage line, unless a
@@ -447,7 +620,15 @@ func applyTargetFromSynopsis(spec *appkit.ToolSpec, syn string) {
 }
 
 func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
+	out, _ := parseFlagLines(lines, isMan)
+	return out
+}
+
+// parseFlagLines is parseFlagsFromLines, also returning the options whose
+// value is optional ("--json[=false]", "--list-catalog [ID...]").
+func parseFlagLines(lines []string, isMan bool) ([]appkit.FlagSpec, map[string]bool) {
 	var out []appkit.FlagSpec
+	optional := map[string]bool{}
 	section := "Options"
 	inIgnoreSection := false
 
@@ -475,6 +656,16 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 		}
 		if inIgnoreSection {
 			continue
+		}
+
+		// A bulleted option list ("o   -oL <filename>: sets the output
+		// format…", as in masscan's man page) is read like a plain one: the
+		// bullet becomes indent, and the colon after the value a gap.
+		if m := reBulletOption.FindStringSubmatch(line); m != nil {
+			line = m[1] + strings.Repeat(" ", len(m[2])) + m[3]
+			if b := reBulletColon.FindStringSubmatchIndex(line); b != nil {
+				line = line[:b[2]] + "  " + line[b[3]:]
+			}
 		}
 
 		var groups [][]string // [whole, first flag, second flag, argument, description]
@@ -549,6 +740,9 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			label := cleanFlagLabel(canonFlag, secondFlag, desc)
 			hint := enrichRepeatableHint(cleanArgHint(arg), desc)
 
+			if arg != "" && ParsePlaceholder(arg).Optional {
+				optional[canonFlag] = true
+			}
 			out = append(out, appkit.FlagSpec{
 				Flag:    canonFlag,
 				Join:    join,
@@ -563,7 +757,7 @@ func parseFlagsFromLines(lines []string, isMan bool) []appkit.FlagSpec {
 			})
 		}
 	}
-	return out
+	return out, optional
 }
 
 func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice, int, int) {
@@ -646,8 +840,10 @@ var (
 	reNonFileWords = regexp.MustCompile(`(?i)\b(?:width|columns|seconds|wait|number of|format|level|count|size|timeout|delay|limit)\b`)
 	// Writing the tool's main output, as opposed to reading input or a log.
 	reWritesOutput = regexp.MustCompile(`(?i)\b(?:write|writes|save|saves|place|places|store|dump|output)\b`)
-	reMainOutput   = regexp.MustCompile(`(?i)\b(?:write|save|place|store)s?\s+(?:the\s+)?(?:output|result|results|documents?|data)\s+(?:to|into|in)\b`)
-	reNotMainOut   = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
+	// "write the output to", "Send output (stdout) from podman to a file",
+	// "Redirect the output of podman to the specified path".
+	reMainOutput = regexp.MustCompile(`(?i)\b(?:write|save|place|store|send|redirect)s?\s+(?:the\s+)?(?:output|result|results|documents?|data)(?:\s+\([^)]{1,20}\))?(?:\s+(?:of|from)\s+[\w.-]+)?\s+(?:to|into|in)\b`)
+	reNotMainOut = regexp.MustCompile(`(?i)\b(?:log|logs|logging|messages|read|reads|input|load|config|configuration)\b`)
 )
 
 // argIsFile reports whether an option's value is a file or folder path:

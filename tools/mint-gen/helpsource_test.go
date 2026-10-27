@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -250,5 +251,148 @@ func TestCollectHelpReportsUnreachableProgram(t *testing.T) {
 	}
 	if _, notes := CollectHelpNotes("no-such-program-xyz"); len(notes) == 0 || !strings.Contains(notes[0], "not found") {
 		t.Fatalf("missing program: %q", notes)
+	}
+}
+
+func TestFindHelpPointers(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"dig", `Use "dig -h" (or "dig -h | more") for complete list of options`, "-h"},
+		{"anacron", "type: `anacron -h' for more information", "-h"},
+		{"ps", "Try 'ps --help <simple|list|output|threads|misc|all>'", "--help all"},
+		{"tool", "Run ‘/usr/bin/tool --help-all’ for everything", "--help-all"},
+		{"svn", "Type 'svn help' for usage.", "help"},
+		// Never followed: another program, a word that only contains the
+		// name, a command or a file after the name, or a pipe.
+		{"dig", `Use "xdig -h" or "other -h"`, ""},
+		{"rclone", `Use "rclone help flags" to see the global flags.`, ""},
+		{"svn", "Type 'svn help <subcommand>' for help on a subcommand.", ""},
+		{"docker", "Run 'docker COMMAND --help' for more information.", ""},
+		{"dig", `"dig -h | more"`, ""},
+		{"ps", "Try 'ps --help <simple|list>'", ""},
+		{"tool", `Use "tool -h; rm -rf ~" now`, ""},
+	} {
+		var got []string
+		for _, p := range findHelpPointers(c.name, c.text) {
+			got = append(got, strings.Join(p.Args, " "))
+		}
+		if strings.Join(got, ",") != c.want {
+			t.Errorf("%s %q: got %q, want %q", c.name, c.text, got, c.want)
+		}
+	}
+}
+
+// A program whose --help is only an error pointing to -h is read through
+// -h, and nothing else it mentions is run.
+func TestCollectHelpFollowsPointers(t *testing.T) {
+	tool := fakeHelpTool(t, "pointy", `case "$*" in
+--help) echo "pointy: invalid option -- '-'"; echo "Use \"pointy -h\" for the options, or 'pointy help me', or \"pointy -h | more\"";;
+-h) echo "  -o, --output <file>  Write to file";;
+*) echo "UNEXPECTED: $*";; esac`)
+	srcs := CollectHelp(tool)
+	if got := names(srcs); got != "--help,-h" {
+		t.Fatalf("sources: %s", got)
+	}
+	if !strings.Contains(srcs[1].Why, `the help says to run "pointy -h"`) {
+		t.Fatalf("why: %q", srcs[1].Why)
+	}
+	_, help := manAndHelp(srcs)
+	if !strings.Contains(help, "--output <file>") || strings.Contains(help, "UNEXPECTED") {
+		t.Fatalf("help: %s", help)
+	}
+}
+
+// However much help a program points to, it is run at most maxHelpRuns
+// times.
+func TestCollectHelpRunCap(t *testing.T) {
+	logDir := openDir(t)
+	tool := fakeHelpTool(t, "greedy", `echo "$*" >> `+logDir+`/runs
+case "$*" in
+--help) echo "Usage: greedy --help all --help-all --help=all --long-help"
+  for a in -h -? -help --usage help "help all"; do echo "Try 'greedy $a'"; done;;
+*) echo "more help for $*";; esac`)
+	CollectHelp(tool)
+	b, _ := os.ReadFile(filepath.Join(logDir, "runs"))
+	runs := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(runs) > maxHelpRuns-1 { // -1: the man run is not the program
+		t.Fatalf("%d runs: %q", len(runs), runs)
+	}
+	if len(runs) < 3 {
+		t.Fatalf("pointers not followed: %q", runs)
+	}
+}
+
+// A program with no man page and only a usage line gets a note.
+func TestShortHelpNote(t *testing.T) {
+	tool := fakeHelpTool(t, "tiny9", `echo "usage: tiny9 [-v] file"`)
+	_, notes := CollectHelpNotes(tool)
+	if len(notes) != 1 || !strings.Contains(notes[0], "only a short usage message") {
+		t.Fatalf("notes: %q", notes)
+	}
+}
+
+// --explain lists the help read and the notes, cleaned of control
+// characters (a note can quote a program's own help).
+func TestExplainShowsHelpSources(t *testing.T) {
+	m := IOModel{
+		Tool:      "pointy",
+		HelpRead:  describeHelpSources([]HelpSource{{Name: "man"}, {Name: "--help"}, {Name: "-h", Why: "the help says to run \"pointy -h\x1b[2J\""}}),
+		HelpNotes: []string{"pointy has no man page\x1b]0;title\x07"},
+	}
+	var b strings.Builder
+	printIOModel(&b, m, appkit.ToolSpec{})
+	out := b.String()
+	if !strings.Contains(out, `Help:     man page, --help, -h (the help says to run "pointy -h`) || !strings.Contains(out, "Note:     pointy has no man page") {
+		t.Fatalf("explain:\n%s", out)
+	}
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("control characters reached the terminal: %q", out)
+	}
+}
+
+// A program that crashes when asked for help (a Python traceback) is not
+// read as help: -h is tried, and if that crashes too, a note says so.
+func TestCrashIsNotHelp(t *testing.T) {
+	tool := fakeHelpTool(t, "crashy", `echo "Traceback (most recent call last):"; echo '  File "/usr/bin/crashy", line 61, in <module>'; echo "ModuleNotFoundError: No module named 'crashy'"; exit 1`)
+	srcs, notes := CollectHelpNotes(tool)
+	if len(srcs) != 0 {
+		t.Fatalf("crash read as help: %s", names(srcs))
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "crashed when asked for its help (a Python error)") {
+		t.Fatalf("notes: %q", notes)
+	}
+	// Crashes on --help but -h works: -h is read.
+	half := fakeHelpTool(t, "halfcrash", `case "$1" in -h) echo "  -v  be verbose";; *) echo "Traceback (most recent call last):"; exit 1;; esac`)
+	if got := names(CollectHelp(half)); got != "-h" {
+		t.Fatalf("sources: %s", got)
+	}
+	// Help that mentions a traceback option is still help.
+	if crashReport("Traceback (most recent call last):\n  --tb=style  traceback print mode") != "" {
+		t.Fatal("help with options taken as a crash")
+	}
+}
+
+// Standard output and error are kept apart, never interleaved: output
+// first, then errors, the same every run.
+func TestHelpStreamsNotInterleaved(t *testing.T) {
+	tool := fakeHelpTool(t, "twostream", `i=0; while [ $i -lt 300 ]; do echo "out $i"; echo "warn $i" >&2; i=$((i+1)); done`)
+	first, _ := runForHelp(t, tool)
+	lines := strings.Split(strings.TrimSpace(first), "\n")
+	if len(lines) != 600 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	for i, l := range lines {
+		if want := i < 300; strings.HasPrefix(l, "out ") != want {
+			t.Fatalf("line %d is %q: streams mixed", i, l)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if again, _ := runForHelp(t, tool); again != first {
+			t.Fatal("output differs between runs")
+		}
+	}
+	// Help printed only on standard error is still read.
+	errOnly := fakeHelpTool(t, "erronly", `echo "usage: erronly [-v]" >&2; exit 1`)
+	if out, _ := runForHelp(t, errOnly, "--help"); !strings.Contains(out, "usage: erronly") {
+		t.Fatalf("stderr help lost: %q", out)
 	}
 }
