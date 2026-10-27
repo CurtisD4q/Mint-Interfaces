@@ -23,8 +23,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -333,33 +335,62 @@ func TestArchetypeTuning(t *testing.T) {
 			}
 		}
 	}
-	right := func(w archWeights, keep func(int) bool) (n, total int) {
-		for i, d := range docs {
+	// Score every program once per set of weights (in parallel), then
+	// cross-validate from the table of right answers.
+	ok := make([][]bool, len(grid))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for g := 0; g < runtime.NumCPU(); g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for gi := range next {
+				row := make([]bool, len(docs))
+				for i, d := range docs {
+					row[i] = scoreArchEvidence(grid[gi], d.ev)[0].ID == d.c.Want
+				}
+				ok[gi] = row
+			}
+		}()
+	}
+	for gi := range grid {
+		next <- gi
+	}
+	close(next)
+	wg.Wait()
+	right := func(gi int, keep func(int) bool) (n, total int) {
+		for i, r := range ok[gi] {
 			if !keep(i) {
 				continue
 			}
 			total++
-			if scoreArchEvidence(w, d.ev)[0].ID == d.c.Want {
+			if r {
 				n++
 			}
 		}
 		return
 	}
 	fold := func(i int) int { return i % 5 }
-	// Cross-validation of the search.
+	// Cross-validation of the search: choose on four folds, count on the
+	// fifth.
 	cvRight, cvTotal := 0, 0
 	for f := 0; f < 5; f++ {
-		best, bestN := defaultArchWeights, -1
-		for _, w := range grid {
-			if n, _ := right(w, func(i int) bool { return fold(i) != f }); n > bestN {
-				best, bestN = w, n
+		best, bestN := 0, -1
+		for gi := range grid {
+			if n, _ := right(gi, func(i int) bool { return fold(i) != f }); n > bestN {
+				best, bestN = gi, n
 			}
 		}
 		n, tot := right(best, func(i int) bool { return fold(i) == f })
 		cvRight += n
 		cvTotal += tot
 	}
-	n0, tot := right(defaultArchWeights, func(int) bool { return true })
+	n0, tot := 0, len(docs)
+	for _, d := range docs {
+		if scoreArchEvidence(defaultArchWeights, d.ev)[0].ID == d.c.Want {
+			n0++
+		}
+	}
 	t.Logf("current weights: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
 	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
 	// The best on all tunable programs.
@@ -368,8 +399,8 @@ func TestArchetypeTuning(t *testing.T) {
 		n int
 	}
 	var all []res
-	for _, w := range grid {
-		n, _ := right(w, func(int) bool { return true })
+	for gi, w := range grid {
+		n, _ := right(gi, func(int) bool { return true })
 		all = append(all, res{w, n})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
