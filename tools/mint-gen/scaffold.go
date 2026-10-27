@@ -277,6 +277,13 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if p := spec.Preview; p != nil {
+		fmt.Fprintf(&buf, "\t\tPreview: &appkit.PreviewSpec{Adapter: %q", p.Adapter)
+		if len(p.DryRunArgs) > 0 {
+			fmt.Fprintf(&buf, ", DryRunArgs: %s", goStrings(p.DryRunArgs))
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
 	}

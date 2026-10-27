@@ -131,6 +131,7 @@ type ToolSpec struct {
 	Irreversible      bool             `json:"irreversible,omitempty"`       // Destroys data or processes: running it needs typed confirmation
 	Diff              *DiffSpec        `json:"diff,omitempty"`               // Mixin: WithDiff (Compare)
 	Findings          *FindingsSpec    `json:"findings,omitempty"`           // Mixin: WithFindings (Audit)
+	Preview           *PreviewSpec     `json:"preview,omitempty"`            // Mixin: WithPreview (Edit files)
 	OperandSeparator  bool             `json:"operand_separator,omitempty"`  // The tool reads "--" as the end of its options: Mint puts it before the target, so "-f" there is a name, not an option
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
