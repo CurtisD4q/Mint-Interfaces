@@ -29,6 +29,13 @@ type Adapter struct {
 	Escape func(line string) string
 	// Comment reports whether a script line is only a comment or blank.
 	Comment func(line string) bool
+	// Secrets find passwords typed in a command: they are masked when the
+	// command is shown and keep it out of saved history.
+	Secrets []SecretRule
+	// Refuse returns why line must not be sent at all, or "". These are
+	// commands that would read their answer (a password, usually) from
+	// standard input, where the next command and Mint's markers come from.
+	Refuse func(line string) string
 	// Cancel is how a running command is cancelled without ending the
 	// program. With piped input most programs quit on Ctrl+C (psql,
 	// sqlite3, redis-cli), so only those checked to carry on use CancelSignal.
@@ -71,6 +78,11 @@ var Adapters = map[string]Adapter{
 			rule(`^\s*\\(i|include|ir|include_relative)\b`, "runs the commands in another file"),
 			rule(`^\s*\\setenv\b`, "changes the environment of commands psql runs"),
 		),
+		Secrets: sqlSecrets,
+		Refuse: matchFirst(
+			rule(`^\s*\\password\b`, "asks for the new password on psql's input, which here is the command box: use ALTER ROLE … PASSWORD, or psql in a terminal"),
+			rule(`^\s*\\prompt\b`, "reads its answer from psql's input, which here is the command box"),
+		),
 		Cancel:  CancelBackend,
 		Comment: func(l string) bool { t := strings.TrimSpace(l); return t == "" || strings.HasPrefix(t, "--") },
 	},
@@ -79,6 +91,7 @@ var Adapters = map[string]Adapter{
 		SafeArgs:  []string{"-safe"},
 		SafeProbe: []string{"-safe", "-version"},
 		Markers:   func(t string) (string, string) { return ".print " + t, "" },
+		Secrets:   sqlSecrets,
 		Complete:  func(s string) bool { return sqlComplete(s, false) },
 		Escape: matchFirst(
 			rule(`^\s*\.(shell|system)\b`, "runs a shell command"),
@@ -117,6 +130,12 @@ var Adapters = map[string]Adapter{
 			rule(`(?i)^\s*(eval|evalsha|fcall|function\s+load)\b`, "runs a script on the server"),
 			rule(`(?i)^\s*(flushall|flushdb|shutdown|debug)\b`, "deletes data or stops the server"),
 		),
+		Secrets: []SecretRule{
+			secret(`(?i)^(\s*auth\s+(?:\S+\s+)?)(\S+)`),
+			secret(`(?i)^(\s*config\s+set\s+(?:requirepass|masterauth)\s+)(\S+)`),
+			secret(`(?i)(\bacl\s+setuser\b.*?\s>)(\S+)`),
+			secret(`(?i)^(\s*hello\s+\S+\s+auth\s+\S+\s+)(\S+)`),
+		},
 		Comment: func(l string) bool { return strings.TrimSpace(l) == "" },
 	},
 	"ftp": {
@@ -124,7 +143,12 @@ var Adapters = map[string]Adapter{
 		BaseArgs: []string{"-n"}, // no auto-login prompts on a pipe
 		Complete: everyLine,
 		Escape:   matchFirst(rule(`^\s*!`, "runs a shell command on this computer")),
-		Comment:  func(l string) bool { return strings.TrimSpace(l) == "" },
+		Secrets: []SecretRule{
+			secret(`(?i)^(\s*user\s+\S+\s+)(\S+)`),
+			secret(`(?i)^(\s*account\s+)(\S+)`),
+		},
+		Refuse:  matchFirst(rule(`(?i)^\s*user\s+\S+\s*$`, "would ask for the password on ftp's input, which here is the command box: type user NAME PASSWORD")),
+		Comment: func(l string) bool { return strings.TrimSpace(l) == "" },
 	},
 	"lines": {
 		Name:     "lines",
@@ -132,6 +156,33 @@ var Adapters = map[string]Adapter{
 		Escape:   func(string) string { return "" },
 		Comment:  func(l string) bool { return strings.TrimSpace(l) == "" },
 	},
+}
+
+// SecretRule finds a password in a command: Re's second group is the
+// secret, its first what comes before it.
+type SecretRule struct{ Re *regexp.Regexp }
+
+func secret(re string) SecretRule { return SecretRule{regexp.MustCompile(re)} }
+
+// sqlSecrets: CREATE/ALTER ROLE … PASSWORD '…', MySQL-style
+// IDENTIFIED BY '…', and PostgreSQL dollar quotes.
+var sqlSecrets = []SecretRule{
+	secret(`(?is)(\bpassword\s+)('(?:[^']|'')*'|(\$\w*\$).*?\$\w*\$)`),
+	secret(`(?is)(\bidentified\s+(?:with\s+\S+\s+)?by\s+)('(?:[^']|'')*')`),
+}
+
+// MaskSecrets returns cmd with any password the adapter finds replaced
+// by •••, and whether it found one.
+func MaskSecrets(a Adapter, cmd string) (string, bool) {
+	found := false
+	for _, r := range a.Secrets {
+		cmd = r.Re.ReplaceAllStringFunc(cmd, func(m string) string {
+			found = true
+			sub := r.Re.FindStringSubmatch(m)
+			return sub[1] + "•••"
+		})
+	}
+	return cmd, found
 }
 
 type escapeRule struct {
