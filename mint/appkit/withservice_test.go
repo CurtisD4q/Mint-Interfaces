@@ -157,7 +157,7 @@ func TestServicePythonHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer job.Stop()
+	defer func() { job.Stop(); job.Wait() }()
 	st := waitStatus(t, a, "listening")
 	want := "127.0.0.1:" + strconv.Itoa(port)
 	if st.Text != "Listening on "+want || st.Open || a.serviceURL(st) != "http://"+want+"/" {
@@ -208,7 +208,7 @@ func TestServiceOpenToNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer job.Stop()
+	defer func() { job.Stop(); job.Wait() }()
 	st := waitStatus(t, a, "listening")
 	if !st.Open || !strings.HasPrefix(st.Text, "Listening on 0.0.0.0:") {
 		t.Fatalf("status %+v", st)

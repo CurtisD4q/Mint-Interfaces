@@ -29,6 +29,10 @@ func fakeTool(t *testing.T, name, extra string) (bin, log string) {
 func newTestApp(t *testing.T, spec ToolSpec) *ToolApp {
 	t.Helper()
 	tmp := t.TempDir()
+	// New reads settings from the home folder before the test can point
+	// it elsewhere; a real app's saved settings must not leak in.
+	t.Setenv("HOME", filepath.Join(tmp, "home"))
+	t.Setenv("SUDO_USER", "")
 	spec.DefaultResultsDir = tmp
 	a := New(spec)
 	a.ConfigDir = filepath.Join(tmp, "cfg")
