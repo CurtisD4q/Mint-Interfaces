@@ -234,6 +234,16 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.Irreversible {
 		buf.WriteString("\t\tIrreversible:      true,\n")
 	}
+	if r := spec.Reorder; r != nil {
+		fmt.Fprintf(&buf, "\t\tReorder: &appkit.ReorderSpec{Adapter: %q", r.Adapter)
+		if r.Scope != "" {
+			fmt.Fprintf(&buf, ", Scope: %q", r.Scope)
+		}
+		if r.ConfirmWindow != 0 {
+			fmt.Fprintf(&buf, ", ConfirmWindow: %d /* %v */", int64(r.ConfirmWindow), r.ConfirmWindow)
+		}
+		buf.WriteString("},\n")
+	}
 	if d := spec.Diff; d != nil {
 		fmt.Fprintf(&buf, "\t\tDiff: &appkit.DiffSpec{Format: %q", d.Format)
 		for _, f := range []struct {

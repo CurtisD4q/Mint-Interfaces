@@ -202,6 +202,11 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	if f, ok := appkit.KnownFollowSpec(spec.BinaryName()); ok && spec.Follow == nil {
 		spec.Follow = &f
 	}
+	// Changing a rule order needs the user to review and apply it, and
+	// goes back by itself unless kept, so it is safe to offer.
+	if r, ok := appkit.KnownReorderSpec(spec.BinaryName()); ok && spec.Reorder == nil {
+		spec.Reorder = &r
+	}
 	// One answer for what the tool reads and writes (see BuildIOModel).
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)
