@@ -58,10 +58,9 @@ const DefaultMaxLines = 50000
 
 // Cmd describes a command to run in the background.
 type Cmd struct {
-	Name       string                   // program to execute (ignored when Shell is set)
+	Name       string                   // program to execute; it runs directly, never through a shell
 	Bin        string                   // alias for Name
 	Args       []string                 // arguments passed to Name/Bin
-	Shell      string                   // when non-empty, runs `sh -c Shell` instead of Name
 	Dir        string                   // working directory ("" = inherit)
 	Env        []string                 // extra KEY=VALUE entries added to the environment
 	Stdin      string                   // written to stdin, then stdin is closed
@@ -143,13 +142,6 @@ func Start(c Cmd) *Job {
 	if c.Label == "" {
 		if c.Name != "" {
 			c.Label = filepath.Base(c.Name)
-		} else if c.Shell != "" {
-			fields := strings.Fields(c.Shell)
-			if len(fields) > 0 {
-				c.Label = filepath.Base(fields[0])
-			} else {
-				c.Label = "job"
-			}
 		} else {
 			c.Label = "job"
 		}
@@ -163,12 +155,7 @@ func Start(c Cmd) *Job {
 		done:    make(chan struct{}),
 	}
 
-	var cmd *exec.Cmd
-	if c.Shell != "" {
-		cmd = exec.Command("sh", "-c", c.Shell)
-	} else {
-		cmd = exec.Command(c.Name, c.Args...)
-	}
+	cmd := exec.Command(c.Name, c.Args...)
 	if c.Dir != "" {
 		cmd.Dir = c.Dir
 	}

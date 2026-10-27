@@ -13,7 +13,7 @@ func TestStreamMarksSlicesDirty(t *testing.T) {
 			"wifi":  func() any { fetches["wifi"]++; return fetches["wifi"] },
 			"audio": func() any { fetches["audio"]++; return fetches["audio"] },
 		},
-		Stream: `sleep 0.2; echo wifi changed; sleep 0.2; echo something else`,
+		Stream: []string{"sh", "-c", `sleep 0.2; echo wifi changed; sleep 0.2; echo something else`},
 		Classify: func(line string) string {
 			if strings.HasPrefix(line, "wifi") {
 				return "wifi"
