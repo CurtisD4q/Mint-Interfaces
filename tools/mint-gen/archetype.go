@@ -313,7 +313,7 @@ func pickWithinArchetype(a appkit.Archetype, scores []TemplateScore) (string, st
 // man page) should not outvote how the program works.
 var archetypeWeights = func() scoreWeights {
 	w := defaultWeights
-	w.Body, w.BodyCap = 1, 4
+	w.Body, w.BodyCap = 1, 2
 	return w
 }()
 
