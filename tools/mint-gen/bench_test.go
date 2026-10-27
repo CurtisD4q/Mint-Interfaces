@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -313,21 +314,40 @@ func TestArchetypeTuning(t *testing.T) {
 	}
 	// The split by where evidence was found stays fixed; the search varies
 	// how strong cues count within it and the limits.
+	// MINT_ARCHETYPE_SPLIT sets the split, e.g. "usage=30,summary=25,
+	// description=20,name=15,body=10"; else the default one.
+	base0 := defaultArchWeights
+	if spec := os.Getenv("MINT_ARCHETYPE_SPLIT"); spec != "" {
+		zone := map[string]int{"name": zoneName, "summary": zoneSummary, "description": zoneDescription, "usage": zoneUsage, "body": zoneBody}
+		for _, kv := range strings.Split(spec, ",") {
+			k, v, _ := strings.Cut(strings.TrimSpace(kv), "=")
+			z, ok := zone[k]
+			n, err := strconv.Atoi(v)
+			if !ok || err != nil {
+				t.Fatalf("bad split %q", kv)
+			}
+			base0.CueZone[z] = n
+		}
+		cz := base0.CueZone
+		base0.Words.Name, base0.Words.Summary, base0.Words.Description, base0.Words.Usage, base0.Words.Body = cz[zoneName], cz[zoneSummary], cz[zoneDescription], cz[zoneUsage], cz[zoneBody]
+		base0.Related = cz[zoneBody]
+	}
+	t.Logf("split: name %d summary %d description %d usage %d body %d", base0.CueZone[zoneName], base0.CueZone[zoneSummary], base0.CueZone[zoneDescription], base0.CueZone[zoneUsage], base0.CueZone[zoneBody])
 	var grid []archWeights
 	for _, scale := range []int{50, 100, 150} {
 		for _, base := range []int{10, 20} {
 			for _, weak := range []int{25, 35, 50} {
 				for _, med := range []int{55, 70, 85} {
 					for _, weakWord := range []int{30, 40, 55} {
-						for _, bodyCap := range []int{20, 30, 50} {
+						for _, bodyCap := range []int{2, 3, 5} {
 							for _, share := range []int{0, 30, 60} {
-								for _, rel := range []int{0, 10} {
-									w := defaultArchWeights
+								for _, rel := range []int{0, 1} {
+									w := base0
 									w.CueStrength = [4]int{base * scale / 100, weak * scale / 100, med * scale / 100, scale}
 									ww := &w.Words
 									ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
-									ww.BodyCap = bodyCap
-									w.TemplateShare, w.Related = share, rel
+									ww.BodyCap = bodyCap * ww.Body
+									w.TemplateShare, w.Related = share, rel*ww.Body
 									grid = append(grid, w)
 								}
 							}
@@ -398,13 +418,13 @@ func TestArchetypeTuning(t *testing.T) {
 	}
 	n0, tot := 0, len(docs)
 	for _, d := range docs {
-		if scoreArchEvidence(defaultArchWeights, d.ev)[0].ID == d.c.Want {
+		if scoreArchEvidence(base0, d.ev)[0].ID == d.c.Want {
 			n0++
 		}
 	}
-	t.Logf("current weights: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
+	t.Logf("this split, default cue strengths: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
 	if np, _ := right(len(grid)-1, func(int) bool { return true }); true {
-		t.Logf("previous scorer: %d/%d (%.1f%%)", np, tot, 100*float64(np)/float64(tot))
+		t.Logf("current scorer (PR #60): %d/%d (%.1f%%)", np, tot, 100*float64(np)/float64(tot))
 	}
 	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
 	// The best on all tunable programs.
