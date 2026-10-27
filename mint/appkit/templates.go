@@ -29,7 +29,7 @@ func AllArchetypes() []Archetype {
 	}
 }
 
-// MixinName identifies one of the 8 composable capability mixins.
+// MixinName identifies a composable capability mixin (an add-on).
 type MixinName string
 
 const (
@@ -43,21 +43,9 @@ const (
 	MixinHistory           MixinName = "WithHistory"
 )
 
-// AllMixins returns the 8 composable mixin names in canonical order.
-func AllMixins() []MixinName {
-	return []MixinName{
-		MixinFileOutput,
-		MixinTableOutput,
-		MixinCollapsibleOutput,
-		MixinProfiles,
-		MixinDynamicChoices,
-		MixinRootAuth,
-		MixinConfirm,
-		MixinHistory,
-	}
-}
-
-// Mixins describes which of the 8 composable mixins are enabled for a template or spec.
+// Mixins describes which of the 8 original composable mixins are enabled
+// for a template or spec. Templates set these; later add-ons are switched
+// on by their own ToolSpec field and are listed by ToolSpec.EnabledMixinNames.
 type Mixins struct {
 	WithFileOutput        bool `json:"with_file_output,omitempty"`
 	WithTableOutput       bool `json:"with_table_output,omitempty"`
@@ -134,7 +122,7 @@ const (
 )
 
 // TemplateDef defines one of the 28 CLI template presets (T01..T28), mapping it
-// to one of the 6 base archetypes and a combination of the 8 mixins.
+// to one of the 6 base archetypes and a combination of the composable mixins.
 type TemplateDef struct {
 	ID                 TemplateID       `json:"id"`
 	Slug               string           `json:"slug"`

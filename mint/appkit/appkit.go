@@ -1,5 +1,5 @@
 // Package appkit provides a declarative runtime for turning command-line
-// programs into Mint TUI applications using the 6 Base Archetypes, 8 Composable
+// programs into Mint TUI applications using the 6 Base Archetypes, Composable
 // Mixins, and 28 Template Types (T01..T28).
 package appkit
 
@@ -148,7 +148,8 @@ func (s ToolSpec) BinaryName() string {
 	return s.Name
 }
 
-// EnabledMixins returns the Mixins struct reflecting which of the 8 mixins are active on s.
+// EnabledMixins returns which of the original 8 mixins are active on s.
+// EnabledMixinNames also lists later add-ons.
 func (s ToolSpec) EnabledMixins() Mixins {
 	hasDyn := false
 	for _, f := range s.Flags {
