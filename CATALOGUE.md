@@ -636,6 +636,19 @@ For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarat
 - **Composable Mixins** — the original 8 (`appkit.Mixins`):
   - `WithFileOutput` (`OutputsFile`, `OutputFlag`, `DefaultExt`), `WithTableOutput` (`TableOutput`, `TableColumns`), `WithCollapsibleOutput` (`CollapsibleOutput`, `ChunkSize`), `WithProfiles` (`Profiles`), `WithDynamicChoices` (`FlagSpec.ChoicesCmd`), `WithRootAuth` (`NeedsRoot`), `WithConfirm` (`ConfirmRun`), and `WithHistory` (`KeepHistory`).
   - Each mixin registers itself (`registerMixin` in the file that implements it) with the `ToolSpec` fields that switch it on and an optional `Validate`. `appkit.MixinInfos()` lists them all, `ToolSpec.EnabledMixinNames()` lists those a spec uses, and `ToolSpec.Validate()` checks their settings; mint-gen refuses to write a spec that fails it.
+- **Add-ons for the other program shapes** — 7 more, each switched on by one `ToolSpec` field:
+
+  | Add-on | Field | For | What it adds | mint-gen attaches it |
+  |---|---|---|---|---|
+  | `WithDiff` | `Diff *DiffSpec` | Compare: `diff`, `cmp` | Makes the tool print a format Mint reads (`-u`, `cmp -l`) and shows the two sides in columns, hunk by hunk. Exit 1 means "differ", not failure | yes |
+  | `WithFindings` | `Findings *FindingsSpec` | Audit: `shellcheck`, `lynis`, `trivy`, `semgrep` | Findings grouped by severity, file or rule, with source lines around each (only from files inside the scanned target) and what's new since the last run | yes |
+  | `WithPreview` | `Preview *PreviewSpec` | Edit files: `rm`, `cp`, `mv`, `rsync`, `git clean` | Before running, what will be created, overwritten or removed: from the tool's own dry run, or Mint's read-only plan for `rm`/`cp`/`mv`. The typed confirmation names the totals; the plan is made again just before running | yes |
+  | `WithFollow` | `Follow *FollowSpec` | Follow: `tail -F`, `journalctl -f`, `dmesg -w` | Opens on the live log, newest at the bottom; scrolling up pauses, a filter and a level control narrow it, and it can restart the tool when it exits | yes |
+  | `WithService` | `Service *ServiceSpec` | Serve: `python3 -m http.server`, `php -S`, `nc -l` | Start, stop and restart, with the address the process really listens on (read from its sockets). Listens on 127.0.0.1 unless the user opens it to the network, and asks before serving the home folder or `/` | no: `php` and `nc` are usually clients |
+  | `WithTranscript` | `Transcript *TranscriptSpec` | Session: `psql`, `sqlite3`, `gdb`, `redis-cli`, `ftp` | A command box (with history) and a transcript of each command and its output. Cancels a command where the program allows it (gdb, psql), runs script files and stops at the first error, masks passwords, and refuses commands that would read a password from the command box (`\password`) | no: `psql` and `sqlite3` are as often run for one query |
+  | `WithReorder` | `Reorder *ReorderSpec` | Rules: `iptables`, `ip6tables`, `nft`, `ufw`, `ip rule` | Move rules, review the exact commands, apply. The current rules are saved to a file first; the old order comes back by itself unless the user keeps the new one within 30 s, or quits first. `ip route` is refused: routes have no order | yes |
+
+  The engines behind them are packages of their own, usable without appkit: `mint/diff`, `mint/findings`, `mint/fileplan`, `mint/follow`, `mint/procnet`, `mint/transcript` and `mint/reorder`. `appkit.KnownDiffSpec`, `KnownFindingsSpec`, `KnownPreviewSpec`, `KnownFollowSpec`, `KnownServiceSpec`, `KnownTranscriptSpec` and `KnownReorderSpec` return the settings for the programs Mint knows.
 - **28 Template Types (`T01`–`T28`)**:
   - Setting `Template: "T12"` (or `"network-scanner"`) on `appkit.ToolSpec` automatically applies its archetype, mixins, target labels, subcommands, and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-templates`).
 
@@ -663,13 +676,34 @@ func appkitExample() appkit.ToolSpec {
 }
 ```
 
+An add-on is one more field. These two are a database session and a firewall's rule order:
+
+```go
+func appkitAddonExamples() []appkit.ToolSpec {
+	return []appkit.ToolSpec{
+		{
+			Name:        "psql",
+			TargetLabel: "Database",
+			KeepHistory: true, // keeps typed commands, never ones holding a password
+			Transcript:  &appkit.TranscriptSpec{Adapter: "psql"},
+		},
+		{
+			Name:      "iptables",
+			Archetype: appkit.ArchetypeConfig,
+			NeedsRoot: true,
+			Reorder:   &appkit.ReorderSpec{Adapter: "iptables", Scope: "filter INPUT"},
+		},
+	}
+}
+```
+
 `tools/mint-gen` checks whether a target binary can run inside a pure detached TUI (`--check <program>`), auto-classifies any CLI tool into `T01`–`T28` (`DetectTemplate`, overridable via `--template <T01..T28|slug>`), and parses its `man` page and `--help` output into a standalone `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, `<tool>-mint.el`).
 
 ## Part C: Rules
 
 1. **Never run a command inside a row's `Get`.** Getters run on every repaint, many times a second while anything is moving. Load values in `Enter`, after a change, or from `Poll` on a timer, and read them from variables. `eventcache` is the one exception, because it only fetches again after an event.
 2. **Prefer machine-readable output.** Use `--json` (or `--porcelain`, `--format`, `-o json`) and `queryJSON`. Parsing human-readable text breaks when a new version rewords it. If there is no such output but the program has a library or API, read through it with an embedded helper (B7) rather than reading its files directly.
-3. **Pass arguments as data.** Use `query`, `apply`, `util.Run` and `runner.Cmd{Name, Args}`, which never go through a shell. Use `runner.Cmd{Shell}` only for fixed command lines, and quote anything the user typed with `util.ShQuote`.
+3. **Pass arguments as data.** Use `query`, `apply`, `util.Run` and `runner.Cmd{Name, Args}`, which never go through a shell. The library itself starts no shell (`mint/noshell_test.go` checks), and an interface shouldn't either: what a user typed, or a program printed, would be run as shell syntax. A program that only takes a script, such as `nft -f`, gets it on standard input (`Stdin`), built from validated parts or, better, as JSON.
 4. **Secrets go through standard input** (B3), never into arguments or environment variables.
 5. **Irreversible actions need `TypeToConfirm`** with a phrase naming the target (B4). Disruptive but reversible ones need `Confirm`, which defaults to No.
 6. **Nothing may wait for an answer.** Jobs have no terminal, so a program that stops to ask "[y/N]" will hang until its timeout. Pass `-y`, `--yes`, `--assume-yes`, `--non-interactive`, `--batch` or `--no-input`, or answer through `Input` and `SendLine`.
