@@ -152,7 +152,9 @@ func jobsScreen() *mint.Screen {
 						c.ToastWarn("Already running")
 						return
 					}
-					job = runner.Start(runner.Cmd{Shell: fakeUpdate, Label: "update", Progress: runner.Percent,
+					// A demo stand-in for a real updater. Real apps run the
+					// program directly; Mint's library never starts a shell.
+					job = runner.Start(runner.Cmd{Name: "sh", Args: []string{"-c", fakeUpdate}, Label: "update", Progress: runner.Percent,
 						Timeout: 2 * time.Minute,
 						OnExit: func(j *runner.Job) {
 							if j.State() == runner.Done {
