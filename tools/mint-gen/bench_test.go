@@ -151,14 +151,16 @@ func TestTemplateBenchmark(t *testing.T) {
 		}
 		choice := scoreTemplateChoice(c.Name, man, help)
 		r := benchResult{benchCase: c, Got: choice.ID, Why: choice.Why}
-		fellBack := !strings.HasPrefix(choice.Why, "best evidence") // no clear winner: the fallback was used
+		// Every unlisted program gets a template; what matters is whether a
+		// wrong one was flagged as a close call.
+		close := choice.Confidence != ConfidenceClear
 		switch {
-		case choice.ID == c.Want && !fellBack:
+		case choice.ID == c.Want && !close:
 			r.Verdict = "correct"
 		case choice.ID == c.Want:
-			r.Verdict = "fallback-correct"
-		case fellBack:
-			r.Verdict = "abstained"
+			r.Verdict = "correct-close"
+		case close:
+			r.Verdict = "wrong-flagged"
 		default:
 			r.Verdict = "wrong"
 		}
@@ -186,8 +188,8 @@ func TestTemplateBenchmark(t *testing.T) {
 			return
 		}
 		pct := func(k string) string { return fmt.Sprintf("%2d (%3.0f%%)", n[k], 100*float64(n[k])/float64(total)) }
-		t.Logf("%-9s %3d programs | correct %s | correct by fallback %s | abstained %s | WRONG %s",
-			title, total, pct("correct"), pct("fallback-correct"), pct("abstained"), pct("wrong"))
+		t.Logf("%-9s %3d programs | right, clear %s | right, close call %s | wrong, flagged close %s | WRONG, marked clear %s",
+			title, total, pct("correct"), pct("correct-close"), pct("wrong-flagged"), pct("wrong"))
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Want+results[i].Name < results[j].Want+results[j].Name })
 	if os.Getenv("MINT_TEMPLATE_BENCH") == "all" {
@@ -197,7 +199,7 @@ func TestTemplateBenchmark(t *testing.T) {
 		}
 	} else {
 		for _, r := range results {
-			if tunable(r.benchCase) && (r.Verdict == "wrong" || r.Verdict == "abstained") {
+			if tunable(r.benchCase) && (r.Verdict == "wrong" || r.Verdict == "wrong-flagged") {
 				t.Logf("%-8s %-13s want %s got %s  %-16s %s   [%s]", benchSet(r.benchCase), r.Name, r.Want, r.Got, r.Verdict, r.Top, r.Why)
 			}
 		}
@@ -214,7 +216,8 @@ func TestTemplateBenchmark(t *testing.T) {
 	}
 }
 
-// benchInput is one program's evidence, prepared once for tuning.
+// benchInput is one program's evidence, prepared once for tuning (the
+// earlier word-only scorer's weights; see TestTemplateTuning).
 type benchInput struct {
 	benchCase
 	ev     templateEvidence

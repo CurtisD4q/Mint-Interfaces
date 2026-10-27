@@ -288,24 +288,63 @@ func templateTieKey(s TemplateScore) tieKey {
 	return k
 }
 
+// withinPick is the template chosen within an archetype, the next best,
+// and by how many points it led.
+type withinPick struct {
+	ID, Why   string
+	Next      string // the next best template of the archetype, if any had evidence
+	Lead      int    // points over Next (all its points when there is none; 0 for the default)
+	Fallback  bool   // no template of the archetype had evidence: its default
+	DecidedBy string // which tie-breaker put it ahead of Next
+}
+
+// decidedBy names the first part of the tie key where a beats b.
+func decidedBy(a, b tieKey) string {
+	switch {
+	case a.top != b.top:
+		return "more evidence in the name, summary and description"
+	case a.total != b.total:
+		return "more points in all"
+	case a.zones != b.zones:
+		return "evidence in more parts of the help"
+	case a.specific != b.specific:
+		return "a more specific phrase"
+	}
+	return "a tie, settled by template number"
+}
+
 // pickWithinArchetype chooses the template of archetype a with the best
 // evidence (see tieKey), or the archetype's default when none has any.
-func pickWithinArchetype(a appkit.Archetype, scores []TemplateScore) (string, string) {
-	best, bestKey, found := "", tieKey{}, false
+func pickWithinArchetype(a appkit.Archetype, scores []TemplateScore) withinPick {
+	type cand struct {
+		id  string
+		key tieKey
+	}
+	var cands []cand
 	for _, s := range scores {
 		tpl, ok := appkit.LookupTemplate(s.ID)
 		if !ok || tpl.Archetype != a || s.Score <= 0 {
 			continue
 		}
-		k := templateTieKey(s)
-		if !found || k.beats(bestKey) || (!bestKey.beats(k) && s.ID < best) {
-			best, bestKey, found = s.ID, k, true
+		cands = append(cands, cand{s.ID, templateTieKey(s)})
+	}
+	if len(cands) == 0 {
+		return withinPick{ID: archetypeDefault[a], Why: "no template of it has word evidence; its most general template", Fallback: true}
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].key.beats(cands[j].key) != cands[j].key.beats(cands[i].key) {
+			return cands[i].key.beats(cands[j].key)
 		}
+		return cands[i].id < cands[j].id
+	})
+	p := withinPick{ID: cands[0].id, Lead: cands[0].key.total,
+		Why: fmt.Sprintf("best evidence among %s templates (%d points)", a, cands[0].key.total)}
+	if len(cands) > 1 {
+		p.Next = cands[1].id
+		p.Lead = cands[0].key.total - cands[1].key.total
+		p.DecidedBy = decidedBy(cands[0].key, cands[1].key)
 	}
-	if !found {
-		return archetypeDefault[a], "no template of it has word evidence; its most general template"
-	}
-	return best, fmt.Sprintf("best evidence among %s templates (%d points)", a, bestKey.total)
+	return p
 }
 
 // archetypeWeights weigh words for the archetype step: the long body
@@ -328,11 +367,42 @@ func chooseByArchetype(p programText) TemplateChoice {
 func chooseByArchetypeEvidence(p programText, ev templateEvidence, scores []TemplateScore) TemplateChoice {
 	arch := detectArchetype(p, scoreEvidence(archetypeWeights, ev))
 	a := arch[0]
-	id, why := pickWithinArchetype(a.Archetype, scores)
-	return TemplateChoice{
-		ID:         id,
-		Why:        fmt.Sprintf("archetype %s (%d: %s); %s", a.Archetype, a.Score, strings.Join(a.Hits, ", "), why),
-		Scores:     scores,
-		Archetypes: arch,
+	w := pickWithinArchetype(a.Archetype, scores)
+	c := TemplateChoice{
+		ID:            w.ID,
+		Why:           fmt.Sprintf("archetype %s (%d: %s); %s", a.Archetype, a.Score, strings.Join(a.Hits, ", "), w.Why),
+		Scores:        scores,
+		Archetypes:    arch,
+		Archetype:     a.Archetype,
+		ArchetypeLead: a.Score - arch[1].Score,
+		TemplateLead:  w.Lead,
+		DecidedBy:     w.DecidedBy,
 	}
+	// The likely alternatives: the next template of this archetype, and
+	// the best template of the next archetype.
+	if w.Next != "" {
+		c.Alternatives = append(c.Alternatives, w.Next)
+	}
+	if alt := pickWithinArchetype(arch[1].Archetype, scores); alt.ID != c.ID {
+		c.Alternatives = append(c.Alternatives, alt.ID)
+	}
+	c.Confidence = choiceConfidence(c.ArchetypeLead, c.TemplateLead)
+	return c
+}
+
+// Confidence of a template choice.
+const (
+	ConfidenceListed = "listed" // on a template's list: exact
+	ConfidenceClear  = "clear"  // the archetype and the template both led clearly
+	ConfidenceClose  = "close"  // chosen, but the next one was near
+)
+
+// The leads a choice needs to count as clear (see choiceConfidence).
+var clearArchetypeLead, clearTemplateLead = 3, 3
+
+func choiceConfidence(archLead, tplLead int) string {
+	if archLead >= clearArchetypeLead && tplLead >= clearTemplateLead {
+		return ConfidenceClear
+	}
+	return ConfidenceClose
 }
