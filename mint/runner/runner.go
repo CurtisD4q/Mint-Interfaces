@@ -549,6 +549,18 @@ func (j *Job) Write(p []byte) (int, error) {
 	return w.Write(p)
 }
 
+// Interrupt sends SIGINT to the job's process group, as Ctrl+C would:
+// interactive programs such as psql and gdb cancel the running command
+// and carry on.
+func (j *Job) Interrupt() {
+	j.mu.Lock()
+	pid, running := j.pid, j.state == Running
+	j.mu.Unlock()
+	if running && pid > 0 {
+		_ = syscall.Kill(-pid, syscall.SIGINT)
+	}
+}
+
 // Stop terminates the job and its entire process group (SIGTERM or
 // Cmd.StopSignal, followed by SIGKILL after 2s if any process ignores it).
 func (j *Job) Stop() {

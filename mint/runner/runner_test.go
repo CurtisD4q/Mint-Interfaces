@@ -509,3 +509,19 @@ func TestSince(t *testing.T) {
 		t.Fatalf("Since(99) = %v", l)
 	}
 }
+
+func TestInterrupt(t *testing.T) {
+	j := Start(Cmd{Name: "sh", Args: shArgs(`trap 'echo got INT' INT; echo ready; while :; do sleep 0.05; done`)})
+	defer j.Stop()
+	for len(j.Lines()) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	j.Interrupt()
+	deadline := time.Now().Add(3 * time.Second)
+	for !strings.Contains(j.Output(), "got INT") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(j.Output(), "got INT") || !j.Running() {
+		t.Fatalf("output %q running %v", j.Output(), j.Running())
+	}
+}
