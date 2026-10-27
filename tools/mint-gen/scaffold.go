@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -232,6 +233,24 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	}
 	if spec.Irreversible {
 		buf.WriteString("\t\tIrreversible:      true,\n")
+	}
+	if d := spec.Diff; d != nil {
+		fmt.Fprintf(&buf, "\t\tDiff: &appkit.DiffSpec{Format: %q", d.Format)
+		for _, f := range []struct {
+			name string
+			v    []string
+		}{{"ForceArgs", d.ForceArgs}, {"FormatFlags", d.FormatFlags}, {"ReadableFlags", d.ReadableFlags}} {
+			if len(f.v) > 0 {
+				fmt.Fprintf(&buf, ", %s: %s", f.name, goStrings(f.v))
+			}
+		}
+		if d.LeftLabel != "" {
+			fmt.Fprintf(&buf, ", LeftLabel: %q", d.LeftLabel)
+		}
+		if d.RightLabel != "" {
+			fmt.Fprintf(&buf, ", RightLabel: %q", d.RightLabel)
+		}
+		buf.WriteString("},\n")
 	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
@@ -478,4 +497,13 @@ func stdoutIdent(k string) string {
 		return "StdoutBinary"
 	}
 	return ""
+}
+
+// goStrings writes ss as a Go []string literal.
+func goStrings(ss []string) string {
+	q := make([]string, len(ss))
+	for i, s := range ss {
+		q[i] = strconv.Quote(s)
+	}
+	return "[]string{" + strings.Join(q, ", ") + "}"
 }
