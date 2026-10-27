@@ -102,13 +102,26 @@ type Session struct {
 
 // Start runs bin with the adapter's base options, then args.
 func Start(a Adapter, bin string, args []string, env []string) *Session {
+	return StartCmd(a, runner.Cmd{Name: bin, Args: args, Env: env})
+}
+
+// StartCmd is Start with more of the job's settings (Redact, Dir…).
+// c.Args are the user's options; the adapter's go before them, and Input
+// and Label are set here.
+func StartCmd(a Adapter, c runner.Cmd) *Session {
+	bin, args := c.Name, c.Args
+	if bin == "" {
+		bin = c.Bin
+	}
 	all := append(append([]string(nil), a.BaseArgs...), args...)
 	safe := len(a.SafeArgs) > 0 && safeSupported(bin, a)
 	if safe {
 		all = append(append([]string(nil), a.SafeArgs...), all...)
 	}
-	s := &Session{a: a, now: time.Now, bin: bin, args: append([]string(nil), args...), env: env, safe: safe}
-	s.job = runner.Start(runner.Cmd{Name: bin, Args: all, Env: env, Input: true, Label: a.Name})
+	s := &Session{a: a, now: time.Now, bin: bin, args: append([]string(nil), args...), env: c.Env, safe: safe}
+	c.Name, c.Bin, c.Args, c.Input, c.Label = bin, "", all, true, a.Name
+	c.Stdin = ""
+	s.job = runner.Start(c)
 	if a.Cancel == CancelBackend {
 		s.mu.Lock()
 		_ = s.sendIdentityLocked()

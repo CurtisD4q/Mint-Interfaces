@@ -366,10 +366,39 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 type editOpts struct {
 	title, subtitle, initial, placeholder string
 	mask                                  bool
+	history                               []string // oldest first; ↑ and ↓ step through it
+}
+
+// historyNav steps through earlier entries with ↑ and ↓, keeping what was
+// being typed as the newest position.
+type historyNav struct {
+	items []string
+	pos   int // len(items) is the line being typed
+	draft string
+}
+
+func newHistoryNav(items []string) *historyNav { return &historyNav{items: items, pos: len(items)} }
+
+// step moves by d (-1 older, +1 newer) from current, and returns the
+// text to show and whether it moved.
+func (h *historyNav) step(d int, current string) (string, bool) {
+	next := h.pos + d
+	if next < 0 || next > len(h.items) {
+		return current, false
+	}
+	if h.pos == len(h.items) {
+		h.draft = current
+	}
+	h.pos = next
+	if next == len(h.items) {
+		return h.draft, true
+	}
+	return h.items[next], true
 }
 
 func editLoop(o editOpts) (string, bool) {
 	buf := newLineBuffer(o.initial)
+	hist := newHistoryNav(o.history)
 	reveal := false
 	value := func() string { return buf.String() }
 	draw := func() {
@@ -392,6 +421,9 @@ func editLoop(o editOpts) (string, bool) {
 			cv.put(6, 3, C.Bright+buf.renderViewport(max(6, w-8), maskChar)+Reset)
 		}
 		hint := " ←→ move   Enter confirm   Esc cancel "
+		if len(o.history) > 0 {
+			hint = " ↑↓ earlier   Enter confirm   Esc cancel "
+		}
 		if o.mask {
 			word := "reveal"
 			if reveal {
@@ -421,6 +453,15 @@ func editLoop(o editOpts) (string, bool) {
 		case o.mask && n == "\t":
 			reveal = !reveal
 			draw()
+		case len(o.history) > 0 && (n == "up" || n == "down"):
+			d := -1
+			if n == "down" {
+				d = 1
+			}
+			if text, ok := hist.step(d, value()); ok {
+				buf.setString(text)
+				draw()
+			}
 		default:
 			if buf.handleKey(k) {
 				draw()
@@ -435,6 +476,15 @@ func Prompt(title, subtitle, initial string) (string, bool) {
 		title = "Enter value"
 	}
 	return editLoop(editOpts{title: title, subtitle: subtitle, initial: initial, placeholder: "(type a value)"})
+}
+
+// PromptHistory is Prompt with earlier entries (oldest first) that ↑ and
+// ↓ bring back, as in a shell.
+func PromptHistory(title, subtitle, initial string, history []string) (string, bool) {
+	if title == "" {
+		title = "Enter value"
+	}
+	return editLoop(editOpts{title: title, subtitle: subtitle, initial: initial, placeholder: "(type a command)", history: history})
 }
 
 // Password asks for masked text. Tab reveals it.
