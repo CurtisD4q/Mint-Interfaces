@@ -75,10 +75,14 @@ func loadBenchFile(t *testing.T, path string, isNew bool) []benchCase {
 			continue
 		}
 		f := strings.Fields(line)
-		if len(f) < 3 {
+		if len(f) < 2 {
 			t.Fatalf("bad line %q", line)
 		}
-		out = append(out, benchCase{f[0], f[1], f[2], isNew})
+		source := "judged"
+		if len(f) > 2 {
+			source = f[2]
+		}
+		out = append(out, benchCase{f[0], f[1], source, isNew})
 	}
 	return out
 }
