@@ -78,8 +78,25 @@ func IsIrreversibleTool(bin string) bool {
 	return irreversibleTools[b] || strings.HasPrefix(b, "mkfs")
 }
 
-// ApplySafetyDefaults fills in ReadOnly, StatusArgs and Irreversible for
-// tools it knows, without overriding values the spec already sets.
+// separatorTools take file operands and read "--" as the end of their
+// options (getopt), so the target can always be passed after "--".
+var separatorTools = map[string]bool{
+	"rm": true, "cp": true, "mv": true, "ln": true, "mkdir": true, "rmdir": true,
+	"chmod": true, "chown": true, "chgrp": true, "touch": true, "truncate": true,
+	"shred": true, "install": true, "cat": true, "head": true, "wc": true,
+	"stat": true, "du": true, "ls": true, "file": true, "diff": true, "cmp": true,
+	"comm": true, "sort": true, "uniq": true, "md5sum": true, "sha1sum": true,
+	"sha256sum": true, "sha512sum": true, "b2sum": true, "wipefs": true,
+	"realpath": true, "readlink": true, "unlink": true, "split": true,
+}
+
+// UsesOperandSeparator reports whether bin is known to accept "--" before
+// its file operands.
+func UsesOperandSeparator(bin string) bool { return separatorTools[toolBase(bin)] }
+
+// ApplySafetyDefaults fills in ReadOnly, StatusArgs, Irreversible and
+// OperandSeparator for tools it knows, without overriding values the spec
+// already sets.
 func ApplySafetyDefaults(spec *ToolSpec) {
 	bin := spec.BinaryName()
 	if IsReadOnlyTool(bin) {
@@ -92,6 +109,9 @@ func ApplySafetyDefaults(spec *ToolSpec) {
 	}
 	if IsIrreversibleTool(bin) {
 		spec.Irreversible = true
+	}
+	if UsesOperandSeparator(bin) {
+		spec.OperandSeparator = true
 	}
 	applyKnownSecretEnvs(spec)
 	applyDataDefaults(spec)

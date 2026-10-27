@@ -389,3 +389,51 @@ func TestNotStartedWithSudo(t *testing.T) {
 		t.Fatal("permission-error detection")
 	}
 }
+
+// A name that starts with "-" must reach rm as a name, not as options.
+func TestOperandSeparatorBeforeTarget(t *testing.T) {
+	a := newTestApp(t, ToolSpec{Name: "rm", Flags: []FlagSpec{{Flag: "-v", Kind: FlagBool}}})
+	if !a.Spec.OperandSeparator {
+		t.Fatal("rm should get OperandSeparator by default")
+	}
+	a.Values["-v"] = "true"
+	a.Target = "-rf important"
+	args, _ := a.BuildArgs()
+	if got := strings.Join(args, " "); got != "-v -- -rf important" {
+		t.Fatalf("args = %q, want options, then --, then names", got)
+	}
+	if p := a.CommandPreview(); !strings.Contains(p, " -- -rf important") {
+		t.Fatalf("preview hides the separator: %q", p)
+	}
+
+	// No target: no stray "--".
+	a.Target = ""
+	if args, _ := a.BuildArgs(); strings.Contains(strings.Join(args, " "), "--") {
+		t.Fatalf("separator without operands: %q", args)
+	}
+
+	// Extra arguments stay before the separator: they are options.
+	a.Target = "x"
+	a.ExtraArgs = "--one-file-system"
+	if got, _ := a.BuildArgs(); strings.Join(got, " ") != "-v --one-file-system -- x" {
+		t.Fatalf("args = %q", got)
+	}
+}
+
+func TestOperandSeparatorOnlyForKnownTools(t *testing.T) {
+	for bin, want := range map[string]bool{
+		"rm": true, "/usr/bin/cp": true, "diff": true, "chmod": true,
+		"ping": false, "ffmpeg": false, "dd": false, "find": false, "ssh": false,
+	} {
+		spec := ToolSpec{Name: "t", Bin: bin}
+		ApplySafetyDefaults(&spec)
+		if spec.OperandSeparator != want {
+			t.Errorf("%s: OperandSeparator = %v, want %v", bin, spec.OperandSeparator, want)
+		}
+	}
+	a := newTestApp(t, ToolSpec{Name: "ping"})
+	a.Target = "-c 1 host"
+	if args, _ := a.BuildArgs(); strings.Join(args, " ") != "-c 1 host" {
+		t.Fatalf("ping args changed: %q", args)
+	}
+}
