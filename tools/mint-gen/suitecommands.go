@@ -15,6 +15,7 @@ import (
 //	svn:  Available subcommands:      openssl:  Standard commands
 //	         add                       asn1parse   ca   ciphers
 //	ip:   OBJECT := { address | link | route }
+//	cargo:  build, b    Compile the current package  (a name and its aliases)
 //
 // It reads the help first, and the man page only when the help has none.
 // It is separate from extractSubcommands, which builds the app's tabs.
@@ -27,7 +28,7 @@ func suiteCommandNames(manLines, helpLines []string) []string {
 
 var (
 	reCmdHeading  = regexp.MustCompile(`(?i)\b(?:sub)?commands\b`)
-	reCmdLine     = regexp.MustCompile(`^\s{1,10}([a-z][a-z0-9_-]{1,24})(?::\s|:$|\s+-\s|\s{2,}|\s*\(|\s*$)`)
+	reCmdLine     = regexp.MustCompile(`^\s{1,10}([a-z][a-z0-9_-]{1,24})(?:,\s*[a-z][a-z0-9_-]{0,24})*(?::\s|:$|\s+-\s|\s{2,}|\s*\(|\s*$)`)
 	reCmdOption   = regexp.MustCompile(`^\s{1,10}(?:-\w,\s*)?--([a-z][a-z0-9-]{1,30})\b`)
 	reCmdColumns  = regexp.MustCompile(`^\s*[a-z][a-z0-9_.-]+(?:\s{2,}[a-z][a-z0-9_.-]+){2,}\s*$`)
 	reCmdBraces   = regexp.MustCompile(`\{\s*([a-z][\w-]*(?:\s*\|\s*[a-z][\w-]*){2,})\s*\|?\s*\}`)

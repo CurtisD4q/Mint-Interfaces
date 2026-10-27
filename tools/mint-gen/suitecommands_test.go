@@ -13,6 +13,7 @@ func TestSuiteCommandNames(t *testing.T) {
 	}{
 		{"two columns", "Commands:\n  start   Start it\n  stop    Stop it\n  status  Show it\n", "start stop status"},
 		{"git sections", "These are common Git commands used in various situations:\n\nstart a working area\n   clone     Clone a repository\n   init      Create one\n\nwork on the current change\n   add       Add file contents\n", "clone init add"},
+		{"aliases", "Commands:\n    build, b    Compile the package\n    check, c    Analyze it\n    clean       Remove the target\n", "build check clean"},
 		{"dash", "Most used commands:\n  list - list packages based on names\n  search - search in package descriptions\n", "list search"},
 		{"colon", "CORE COMMANDS\n  auth:          Authenticate gh\n  browse:        Open in the browser\n", "auth browse"},
 		{"alone", "Available subcommands:\n   add\n   blame (praise, annotate, ann)\n   cat\n", "add blame cat"},
