@@ -51,7 +51,7 @@ ab capture/-e|-g results
 sysbench capture results
 fio capture/--output results
 nmap -oN|-oX|-oG|-oS results
-masscan -oL|-oX|-oJ|-oG results
+masscan -oL|-oX|-oJ|-oG|--output-filename results
 arp-scan capture/-W|--pcapsavefile results
 tcpdump -w results
 tshark -w results
