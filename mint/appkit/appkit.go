@@ -232,16 +232,17 @@ type ToolApp struct {
 	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
 
-	memSetting   *bool               // InMemory as saved in settings (nil: never chosen)
-	diskDir      string              // the results folder to return to when InMemory is turned off
-	memBacked    bool                // the in-memory folder really is in memory (tmpfs)
-	lastData     string              // level the last run's output turned out to have
-	lastFindings []string            // kinds of secret found in the last run's output
-	diffOK       bool                // WithDiff: the last run printed a format the differences view reads
-	findings     *findingsReport     // WithFindings: what the last run found
-	findingsOK   bool                // WithFindings: the last run printed a format the findings view reads
-	svcProbe     serviceProbe        // WithService: cached socket scan
-	session      *transcript.Session // WithTranscript: the open session
+	memSetting   *bool           // InMemory as saved in settings (nil: never chosen)
+	diskDir      string          // the results folder to return to when InMemory is turned off
+	memBacked    bool            // the in-memory folder really is in memory (tmpfs)
+	lastData     string          // level the last run's output turned out to have
+	lastFindings []string        // kinds of secret found in the last run's output
+	diffOK       bool            // WithDiff: the last run printed a format the differences view reads
+	findings     *findingsReport // WithFindings: what the last run found
+	findingsOK   bool            // WithFindings: the last run printed a format the findings view reads
+	svcProbe     serviceProbe    // WithService: cached socket scan
+
+	session *transcript.Session // WithTranscript: the open session
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its Template
