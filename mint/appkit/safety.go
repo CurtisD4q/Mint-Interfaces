@@ -94,9 +94,36 @@ var separatorTools = map[string]bool{
 // its file operands.
 func UsesOperandSeparator(bin string) bool { return separatorTools[toolBase(bin)] }
 
-// ApplySafetyDefaults fills in ReadOnly, StatusArgs, Irreversible and
-// OperandSeparator for tools it knows, without overriding values the spec
-// already sets.
+// exitMeanings are the exit codes besides 0 that known tools use for a
+// result rather than a failure.
+var exitMeanings = map[string]map[int]string{
+	"diff":       {0: "no differences", 1: "files differ"},
+	"cmp":        {0: "no differences", 1: "files differ"},
+	"grep":       {1: "no match"},
+	"egrep":      {1: "no match"},
+	"fgrep":      {1: "no match"},
+	"rg":         {1: "no match"},
+	"shellcheck": {0: "no problems found", 1: "found problems"},
+	"hadolint":   {0: "no problems found", 1: "found problems"},
+}
+
+// KnownExitMeanings returns a copy of the exit codes bin uses for results,
+// or nil.
+func KnownExitMeanings(bin string) map[int]string {
+	m := exitMeanings[toolBase(bin)]
+	if m == nil {
+		return nil
+	}
+	out := make(map[int]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// ApplySafetyDefaults fills in ReadOnly, StatusArgs, Irreversible,
+// OperandSeparator and ExitMeanings for tools it knows, without overriding
+// values the spec already sets.
 func ApplySafetyDefaults(spec *ToolSpec) {
 	bin := spec.BinaryName()
 	if IsReadOnlyTool(bin) {
@@ -112,6 +139,9 @@ func ApplySafetyDefaults(spec *ToolSpec) {
 	}
 	if UsesOperandSeparator(bin) {
 		spec.OperandSeparator = true
+	}
+	if spec.ExitMeanings == nil {
+		spec.ExitMeanings = KnownExitMeanings(bin)
 	}
 	applyKnownSecretEnvs(spec)
 	applyDataDefaults(spec)

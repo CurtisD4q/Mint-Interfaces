@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -231,6 +232,21 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")
+	}
+	if len(spec.ExitMeanings) > 0 {
+		codes := make([]int, 0, len(spec.ExitMeanings))
+		for c := range spec.ExitMeanings {
+			codes = append(codes, c)
+		}
+		sort.Ints(codes)
+		buf.WriteString("\t\tExitMeanings:      map[int]string{")
+		for i, c := range codes {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%d: %q", c, spec.ExitMeanings[c])
+		}
+		buf.WriteString("},\n")
 	}
 	if len(spec.StatusArgs) > 0 {
 		buf.WriteString("\t\tStatusArgs:        []string{")

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/runner"
 )
 
 // fakeTool writes an executable script that records each run (its
@@ -435,5 +438,50 @@ func TestOperandSeparatorOnlyForKnownTools(t *testing.T) {
 	a.Target = "-c 1 host"
 	if args, _ := a.BuildArgs(); strings.Join(args, " ") != "-c 1 host" {
 		t.Fatalf("ping args changed: %q", args)
+	}
+}
+
+func TestExitMeaningsDefaults(t *testing.T) {
+	spec := ToolSpec{Name: "diff"}
+	ApplySafetyDefaults(&spec)
+	if spec.ExitMeanings[1] != "files differ" {
+		t.Fatalf("diff ExitMeanings = %v", spec.ExitMeanings)
+	}
+	// The defaults are a copy: changing one spec doesn't change another.
+	spec.ExitMeanings[1] = "changed"
+	if KnownExitMeanings("diff")[1] != "files differ" {
+		t.Fatal("KnownExitMeanings shares its map")
+	}
+	// A spec's own meanings win.
+	own := ToolSpec{Name: "grep", ExitMeanings: map[int]string{1: "nothing"}}
+	ApplySafetyDefaults(&own)
+	if own.ExitMeanings[1] != "nothing" {
+		t.Fatalf("spec value overridden: %v", own.ExitMeanings)
+	}
+	none := ToolSpec{Name: "rsync"}
+	ApplySafetyDefaults(&none)
+	if none.ExitMeanings != nil {
+		t.Fatalf("rsync got %v", none.ExitMeanings)
+	}
+}
+
+// A diff run that finds differences is a result, shown as one.
+func TestDiffExitOneIsAResult(t *testing.T) {
+	bin, _ := fakeTool(t, "diff", "echo '1c1'; exit 1")
+	a := newTestApp(t, ToolSpec{Name: "diff", Bin: bin, KeepHistory: true})
+	a.Target = "a b"
+	job, err := a.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	if job.State() != runner.Done {
+		t.Fatalf("state %v", job.State())
+	}
+	if b := a.jobBadges(); len(b) != 1 || b[0].Text != "files differ" || b[0].Kind != mint.BadgeOK {
+		t.Fatalf("badges %+v", b)
+	}
+	if h := a.History(); len(h) != 1 || h[0].State != "done" {
+		t.Fatalf("history %+v", h)
 	}
 }
