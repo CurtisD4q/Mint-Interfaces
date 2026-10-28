@@ -457,10 +457,14 @@ type archEvidence struct {
 }
 
 func findArchEvidence(p programText) archEvidence {
+	q := p // archetype phrases are read in the body without its noise
+	if q.ArchBody != "" || q.Body == "" {
+		q.Body = q.ArchBody
+	}
 	return archEvidence{
 		cues:    archetypeCues(p),
-		words:   findEvidenceIn(archetypeSignalList, p),
-		broad:   findEvidenceIn(broadSignalList, p),
+		words:   findEvidenceIn(archetypeSignalList, q),
+		broad:   findEvidenceIn(broadSignalList, q),
 		related: relatedArchetypes(p.Name, p.Related),
 	}
 }
