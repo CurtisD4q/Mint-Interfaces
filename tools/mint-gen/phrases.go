@@ -310,6 +310,7 @@ type programText struct {
 	Usage       []string // usage lines
 	Body        string   // all of the man page and help
 	ArchBody    string   // the body the archetype phrases are read in: its body sections (see bodySections)
+	OptionText  string   // where the option cues look: its options (see optionCueSections)
 	Related     []string // programs from SEE ALSO
 
 	manLines, helpLines []string          // cleaned, for reading behaviour (see archetype.go)
@@ -319,13 +320,15 @@ type programText struct {
 // programTextFrom gathers a programText from man and help text.
 func programTextFrom(name, manText, helpText string) programText {
 	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
+	secs := splitHelpSections(manLines, helpLines)
 	return programText{
 		Name:        name,
 		Summary:     extractSummary(name, manLines, helpLines),
 		Description: extractDescription(manLines),
 		Usage:       usageLines(name, manLines, helpLines),
 		Body:        manText + "\n" + helpText,
-		ArchBody:    archBody(manLines, helpLines),
+		ArchBody:    archBody(secs),
+		OptionText:  optionText(secs),
 		Related:     seeAlsoPrograms(manText),
 		manLines:    manLines,
 		helpLines:   helpLines,

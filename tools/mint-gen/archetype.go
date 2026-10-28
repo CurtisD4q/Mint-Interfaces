@@ -325,8 +325,8 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 		}
 	}
 
-	// Options.
-	body := p.Body
+	// Options, where the help lists them (see optionCueSections).
+	body := p.OptionText
 	if reOptFollow.MatchString(body) {
 		add("follow", zoneBody, cueMedium, "it can follow new output")
 	}
@@ -404,6 +404,9 @@ func usageArgs(usage []string) []usageArg {
 			if i == 0 || bare == "" || strings.HasPrefix(bare, "-") || bare == "..." || strings.EqualFold(bare, "options") || strings.EqualFold(bare, "option") {
 				continue
 			}
+			if isFlagValue(toks, i) {
+				continue // FILE in "[-o FILE]" is the option's, not the program's
+			}
 			repeat := strings.Contains(tok, "...") || (i+1 < len(toks) && strings.HasPrefix(strings.Trim(toks[i+1], "[]"), "..."))
 			withArgs := i+1 < len(toks) && reArgOfCommand.MatchString(strings.ToLower(strings.Trim(toks[i+1], "[]{}()<>|.,'\"…")))
 			// "[FILE]..." is the word "file".
@@ -419,6 +422,21 @@ func usageArgs(usage []string) []usageArg {
 		}
 	}
 	return out
+}
+
+// isFlagValue reports whether usage token i is the value of the flag
+// before it: FILE in "[-o FILE]" or "-o FILE", not in "-- FILE" or
+// "[-v] FILE".
+func isFlagValue(toks []string, i int) bool {
+	if i == 0 {
+		return false
+	}
+	prev := strings.TrimLeft(toks[i-1], "[({")
+	if !strings.HasPrefix(prev, "-") || prev == "--" || strings.Contains(prev, "=") {
+		return false
+	}
+	// "[-v]" closes its bracket: what follows is the program's.
+	return !strings.ContainsAny(strings.TrimPrefix(toks[i-1], "["), "])}")
 }
 
 // archWeights weigh the evidence for archetypes.

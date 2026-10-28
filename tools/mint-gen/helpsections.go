@@ -32,9 +32,9 @@ const (
 // through them.
 var bodySections = []string{secMoreDescription, secOptions, secEnvironment, secOther}
 
-// archBody is the text of the body sections of a program's help.
-func archBody(manLines, helpLines []string) string {
-	secs := splitHelpSections(manLines, helpLines)
+// archBody is the text of the body sections of a program's help (secs,
+// from splitHelpSections).
+func archBody(secs map[string]string) string {
 	var parts []string
 	for _, s := range bodySections {
 		if t := secs[s]; t != "" {
@@ -166,4 +166,21 @@ func splitHelpSections(manLines, helpLines []string) map[string]string {
 		res[k] = b.String()
 	}
 	return res
+}
+
+// optionCueSections are the help sections the option cues (reOpt*) look
+// in: the options and the program's own headings, where man pages such as
+// nmap's list options ("HOST DISCOVERY"); not examples or notes, where a
+// "-f file" line is an example, not an option of its own.
+var optionCueSections = []string{secOptions, secOther}
+
+// optionText is the text the option cues look in.
+func optionText(secs map[string]string) string {
+	var parts []string
+	for _, s := range optionCueSections {
+		if t := secs[s]; t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
