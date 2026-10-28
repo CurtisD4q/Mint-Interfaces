@@ -713,3 +713,65 @@ func TestExtraSectionSearch(t *testing.T) {
 	main2 := run(nil, top)
 	t.Logf("main + 2 %v:  %d/%d (%.1f%%), nothing chosen so this is fair", top, count(main2.ok, all), tot, pct(count(main2.ok, all)))
 }
+
+// TestSwapBodySearch drops the whole help (the fifth part) and reads chosen
+// help sections in its place, each as a separate part. Nothing is chosen
+// from these programs, so each score is a fair one.
+func TestSwapBodySearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "swap" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=swap")
+	}
+	type doc struct {
+		want appkit.ArchetypeID
+		ev   archEvidence
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.readWhole, p.read = true, helpSections[:]
+		docs = append(docs, doc{c.Want, findArchEvidence(p)})
+	}
+	w := defaultArchWeights
+	w.Words.Whole, w.Words.WholeCap = w.Words.Section, w.Words.SectionCap
+	shape := func(pe phraseEvidence, whole bool, parts []string) phraseEvidence {
+		keep := map[int]bool{zoneWhole: whole}
+		for _, s := range parts {
+			keep[zoneOf(s)] = true
+		}
+		for z := zoneWhole; z < numZones; z++ {
+			if !keep[z] {
+				pe.zones[z] = nil
+			}
+		}
+		return pe
+	}
+	tot := len(docs)
+	try := func(name string, whole bool, parts ...string) {
+		n := 0
+		for _, d := range docs {
+			ev := d.ev
+			ev.words = shape(ev.words, whole, parts)
+			ev.broad = shape(ev.broad, whole, parts)
+			if scoreArchEvidence(w, ev)[0].ID == d.want {
+				n++
+			}
+		}
+		t.Logf("%-46s %d/%d (%.1f%%)", name, n, tot, 100*float64(n)/float64(tot))
+	}
+	try("main: whole help", true)
+	try("no fifth part", false)
+	try("other", false, secOther)
+	try("other + commands", false, secOther, secCommands)
+	try("options", false, secOptions)
+	try("more description", false, secMoreDescription)
+	try("options + more description", false, secOptions, secMoreDescription)
+	try("options + more description + other", false, secOptions, secMoreDescription, secOther)
+	try("options + more description + other + commands", false, secOptions, secMoreDescription, secOther, secCommands)
+}
