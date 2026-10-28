@@ -99,9 +99,9 @@ func explainArchetypeChoice(w io.Writer, program string, c ArchetypeChoice) {
 		if len(hits) > 5 {
 			hits = append(hits[:5:5], "…")
 		}
-		p("%s%-12s %3d  %s", head, s.ID, s.Score, strings.Join(hits, "; "))
+		p("%s%-12s %5s  %s", head, s.ID, points(s.Score), strings.Join(hits, "; "))
 	}
-	p("             (it leads the next by %d; %d or more is a clear choice)", c.Lead, clearLead)
+	p("             (it leads the next by %s; %s or more is a clear choice)", points(c.Lead), points(clearLead))
 	for _, a := range c.Alternatives {
 		p("  Instead:    mint-gen --archetype %s %s   (%s)", a, prog, archetypeLabel(a))
 	}

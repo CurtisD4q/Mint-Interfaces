@@ -187,3 +187,28 @@ func TestSubcommandKindShare(t *testing.T) {
 		t.Errorf("mixed: %v", c)
 	}
 }
+
+// The value of a flag in a usage line is the flag's, not the program's
+// own argument: FILE in "[-o FILE]" takes no part in the usage cues.
+func TestUsageArgsSkipFlagValues(t *testing.T) {
+	var words []string
+	for _, a := range usageArgs([]string{"x9 [-o FILE] [-v] [-i interface] -f filter -- HOST..."}) {
+		words = append(words, a.word)
+	}
+	if got := strings.Join(words, " "); got != "host" {
+		t.Errorf("usage arguments %q, want only host", got)
+	}
+}
+
+// Option cues look in the options, not in examples: a "-f" line in
+// EXAMPLES does not make a program follow its output.
+func TestOptionCuesLookInOptions(t *testing.T) {
+	man := "NAME\n       x9 - print things\n\nOPTIONS\n       -v     verbose\n\nEXAMPLES\n       -f, --follow   wait for new lines as the file grows\n"
+	if _, ok := archetypeCues(programTextFrom("x9", man, ""))["follow"]; ok {
+		t.Error("an example line gave the follow cue")
+	}
+	man = strings.Replace(man, "EXAMPLES", "MORE OPTIONS", 1)
+	if _, ok := archetypeCues(programTextFrom("x9", man, ""))["follow"]; !ok {
+		t.Error("an option under a heading of its own gave no follow cue")
+	}
+}

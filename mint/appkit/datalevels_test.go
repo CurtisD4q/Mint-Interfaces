@@ -39,3 +39,16 @@ func TestFormerTemplateLevelsKept(t *testing.T) {
 		}
 	}
 }
+
+// scorerLevels are data levels that changes to the archetype scorer once
+// gave tools by way of their archetype; they are kept in toolData so that
+// a later scorer change can never lower them.
+var scorerLevels = map[string]string{"geoiplookup6": DataSensitive, "less": DataSensitive}
+
+func TestScorerLevelsKept(t *testing.T) {
+	for name, want := range scorerLevels {
+		if got, _ := ClassifyData(ToolSpec{Name: name}); dataRank(got) < dataRank(want) {
+			t.Errorf("%s: %q, want at least %q", name, got, want)
+		}
+	}
+}

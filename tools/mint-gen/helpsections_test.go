@@ -64,3 +64,21 @@ func TestArchBodyIsTheBodySections(t *testing.T) {
 		}
 	}
 }
+
+// In the help, an option's line is an option under any heading, but not in
+// a list of commands.
+func TestHelpFlagLinesAreOptions(t *testing.T) {
+	help := "Usage: x9 [options]\nFrobnicate widgets.\nOutput control:\n  -q   quiet output\nExamples:\n  -v   be verbose\n  x9 file\nCommands:\n  run   run it\n"
+	secs := splitHelpSections(nil, cleanLines(help))
+	for _, w := range []string{"-q   quiet output", "-v   be verbose"} {
+		if !strings.Contains(secs[secOptions], w) {
+			t.Errorf("options lost %q: %q", w, secs[secOptions])
+		}
+	}
+	if !strings.Contains(secs[secExamples], "x9 file") || strings.Contains(secs[secExamples], "be verbose") {
+		t.Errorf("examples: %q", secs[secExamples])
+	}
+	if !strings.Contains(secs[secCommands], "run   run it") {
+		t.Errorf("commands: %q", secs[secCommands])
+	}
+}
