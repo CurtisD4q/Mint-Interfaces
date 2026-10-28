@@ -17,7 +17,9 @@ import (
 //     called (add/remove, commit/log, start/stop), and options such as
 //     --follow, --listen or -c COMMAND.
 //   - Words: each archetype's phrases (archetypeSignals), read in the
-//     program's name, summary, description, usage and the rest of its help,
+//     program's name, summary, description, usage and body sections (more
+//     description, options, environment and its own headings; see
+//     bodySections),
 //     weighed by where they were found (see archWeights); and broader
 //     subject phrases (archetypeBroadPhrases) for a share of their points.
 //
@@ -430,7 +432,7 @@ type archWeights struct {
 
 // defaultArchWeights give behaviour cues and phrases alike their points
 // by where they were found: usage 30, summary 25, description 20, name 15,
-// the rest of the help 10. A cue's strength is a percent of its part's
+// the body 10 (behaviour cues: the rest of the help). A cue's strength is a percent of its part's
 // points; the strengths, the weak-word points, the body limit and the
 // share of the broad subject phrases were chosen by a cross-validated
 // search within that split (MINT_ARCHETYPE_BENCH=tune).
@@ -457,10 +459,8 @@ type archEvidence struct {
 }
 
 func findArchEvidence(p programText) archEvidence {
-	q := p // archetype phrases are read in the body without its noise
-	if q.ArchBody != "" || q.Body == "" {
-		q.Body = q.ArchBody
-	}
+	q := p // archetype phrases are read in the body sections only
+	q.Body = p.ArchBody
 	return archEvidence{
 		cues:    archetypeCues(p),
 		words:   findEvidenceIn(archetypeSignalList, q),

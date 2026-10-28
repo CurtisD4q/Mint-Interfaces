@@ -32,7 +32,7 @@ func TestArchetypeBehaviourCues(t *testing.T) {
 		{"x11", "Usage: x11 [options]\n  -l, --listen ADDR   listen on ADDR and serve files\n", "serve"},
 		{"x12", "Commands:\n  start   Start it\n  stop    Stop it\n  status  Show status\n  restart Restart it\n", "control"},
 		{"x13", "Commands:\n  install  Install a package\n  remove   Remove a package\n  list     List packages\n", "records"},
-		{"x14", "Commands:\n  commit   Record changes\n  log      Show history\n  checkout Switch\n", "history"},
+		{"x14", "Commands:\n  commit   Record changes\n  log      Show history\n  checkout  Switch\n", "history"},
 		{"x15", "Commands:\n  alpha    Do alpha\n  beta     Do beta\n  gamma    Do gamma\n", "toolkit"},
 	} {
 		if got := archOf(t, c.name, "", c.help); got.ID != c.want {
