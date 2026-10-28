@@ -651,7 +651,7 @@ For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarat
   | `WithReorder` | `Reorder *ReorderSpec` | Rules: `iptables`, `ip6tables`, `nft`, `ufw`, `ip rule` | Move rules, review the exact commands, apply. The current rules are saved to a file first; the old order comes back by itself unless the user keeps the new one within 30 s, or quits first. `ip route` is refused: routes have no order | yes |
 
   The engines behind them are packages of their own, usable without appkit: `mint/diff`, `mint/findings`, `mint/fileplan`, `mint/follow`, `mint/procnet`, `mint/transcript` and `mint/reorder`. `appkit.KnownDiffSpec`, `KnownFindingsSpec`, `KnownPreviewSpec`, `KnownFollowSpec`, `KnownServiceSpec`, `KnownTranscriptSpec` and `KnownReorderSpec` return the settings for the programs Mint knows.
-- **Older apps**: a spec made before archetypes may name one of the old 28 templates (`Template: "T12"`); it starts as the archetype that template stood for and keeps the data level it gave.
+- **Older apps**: the old 28 templates are gone. A spec that still names one (`Template: "T12"`) no longer builds; give it an `ArchetypeID` instead (`mint-gen --list-archetypes`).
 
 ```go
 func appkitExample() appkit.ToolSpec {

@@ -150,34 +150,6 @@ func TestAllArchetypesAnd6Layouts(t *testing.T) {
 	}
 }
 
-// An app made before archetypes, naming an old template by ID or slug,
-// starts as the archetype that template stood for.
-func TestLegacyTemplatesBecomeArchetypes(t *testing.T) {
-	if len(legacyTemplates) != 28 {
-		t.Fatalf("%d legacy templates, want 28", len(legacyTemplates))
-	}
-	seen := map[string]bool{}
-	for _, lt := range legacyTemplates {
-		for _, key := range []string{lt.id, lt.slug} {
-			if seen[key] {
-				t.Fatalf("duplicate %q", key)
-			}
-			seen[key] = true
-			a, ok := ArchetypeForLegacyTemplate(key)
-			if !ok || a.ID != lt.archetype {
-				t.Fatalf("%s: %s %v, want %s", key, a.ID, ok, lt.archetype)
-			}
-			app := New(ToolSpec{Name: "old-" + key, Bin: "echo", Template: key})
-			if app.Spec.ArchetypeID != string(lt.archetype) || app.Spec.Archetype != a.Blueprint().Layout {
-				t.Fatalf("%s: started as %s/%s", key, app.Spec.ArchetypeID, app.Spec.Archetype)
-			}
-		}
-	}
-	if _, ok := ArchetypeForLegacyTemplate("T99"); ok {
-		t.Fatal("T99 accepted")
-	}
-}
-
 func TestMixinsAndDynamicChoicesAndSplitSections(t *testing.T) {
 	spec := ToolSpec{
 		Name:        "net-demo",

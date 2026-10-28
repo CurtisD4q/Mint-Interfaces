@@ -75,4 +75,4 @@ Each archetype says what a program takes, how it runs and what it shows; its blu
 | `session` | Session | Run other things | `runner` | An interactive prompt, driven one command at a time. | history, transcript | `mysql`, `psql`, `sftp`, `sqlite3` |
 | `general` | General | Anything else | `runner` | Anything else: a command and its output. | collapsible |  |
 
-Apps made before archetypes may still name one of the old 28 templates (`T01`–`T28`) in their spec's `Template` field; they start as the archetype that template stood for, with the data level it gave them (`mint/appkit/legacy.go`).
+The old 28 templates (`T01`–`T28`) are gone. A spec made before archetypes that still sets `Template:` no longer builds; give it an `ArchetypeID` instead.

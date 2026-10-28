@@ -38,15 +38,4 @@ func TestFormerTemplateLevelsKept(t *testing.T) {
 			t.Errorf("%s (app): %q, was %q", name, app.Spec.Data, want)
 		}
 	}
-	// And every old template's own level, for apps that still name one.
-	for _, lt := range legacyTemplates {
-		if lt.data == "" {
-			continue
-		}
-		for _, key := range []string{lt.id, lt.slug} {
-			if got, _ := ClassifyData(ToolSpec{Name: "old9", Template: key}); dataRank(got) < dataRank(lt.data) {
-				t.Errorf("%s: %q, was %q", key, got, lt.data)
-			}
-		}
-	}
 }

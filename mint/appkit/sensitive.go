@@ -87,7 +87,7 @@ var normalDataTools = map[string]bool{
 }
 
 // ClassifyData says how sensitive a tool's results are, and why: from the
-// tool itself, else an older app's template, else its archetype.
+// tool itself, else its archetype.
 func ClassifyData(spec ToolSpec) (level, reason string) {
 	base := toolBase(spec.BinaryName())
 	if c, ok := toolData[base]; ok {
@@ -95,11 +95,6 @@ func ClassifyData(spec ToolSpec) (level, reason string) {
 	}
 	if normalDataTools[base] {
 		return DataNormal, ""
-	}
-	// An app made before archetypes keeps the level its old template gave
-	// it.
-	if t, ok := lookupLegacyTemplate(spec.Template); ok && t.data != "" {
-		return t.data, t.reason
 	}
 	if a, ok := LookupArchetype(spec.ArchetypeID); ok && a.Data != "" {
 		return a.Data, a.DataReason
