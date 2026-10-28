@@ -553,3 +553,163 @@ func TestSectionSearch(t *testing.T) {
 		}
 	}
 }
+
+// TestExtraSectionSearch compares, on the tunable programs, the five parts
+// of main (the whole help as the fifth part) and grouped sections (chosen
+// sections read together as the fifth part), each with 1 or 2 of the best
+// single sections (options, more description) added as separate parts of
+// their own. Choices are made by 5-fold cross-validation.
+func TestExtraSectionSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "extras" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=extras")
+	}
+	type doc struct {
+		want appkit.ArchetypeID
+		ev   archEvidence // whole help and every section read
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.readWhole, p.read = true, helpSections[:]
+		docs = append(docs, doc{c.Want, findArchEvidence(p)})
+	}
+	w := defaultArchWeights
+	w.Words.Whole, w.Words.WholeCap = w.Words.Section, w.Words.SectionCap
+	// fifth part: group nil means the whole help (main); otherwise the
+	// group's sections are read together as one part. extra sections are
+	// separate parts. Every other section is left out.
+	shape := func(pe phraseEvidence, group, extra []string) phraseEvidence {
+		out := pe
+		if group != nil {
+			merged := map[int]int{}
+			for _, s := range group {
+				for i, n := range pe.zones[zoneOf(s)] {
+					merged[i] += n
+				}
+			}
+			out.zones[zoneWhole] = merged
+		}
+		keep := map[int]bool{}
+		for _, s := range extra {
+			keep[zoneOf(s)] = true
+		}
+		for z := zoneSection; z < numZones; z++ {
+			if !keep[z] {
+				out.zones[z] = nil
+			}
+		}
+		return out
+	}
+	type setup struct {
+		group, extra []string
+		ok           []bool
+	}
+	run := func(group, extra []string) setup {
+		s := setup{group, extra, make([]bool, len(docs))}
+		for i, d := range docs {
+			ev := d.ev
+			ev.words = shape(ev.words, group, extra)
+			ev.broad = shape(ev.broad, group, extra)
+			s.ok[i] = scoreArchEvidence(w, ev)[0].ID == d.want
+		}
+		return s
+	}
+	count := func(row []bool, keep func(int) bool) (n int) {
+		for i, r := range row {
+			if keep(i) && r {
+				n++
+			}
+		}
+		return
+	}
+	all := func(int) bool { return true }
+	tot := len(docs)
+	pct := func(n int) float64 { return 100 * float64(n) / float64(tot) }
+	// cv picks, in each fold, the setup that is right most often on the
+	// other four folds and counts it on the fold left out.
+	cv := func(name string, ss []setup) {
+		n := 0
+		var chose []string
+		for f := 0; f < 5; f++ {
+			best, bestN := 0, -1
+			for si := range ss {
+				if c := count(ss[si].ok, func(i int) bool { return i%5 != f }); c > bestN {
+					best, bestN = si, c
+				}
+			}
+			n += count(ss[best].ok, func(i int) bool { return i%5 == f })
+			chose = append(chose, fmt.Sprintf("%v+%v", ss[best].group, ss[best].extra))
+		}
+		order := make([]int, len(ss))
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool { return count(ss[order[a]].ok, all) > count(ss[order[b]].ok, all) })
+		t.Logf("%-28s fair %d/%d (%.1f%%)", name, n, tot, pct(n))
+		for _, si := range order[:min(3, len(ss))] {
+			t.Logf("    best %d/%d group %v extra %v", count(ss[si].ok, all), tot, ss[si].group, ss[si].extra)
+		}
+		t.Logf("    folds chose %v", chose)
+	}
+	top := []string{secOptions, secMoreDescription}
+	base := run(nil, nil)
+	t.Logf("main as it is:               %d/%d (%.1f%%)", count(base.ok, all), tot, pct(count(base.ok, all)))
+	groupsWithout := func(extra []string) [][]string {
+		out := map[bool]bool{}
+		_ = out
+		skip := map[string]bool{}
+		for _, s := range extra {
+			skip[s] = true
+		}
+		var rest []string
+		for _, s := range helpSections {
+			if !skip[s] {
+				rest = append(rest, s)
+			}
+		}
+		var subs [][]string
+		var pick func(start int, cur []string)
+		pick = func(start int, cur []string) {
+			if len(cur) > 0 {
+				subs = append(subs, append([]string(nil), cur...))
+			}
+			if len(cur) == 4 {
+				return
+			}
+			for i := start; i < len(rest); i++ {
+				pick(i+1, append(cur, rest[i]))
+			}
+		}
+		pick(0, nil)
+		return subs
+	}
+	var grouped0 []setup
+	for _, g := range groupsWithout(nil) {
+		grouped0 = append(grouped0, run(g, nil))
+	}
+	cv("grouped sections", grouped0)
+	var grouped1, main1 []setup
+	for _, e := range top {
+		extra := []string{e}
+		main1 = append(main1, run(nil, extra))
+		for _, g := range groupsWithout(extra) {
+			grouped1 = append(grouped1, run(g, extra))
+		}
+	}
+	cv("grouped sections + 1", grouped1)
+	cv("main + 1", main1)
+	var grouped2 []setup
+	for _, g := range groupsWithout(top) {
+		grouped2 = append(grouped2, run(g, top))
+	}
+	cv("grouped sections + 2", grouped2)
+	main2 := run(nil, top)
+	t.Logf("main + 2 %v:  %d/%d (%.1f%%), nothing chosen so this is fair", top, count(main2.ok, all), tot, pct(count(main2.ok, all)))
+}
