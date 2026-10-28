@@ -279,6 +279,7 @@ type programText struct {
 	Description string   // the opening of the man page's DESCRIPTION (see extractDescription)
 	Usage       []string // usage lines
 	Body        string   // all of the man page and help
+	ArchBody    string   // the body the archetype phrases are read in: without credits, SEE ALSO and BUGS (see quietBody)
 	Related     []string // programs from SEE ALSO
 
 	manLines, helpLines []string          // cleaned, for reading behaviour (see archetype.go)
@@ -294,6 +295,7 @@ func programTextFrom(name, manText, helpText string) programText {
 		Description: extractDescription(manLines),
 		Usage:       usageLines(name, manLines, helpLines),
 		Body:        manText + "\n" + helpText,
+		ArchBody:    quietBody(manText, helpText, manLines, helpLines),
 		Related:     seeAlsoPrograms(manText),
 		manLines:    manLines,
 		helpLines:   helpLines,
