@@ -50,6 +50,25 @@ var archetypeBroadPhrases = map[string][]string{
 	"schedule":   {"cron|crontab", "~schedule|scheduled|scheduling", "~timer", "at job", "later execution|later time", "periodic|periodically", "~job", "~batch", "anacron"},
 }
 
+// moreBroadPhrases are the subjects of the archetypes that are known by
+// what they do rather than what they are about, written from their
+// definitions (appkit/archetypedefs.go); general, the catch-all, has none.
+// They count like archetypeBroadPhrases for choosing an archetype, but are
+// never rivals of the data topics (topicContest), so adding to them can
+// never lower a program's data level.
+var moreBroadPhrases = map[string][]string{
+	"ask":      {"arithmetic", "mathematics|mathematical", "~number|~numbers", "hexadecimal|octal|binary number", "prime factors|factorization|factorisation", "calendar", "currency"},
+	"inspect":  {"file format", "~header|~headers", "elf|executable file|object file|shared library", "binary file", "exif", "~attributes", "hardware information", "symbol table"},
+	"compare":  {"diff|diffs", "~patch", "two files|two directories", "unified format|context format", "~changes"},
+	"filter":   {"~characters", "~whitespace", "~tabs|~spaces", "line endings|newline|newlines", "uppercase|lowercase", "word count|line count|byte count", "format text|formatting text|text formatting"},
+	"generate": {"random number|random numbers", "passphrase", "lorem ipsum", "~seed", "~entropy", "~token", "~identifier", "~template", "barcode"},
+	"present":  {"speaker|speakers", "~sound", "desktop", "~screen", "printer|print queue|printing", "~music|~song", "slideshow", "image viewer|picture viewer", "banner"},
+	"mirror":   {"rsync", "remote copy", "~replica|~replicas", "~directory tree", "~delta", "~remote"},
+	"wrap":     {"nice value|~priority", "~timeout", "resource limit|ulimit", "namespace|namespaces", "~environment", "cgroup|control group", "chroot|root directory", "~personality", "cpu affinity|~affinity"},
+	"serve":    {"~http", "~tcp|~udp", "~socket", "~proxy", "~requests", "~clients", "web application", "static files", "listen address|bind address"},
+	"session":  {"read-eval-print|~repl", "readline|line editing", "~interactive mode", "~console", "command history"},
+}
+
 // dataTopicPhrases say what a program's help is about when that makes its
 // results private: keys and passwords (secret); captured traffic, people
 // and organisations, security findings and logs (sensitive). See
@@ -144,13 +163,24 @@ var neutralPhrases = []string{
 }
 
 var (
-	broadSignalList     = buildSignals(archetypeBroadPhrases)
+	broadSignalList     = buildSignals(mergePhrases(archetypeBroadPhrases, moreBroadPhrases))
 	dataTopicSignalList = buildSignals(dataTopicPhrases)
 	// The data topics compete with the other subjects a program can be
 	// about: a topic decides only when it clearly leads them all, so a
 	// package manager that mentions checksums is not about keys.
 	topicContestList = buildSignals(topicContest())
 )
+
+// mergePhrases joins phrase maps; entries for one group are appended.
+func mergePhrases(maps ...map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for _, m := range maps {
+		for k, v := range m {
+			out[k] = append(append([]string(nil), out[k]...), v...)
+		}
+	}
+	return out
+}
 
 // topicContest is the data topics and, as rivals, each archetype's broad
 // phrases without the topics' own.
