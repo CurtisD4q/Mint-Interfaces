@@ -40,7 +40,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
 	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
-	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 35 archetypes, the 6 base layouts and the add-ons")
+	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 35 archetypes and the add-ons")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
@@ -170,8 +170,8 @@ func runCLI(args []string) int {
 	}
 
 	fmt.Printf("Terminal: %s\n", formatTermSummary(prof, cached))
-	fmt.Printf("Scaffolded %s [archetype=%s layout=%s] (%d flags, outputs_file=%v) in %s:\n",
-		spec.Name, spec.ArchetypeID, spec.Archetype, len(spec.Flags), spec.OutputsFile, res.AppDir)
+	fmt.Printf("Scaffolded %s [archetype=%s] (%d flags, outputs_file=%v) in %s:\n",
+		spec.Name, spec.ArchetypeID, len(spec.Flags), spec.OutputsFile, res.AppDir)
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
@@ -236,23 +236,16 @@ func flagsFirst(fs *flag.FlagSet, args []string) []string {
 }
 
 func printArchetypeCatalogue() {
-	fmt.Println("Mint-Interfaces — 6 Base Layouts:")
-	fmt.Println("  config    State Editor (read live state -> edit controls/rules -> apply)")
-	fmt.Println("  runner    Task & Pipeline (target + flags + presets -> background job + progress -> output)")
-	fmt.Println("  scanner   Target -> Live Table + Log (live structured table + collapsible raw output)")
-	fmt.Println("  monitor   Live Poller & Controller (periodic Poll -> gauges & live table -> per-row actions)")
-	fmt.Println("  explorer  Query -> Results -> Detail (search/query bar -> parsed table/sections -> detail)")
-	fmt.Println("  suite     Multi-Subcommand Manager (subcommand selector -> per-mode flags/table/actions)")
-	fmt.Println()
 	fmt.Printf("Mint-Interfaces — %d Composable Mixins:\n", len(appkit.AllMixins()))
 	for _, m := range appkit.MixinInfos() {
 		fmt.Printf("  - %-22s %s (%s)\n", m.Name, m.Summary, m.Fields)
 	}
 	fmt.Println()
 	fmt.Printf("Mint-Interfaces — %d Archetypes (what kind of program it is):\n", len(appkit.AllArchetypeDefs()))
-	fmt.Printf("  %-11s  %-19s  %-9s  %s\n", "ARCHETYPE", "GROUP", "LAYOUT", "WHAT IT IS")
+	fmt.Println("  A screen is built from the archetype: what it takes, how it runs, and what it shows.")
+	fmt.Printf("  %-12s  %-19s  %s\n", "ARCHETYPE", "GROUP", "WHAT IT IS")
 	for _, a := range appkit.AllArchetypeDefs() {
-		fmt.Printf("  %-11s  %-19s  %-9s  %s\n", a.ID, a.Group, a.Blueprint().Layout, a.Is)
+		fmt.Printf("  %-12s  %-19s  %s\n", a.ID, a.Group, a.Is)
 	}
 }
 
@@ -422,7 +415,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 			Title: "mint-gen",
 			Status: func() []mint.Badge {
 				if rep.Compatible {
-					return []mint.Badge{{Text: prog + " · " + spec.ArchetypeID + " (" + string(spec.Archetype) + ")", Kind: mint.BadgeOK}}
+					return []mint.Badge{{Text: prog + " · " + spec.ArchetypeID, Kind: mint.BadgeOK}}
 				}
 				return []mint.Badge{{Text: prog + " excluded", Kind: mint.BadgeError}}
 			},
@@ -463,11 +456,6 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 									applyChosenArchetype(&spec, a, spec.Desc)
 								}
 							},
-						}),
-						mint.Value(mint.ValueOpts{
-							ID:    "layout",
-							Label: "Base layout",
-							Get:   func() string { return string(spec.Archetype) },
 						}),
 						mint.Value(mint.ValueOpts{
 							ID:    "mixins",
@@ -549,7 +537,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 	app := &mint.App{
 		Title: "◈ Mint Generator",
 		Crumb: "mint-gen",
-		Note:  "man-page & --help interface scaffolder (35 Archetypes · 6 Layouts · Mixins)",
+		Note:  "man-page & --help interface scaffolder (35 Archetypes · Mixins)",
 		Items: []mint.HomeItem{
 			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Detect the archetype, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
 		},

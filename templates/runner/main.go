@@ -1,4 +1,4 @@
-// Starter for the runner layout (appkit.LayoutRunner), used by the Audit, Build, Convert, Edit files, Filter, Generate, Measure, Mirror, Present, Serve, Session, Transfer, Wrap and General archetypes.
+// Starter for the Transfer archetype: a URL in, a file out, with progress.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,8 +8,7 @@ func main() {
 		Name:              "curl",
 		Title:             "◈ Curl",
 		Desc:              "Transfer a URL with live progress and file output",
-		ArchetypeID:       "transfer", // any archetype on the runner layout: see mint-gen --list-archetypes
-		Archetype:         appkit.LayoutRunner,
+		ArchetypeID:       "transfer",
 		TargetLabel:       "Target URL",
 		TargetPlaceholder: "https://example.com/file.tar.gz",
 		OutputsFile:       true,

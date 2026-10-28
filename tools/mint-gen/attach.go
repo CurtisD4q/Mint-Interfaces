@@ -107,7 +107,6 @@ func applyChosenArchetype(spec *appkit.ToolSpec, a appkit.ArchetypeDef, help str
 	spec.WantTarget = false
 	spec.HideTarget = false
 	clearParsedScreens(spec)
-	spec.Archetype = a.Blueprint().Layout
 	a.ApplyTo(spec)
 	if spec.TargetLabel == "" && !spec.HideTarget {
 		spec.TargetLabel = "Target / arguments"

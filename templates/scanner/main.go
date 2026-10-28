@@ -1,4 +1,4 @@
-// Starter for the scanner layout (appkit.LayoutScanner), used by the Probe and Record archetypes.
+// Starter for the Probe archetype: targets in, one result row each.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,8 +8,7 @@ func main() {
 		Name:              "nmap",
 		Title:             "◈ Nmap",
 		Desc:              "Network exploration and security / port scanner",
-		ArchetypeID:       "probe", // any archetype on the scanner layout: see mint-gen --list-archetypes
-		Archetype:         appkit.LayoutScanner,
+		ArchetypeID:       "probe",
 		TargetLabel:       "Target host / CIDR / range",
 		TargetPlaceholder: "scanme.nmap.org or 192.168.1.0/24",
 		OutputsFile:       true,

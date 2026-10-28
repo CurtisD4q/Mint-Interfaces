@@ -160,23 +160,6 @@ func main() {
 `
 }
 
-func archetypeIdent(a appkit.Layout) string {
-	switch a {
-	case appkit.LayoutConfig:
-		return "LayoutConfig"
-	case appkit.LayoutScanner:
-		return "LayoutScanner"
-	case appkit.LayoutMonitor:
-		return "LayoutMonitor"
-	case appkit.LayoutExplorer:
-		return "LayoutExplorer"
-	case appkit.LayoutSuite:
-		return "LayoutSuite"
-	default:
-		return "LayoutRunner"
-	}
-}
-
 func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString("package main\n\n")
@@ -189,9 +172,6 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	fmt.Fprintf(&buf, "\t\tDesc:              %q,\n", spec.Desc)
 	if spec.ArchetypeID != "" {
 		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
-	}
-	if spec.Archetype != "" {
-		fmt.Fprintf(&buf, "\t\tArchetype:         appkit.%s,\n", archetypeIdent(spec.Archetype))
 	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)

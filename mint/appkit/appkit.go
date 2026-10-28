@@ -1,6 +1,6 @@
 // Package appkit provides a declarative runtime for turning command-line
-// programs into Mint TUI applications using 35 archetypes, 6 base layouts
-// and composable mixins (add-ons).
+// programs into Mint TUI applications using 35 archetypes and composable
+// mixins (add-ons). MainScreen is assembled from the archetype's features.
 package appkit
 
 import (
@@ -103,13 +103,16 @@ type ProfileSpec struct {
 // ToolSpec defines the metadata, archetype, mixins, flags, and presets
 // for a wrapped CLI program.
 type ToolSpec struct {
-	Name                    string `json:"name"`
-	Bin                     string `json:"bin,omitempty"`
-	Title                   string `json:"title,omitempty"`
-	Desc                    string `json:"desc,omitempty"`
-	Version                 string `json:"version,omitempty"`
-	ArchetypeID             string `json:"archetype_id,omitempty"` // which of the 35 archetypes: "probe", "look-up"… (see ArchetypeDef)
-	Archetype               Layout `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite (JSON also accepts "layout")
+	Name        string `json:"name"`
+	Bin         string `json:"bin,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Desc        string `json:"desc,omitempty"`
+	Version     string `json:"version,omitempty"`
+	ArchetypeID string `json:"archetype_id,omitempty"` // which of the 35 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	// Archetype is the deprecated base-layout field. MainScreen ignores it.
+	// It remains so saved specs (the JSON key "archetype", or "layout") and
+	// older callers still compile.
+	Archetype               Layout `json:"archetype,omitempty"`
 	TargetLabel             string `json:"target_label,omitempty"`
 	TargetPlaceholder       string `json:"target_placeholder,omitempty"`
 	TargetDefault           string `json:"target_default,omitempty"`
@@ -149,10 +152,10 @@ type ToolSpec struct {
 	ExitMeanings      map[int]string   `json:"exit_meanings,omitempty"`      // Exit codes besides 0 that are results, not failures (diff: 1 → "files differ")
 	Data              string           `json:"data,omitempty"`               // How sensitive results are: "", DataSensitive or DataSecret
 	DataReason        string           `json:"data_reason,omitempty"`        // Why, in a few words ("captures network traffic…")
-	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying Config
-	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // Poll interval for ArchetypeMonitor
-	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs for ArchetypeSuite
-	RowActions        []RowActionSpec  `json:"row_actions,omitempty"`        // Per-row actions for Monitor/Config tables
+	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying a state edit
+	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // How often a live screen reads state
+	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs, shown when this list is not empty
+	RowActions        []RowActionSpec  `json:"row_actions,omitempty"`        // Per-row actions for tables
 	Profiles          []ProfileSpec    `json:"profiles,omitempty"`           // Mixin: WithProfiles
 	Flags             []FlagSpec       `json:"flags,omitempty"`
 }
@@ -304,9 +307,6 @@ func New(spec ToolSpec) *ToolApp {
 		// A session's output is its transcript, even when the program's
 		// archetype (sqlite3's Session one, say) saves output to a file.
 		spec.OutputsFile = false
-	}
-	if spec.Archetype == "" {
-		spec.Archetype = LayoutRunner
 	}
 	if spec.Title == "" {
 		spec.Title = "◈ " + spec.Name
@@ -872,11 +872,11 @@ func (a *ToolApp) BuildArgs() (args []string, outPath string) {
 }
 
 func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []string) {
-	if a.Spec.Archetype == LayoutSuite && len(a.Spec.Subcommands) > 0 {
+	if len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			args = append(args, sub.Args...)
 		}
-	} else if a.Spec.Archetype == LayoutConfig && len(a.Spec.ApplyArgs) > 0 {
+	} else if a.isStateEditor() && len(a.Spec.ApplyArgs) > 0 {
 		args = append(args, a.Spec.ApplyArgs...)
 	}
 	prefix := len(args) // subcommand or apply words
@@ -892,11 +892,11 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 // argPrefixLen is how many leading words of the argument list are the
 // subcommand (or apply) words, before any options.
 func (a *ToolApp) argPrefixLen() int {
-	if a.Spec.Archetype == LayoutSuite && len(a.Spec.Subcommands) > 0 {
+	if len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			return len(sub.Args)
 		}
-	} else if a.Spec.Archetype == LayoutConfig && len(a.Spec.ApplyArgs) > 0 {
+	} else if a.isStateEditor() && len(a.Spec.ApplyArgs) > 0 {
 		return len(a.Spec.ApplyArgs)
 	}
 	return 0
@@ -1348,35 +1348,6 @@ func (a *ToolApp) targetRows(idPrefix string) []mint.Row {
 		Get:         func() string { return a.Target },
 		Set:         func(v string) { a.Target = strings.TrimSpace(v) },
 	})}
-}
-
-func (a *ToolApp) targetAndPresetSection(secName string) mint.Section {
-	rows := a.targetRows("")
-	// The preset picker is FeatProfiles: only when the spec actually has some.
-	if len(a.Spec.Profiles) > 0 {
-		opts := make([]string, len(a.Spec.Profiles))
-		for i, p := range a.Spec.Profiles {
-			opts[i] = p.Name
-		}
-		rows = append(rows, mint.Picker(mint.PickerOpts{
-			ID:      "profile",
-			Label:   "Preset profile",
-			Options: opts,
-			Get:     func() string { return a.Profile },
-			Set:     func(v string) { a.ApplyProfile(v) },
-		}))
-	}
-	rows = append(rows, mint.Text(mint.TextOpts{
-		ID:          "extra_args",
-		Label:       "Extra arguments",
-		Placeholder: "optional CLI flags",
-		Get:         func() string { return a.ExtraArgs },
-		Set:         func(v string) { a.ExtraArgs = v },
-	}))
-	return mint.Section{
-		Name: secName,
-		Rows: rows,
-	}
 }
 
 func (a *ToolApp) flagSections() []mint.Section {
@@ -1851,100 +1822,6 @@ func (a *ToolApp) homeLabel(fallback string) string {
 	return fallback
 }
 
-// inlineResults reports whether the main screen keeps a results section on
-// the page: FeatTable, or the scanner / explorer layouts.
-func (a *ToolApp) inlineResults() bool {
-	return a.Spec.TableOutput || a.Spec.Archetype == LayoutScanner || a.Spec.Archetype == LayoutExplorer
-}
-
-// MainScreen dispatches to the primary screen for the tool's configured layout
-// (ConfigScreen, RunnerScreen, ScannerScreen, MonitorScreen, ExplorerScreen, or SuiteScreen).
-// The title comes from the archetype when ArchetypeID is set, and from the
-// layout's generic title otherwise.
-func (a *ToolApp) MainScreen() *mint.Screen {
-	var scr *mint.Screen
-	switch a.Spec.Archetype {
-	case LayoutConfig:
-		scr = a.ConfigScreen()
-	case LayoutScanner:
-		scr = a.ScannerScreen()
-	case LayoutMonitor:
-		scr = a.MonitorScreen()
-	case LayoutExplorer:
-		scr = a.ExplorerScreen()
-	case LayoutSuite:
-		scr = a.SuiteScreen()
-	default:
-		scr = a.RunnerScreen()
-	}
-	scr.Title = a.titled(scr.Title)
-	return scr
-}
-
-// RunnerScreen builds the runner layout (and, with the scanner or explorer
-// layout, those screens too). Results stay on the page when the archetype
-// wants a table or the layout is scanner or explorer. The preset picker
-// appears only when the spec has profiles.
-func (a *ToolApp) RunnerScreen() *mint.Screen {
-	icon := "▸"
-	title := a.Spec.Name
-	inputFallback := "Target & Preset"
-	buttonFallback := "Run " + a.Spec.Name
-	outputFallback := "Captured Output"
-	switch a.Spec.Archetype {
-	case LayoutScanner:
-		icon = "◎"
-		title = a.Spec.Name + " — Scanner"
-		outputFallback = "Discovered Targets & Ports"
-	case LayoutExplorer:
-		icon = "⌕"
-		title = a.Spec.Name + " — Explorer"
-		inputFallback = "Search & Query"
-		buttonFallback = "Run query (" + a.Spec.Name + ")"
-		outputFallback = "Query Results"
-	}
-	s := &mint.Screen{
-		Icon:  icon,
-		Title: a.titled(title),
-		Status: func() []mint.Badge {
-			return a.statusBadges()
-		},
-	}
-	s.Refresh = func(scr *mint.Screen) {
-		var sections []mint.Section
-		sections = append(sections, a.targetAndPresetSection(a.inputSectionName(inputFallback)))
-		sections = append(sections, a.flagSections()...)
-		if a.Spec.OutputsFile {
-			sections = append(sections, a.outputFileSection())
-		}
-		if rootSec := a.rootAuthSection(); rootSec != nil {
-			sections = append(sections, *rootSec)
-		}
-		sections = append(sections, mint.Section{
-			Name: "Execute",
-			Rows: []mint.Row{
-				mint.Value(mint.ValueOpts{
-					Label: "Command preview",
-					Get:   func() string { return a.CommandPreview() },
-				}),
-				mint.Action(mint.ActionOpts{
-					Label: a.actionLabel(buttonFallback),
-					Hint:  "run",
-					OnActivate: func(c *mint.Ctx) {
-						a.executeFromUI(c)
-					},
-				}),
-			},
-		})
-		if a.inlineResults() {
-			sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName(outputFallback)))
-		}
-		scr.Sections = sections
-	}
-	s.Refresh(s)
-	return s
-}
-
 // RunScreen builds the live job monitor, progress bar, table/collapsible output, and file actions screen.
 func (a *ToolApp) RunScreen() *mint.Screen {
 	s := &mint.Screen{
@@ -2248,24 +2125,20 @@ func (a *ToolApp) HistoryScreen() *mint.Screen {
 
 // BuildApp returns a configured *mint.App ready for Run().
 func (a *ToolApp) BuildApp() *mint.App {
-	primaryLabel := "Configure & Run"
+	primaryLabel := "Run"
 	primaryIcon := "▸"
-	switch a.Spec.Archetype {
-	case LayoutConfig:
-		primaryLabel = "State & Configuration"
+	switch a.executionMode() {
+	case execState:
+		primaryLabel = "State"
 		primaryIcon = "⚙"
-	case LayoutScanner:
-		primaryLabel = "Target & Live Scanner"
-		primaryIcon = "◎"
-	case LayoutMonitor:
-		primaryLabel = "Live Monitor & Control"
+	case execPoll:
+		primaryLabel = "Live"
 		primaryIcon = "◧"
-	case LayoutExplorer:
-		primaryLabel = "Search & Query Explorer"
-		primaryIcon = "⌕"
-	case LayoutSuite:
-		primaryLabel = "Subcommand Suite"
-		primaryIcon = "❖"
+	default:
+		if len(a.Spec.Subcommands) > 0 {
+			primaryLabel = "Commands"
+			primaryIcon = "❖"
+		}
 	}
 	primaryLabel = a.homeLabel(primaryLabel)
 

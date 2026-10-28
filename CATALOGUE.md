@@ -622,19 +622,12 @@ func tableExample(rawLines []string) mint.Row {
 }
 ```
 
-## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (35 Archetypes · 6 Layouts · Mixins)
+## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (35 Archetypes · Mixins)
 
-For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **35 archetypes** (what kind of program a tool is), **6 base layouts** and **composable mixins** (add-ons):
+For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **35 archetypes** (what kind of program a tool is) and **composable mixins** (add-ons):
 
-- **35 archetypes (`appkit.ArchetypeDef`, `appkit.AllArchetypeDefs`)**: Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Setting `ArchetypeID: "probe"` on `appkit.ToolSpec` applies the archetype's layout, add-ons, target label and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-archetypes`).
+- **35 archetypes (`appkit.ArchetypeDef`, `appkit.AllArchetypeDefs`)**: Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Setting `ArchetypeID: "probe"` on `appkit.ToolSpec` applies the archetype's add-ons, target label and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-archetypes`). `MainScreen` is one screen: the input comes from what the archetype takes (a target, two inputs, or subcommand tabs when the spec has them), the run comes from how it runs (once, a live poll when it refreshes, or a state editor for settings, device and rules), and the result stays on the page when the archetype shows one.
 
-- **6 base layouts (`appkit.Archetype`)**:
-  - `ArchetypeConfig` (`"config"` — State Editor: reads live state, renders controls/rules, applies changes).
-  - `ArchetypeRunner` (`"runner"` — Task & Pipeline: target + flags + presets $\rightarrow$ background `runner.Job` with `Progress` bar $\rightarrow$ output + history).
-  - `ArchetypeScanner` (`"scanner"` — Target $\rightarrow$ Live Table + Log: target/interface + preset $\rightarrow$ live parsed `mint.Table` alongside collapsible raw logs).
-  - `ArchetypeMonitor` (`"monitor"` — Live Poller & Controller: periodic `Poll` command $\rightarrow$ gauges & live `mint.Table` $\rightarrow$ per-row actions).
-  - `ArchetypeExplorer` (`"explorer"` — Query $\rightarrow$ Results $\rightarrow$ Detail: search/query bar $\rightarrow$ parsed `mint.Table` or `mint.Collapsible` sections).
-  - `ArchetypeSuite` (`"suite"` — Multi-Subcommand Manager: top `SubcommandSpec` selector where each mode runs its own subcommand, table view, or action form).
 - **Composable Mixins** — the original 8 (`appkit.Mixins`):
   - `WithFileOutput` (`OutputsFile`, `OutputFlag`, `DefaultExt`), `WithTableOutput` (`TableOutput`, `TableColumns`), `WithCollapsibleOutput` (`CollapsibleOutput`, `ChunkSize`), `WithProfiles` (`Profiles`), `WithDynamicChoices` (`FlagSpec.ChoicesCmd`), `WithRootAuth` (`NeedsRoot`), `WithConfirm` (`ConfirmRun`), and `WithHistory` (`KeepHistory`).
   - Each mixin registers itself (`registerMixin` in the file that implements it) with the `ToolSpec` fields that switch it on and an optional `Validate`. `appkit.MixinInfos()` lists them all, `ToolSpec.EnabledMixinNames()` lists those a spec uses, and `ToolSpec.Validate()` checks their settings; mint-gen refuses to write a spec that fails it.
@@ -660,7 +653,6 @@ func appkitExample() appkit.ToolSpec {
 		Title:             "◈ Nmap",
 		Desc:              "Network exploration tool and security / port scanner",
 		ArchetypeID:       "probe",
-		Archetype:         appkit.ArchetypeScanner,
 		TargetLabel:       "Target host / network",
 		OutputsFile:       true,
 		OutputFlag:        "-oN",
@@ -690,7 +682,6 @@ func appkitAddonExamples() []appkit.ToolSpec {
 		},
 		{
 			Name:      "iptables",
-			Archetype: appkit.ArchetypeConfig,
 			NeedsRoot: true,
 			Reorder:   &appkit.ReorderSpec{Adapter: "iptables", Scope: "filter INPUT"},
 		},

@@ -12,10 +12,6 @@ func TestThirtyFiveArchetypes(t *testing.T) {
 		t.Fatalf("%d archetypes", len(defs))
 	}
 	seen := map[string]bool{}
-	layouts := map[Archetype]bool{}
-	for _, l := range AllArchetypes() {
-		layouts[l] = true
-	}
 	for _, a := range defs {
 		keys := map[string]bool{archetypeKey(string(a.ID)): true, archetypeKey(a.Name): true}
 		for k := range keys {
@@ -27,24 +23,25 @@ func TestThirtyFiveArchetypes(t *testing.T) {
 		if a.Name == "" || a.Group == "" || a.Is == "" || a.Takes == "" || a.Runs == "" || a.Shows == "" {
 			t.Errorf("%s: a guide field is empty: %+v", a.ID, a)
 		}
-		if len(a.Prefer.Layouts) == 0 {
-			t.Errorf("%s: no layout", a.ID)
-		}
-		for l, w := range a.Prefer.Layouts {
-			if !layouts[l] || w <= 0 || w > 1 {
-				t.Errorf("%s: layout %s weight %v", a.ID, l, w)
-			}
+		if len(a.Prefer.Features) == 0 {
+			t.Errorf("%s: no features", a.ID)
 		}
 		for f, w := range a.Prefer.Features {
 			if w < 0 || w > 1 {
 				t.Errorf("%s: feature %s weight %v", a.ID, f, w)
 			}
 		}
-		if !layouts[a.Blueprint().Layout] {
-			t.Errorf("%s: blueprint layout %q", a.ID, a.Blueprint().Layout)
-		}
 		if a.Data != "" && a.Data != DataSensitive && a.Data != DataSecret {
 			t.Errorf("%s: data level %q", a.ID, a.Data)
+		}
+		if len(a.Blueprint().Features) == 0 {
+			t.Errorf("%s: blueprint has no features", a.ID)
+		}
+	}
+	for _, id := range []string{"settings", "device", "rules"} {
+		b := mustArchetype(t, id).Blueprint()
+		if !b.Has(FeatStateEdit) {
+			t.Errorf("%s: state edit is off", id)
 		}
 	}
 }
@@ -76,33 +73,42 @@ func TestArchetypeListsAndTemplates(t *testing.T) {
 }
 
 func TestArchetypeApplyTo(t *testing.T) {
-	a, _ := LookupArchetype("rules")
+	a := mustArchetype(t, "rules")
 	spec := ToolSpec{Name: "fw9", TargetLabel: "mine"}
 	a.ApplyTo(&spec)
-	if spec.ArchetypeID != "rules" || spec.Archetype != ArchetypeConfig || !spec.TableOutput || !spec.ConfirmRun || !spec.NeedsRoot {
+	if spec.ArchetypeID != "rules" || !spec.TableOutput || !spec.ConfirmRun || !spec.NeedsRoot || !a.Blueprint().Has(FeatStateEdit) {
 		t.Errorf("rules: %+v", spec)
 	}
 	if spec.TargetLabel != "mine" {
 		t.Error("overwrote the caller's target label")
 	}
-	w, _ := LookupArchetype("watch")
+	w := mustArchetype(t, "watch")
 	spec = ToolSpec{Name: "w9"}
 	w.ApplyTo(&spec)
-	if spec.Archetype != ArchetypeMonitor || spec.PollInterval <= 0 || spec.ConfirmRun {
+	if spec.PollInterval <= 0 || spec.ConfirmRun || !w.Blueprint().Has(FeatLiveRefresh) {
 		t.Errorf("watch: %+v", spec)
 	}
+}
+
+func mustArchetype(t *testing.T, id string) ArchetypeDef {
+	t.Helper()
+	a, ok := LookupArchetype(id)
+	if !ok {
+		t.Fatalf("missing archetype %s", id)
+	}
+	return a
 }
 
 // Blending: weight 1 is the archetype unchanged; a style can switch a
 // feature on or off by its share.
 func TestBlendPreferences(t *testing.T) {
 	a, _ := LookupArchetype("probe")
-	style := Preferences{Layouts: map[Archetype]float64{}, Features: map[Feature]float64{FeatHistory: 0, FeatCollapsible: 1}}
+	style := Preferences{Features: map[Feature]float64{FeatHistory: 0, FeatCollapsible: 1}}
 	if got, want := BlueprintFrom(BlendPreferences(a.Prefer, style, 1)), a.Blueprint(); strings.Join(featNames(got), ",") != strings.Join(featNames(want), ",") {
 		t.Errorf("weight 1: %v, want %v", got, want)
 	}
 	b := BlueprintFrom(BlendPreferences(a.Prefer, style, 0.4))
-	if !b.Has(FeatCollapsible) || b.Has(FeatHistory) || b.Layout != ArchetypeScanner {
+	if !b.Has(FeatCollapsible) || b.Has(FeatHistory) {
 		t.Errorf("weight 0.4: %+v", b)
 	}
 }
@@ -135,12 +141,12 @@ func TestArchetypeDataLevels(t *testing.T) {
 // New applies the archetype named in the spec, else the listed one.
 func TestNewAppliesArchetype(t *testing.T) {
 	app := New(ToolSpec{Name: "nmap", Bin: "nmap"})
-	if app.Spec.ArchetypeID != "probe" || app.Spec.Archetype != ArchetypeScanner {
-		t.Errorf("listed: %s %s", app.Spec.ArchetypeID, app.Spec.Archetype)
+	if app.Spec.ArchetypeID != "probe" || !app.blueprint().Has(FeatTable) {
+		t.Errorf("listed: %s", app.Spec.ArchetypeID)
 	}
 	// An archetype named in the spec wins over the list (an --archetype choice).
 	chosen := New(ToolSpec{Name: "nmap", Bin: "nmap", ArchetypeID: "general"})
-	if chosen.Spec.ArchetypeID != "general" || chosen.Spec.Archetype != ArchetypeRunner {
-		t.Errorf("chosen: %s %s", chosen.Spec.ArchetypeID, chosen.Spec.Archetype)
+	if chosen.Spec.ArchetypeID != "general" || chosen.blueprint().Has(FeatTable) {
+		t.Errorf("chosen: %s table=%v", chosen.Spec.ArchetypeID, chosen.blueprint().Has(FeatTable))
 	}
 }
