@@ -127,7 +127,10 @@ func TestScaffoldWritesParsedScreens(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(src)
-	if !strings.Contains(text, `LayoutRunner`) || !strings.Contains(text, `Flag: "--follow"`) {
+	if strings.Contains(text, "LayoutRunner") || strings.Contains(text, "Archetype:") {
+		t.Fatalf("follow scaffold still names a layout:\n%s", text)
+	}
+	if !strings.Contains(text, `Flag: "--follow"`) {
 		t.Fatalf("follow scaffold:\n%s", text)
 	}
 

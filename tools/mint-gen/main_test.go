@@ -187,35 +187,34 @@ func TestDetectArchetypeAndCLIFlags(t *testing.T) {
 		}
 	}
 
-	// Listed programs: their archetype and base layout.
+	// Listed programs keep the archetype a person checked.
 	known := []struct {
-		bin    string
-		want   appkit.ArchetypeID
-		layout appkit.Archetype
+		bin  string
+		want appkit.ArchetypeID
 	}{
-		{"sysctl", "settings", appkit.ArchetypeConfig},
-		{"ufw", "rules", appkit.ArchetypeConfig},
-		{"ffmpeg", "convert", appkit.ArchetypeRunner},
-		{"curl", "transfer", appkit.ArchetypeRunner},
-		{"tar", "pack", appkit.ArchetypeSuite},
-		{"nmap", "probe", appkit.ArchetypeScanner},
-		{"tshark", "record", appkit.ArchetypeScanner},
-		{"whois", "look-up", appkit.ArchetypeExplorer},
-		{"nikto", "audit", appkit.ArchetypeRunner},
-		{"systemctl", "control", appkit.ArchetypeMonitor},
-		{"journalctl", "follow", appkit.ArchetypeMonitor},
-		{"git", "history", appkit.ArchetypeSuite},
-		{"docker", "toolkit", appkit.ArchetypeSuite},
-		{"lsblk", "list", appkit.ArchetypeExplorer},
-		{"rg", "search", appkit.ArchetypeExplorer},
-		{"jq", "query", appkit.ArchetypeExplorer},
-		{"man", "read", appkit.ArchetypeExplorer},
-		{"crontab", "schedule", appkit.ArchetypeSuite},
+		{"sysctl", "settings"},
+		{"ufw", "rules"},
+		{"ffmpeg", "convert"},
+		{"curl", "transfer"},
+		{"tar", "pack"},
+		{"nmap", "probe"},
+		{"tshark", "record"},
+		{"whois", "look-up"},
+		{"nikto", "audit"},
+		{"systemctl", "control"},
+		{"journalctl", "follow"},
+		{"git", "history"},
+		{"docker", "toolkit"},
+		{"lsblk", "list"},
+		{"rg", "search"},
+		{"jq", "query"},
+		{"man", "read"},
+		{"crontab", "schedule"},
 	}
 	for _, tc := range known {
 		a := DetectArchetype(tc.bin, "", "")
-		if a.ID != tc.want || a.Blueprint().Layout != tc.layout {
-			t.Errorf("DetectArchetype(%q) = (%s, %s), want (%s, %s)", tc.bin, a.ID, a.Blueprint().Layout, tc.want, tc.layout)
+		if a.ID != tc.want {
+			t.Errorf("DetectArchetype(%q) = %s, want %s", tc.bin, a.ID, tc.want)
 		}
 	}
 

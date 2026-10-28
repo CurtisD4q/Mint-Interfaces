@@ -1,8 +1,10 @@
 package appkit
 
-// Layout identifies one of the 6 base TUI interaction patterns.
-// The 35 program shapes are ArchetypeID / ArchetypeDef; a layout is the
-// screen an app is built from.
+// Layout is a deprecated name for the six old screen skeletons
+// (config, runner, scanner, monitor, explorer, suite). MainScreen no
+// longer branches on it: a screen is assembled from the archetype's
+// features. The type and constants remain so saved specs and older
+// callers still compile. New code should set ArchetypeID.
 type Layout string
 
 const (
@@ -59,8 +61,8 @@ const (
 )
 
 // Mixins describes which of the 8 original composable mixins are enabled
-// for a spec. Layouts set these; later add-ons are switched on by their
-// own ToolSpec field and are listed by ToolSpec.EnabledMixinNames.
+// for a spec. Archetype features set these; later add-ons are switched on
+// by their own ToolSpec field and are listed by ToolSpec.EnabledMixinNames.
 type Mixins struct {
 	WithFileOutput        bool `json:"with_file_output,omitempty"`
 	WithTableOutput       bool `json:"with_table_output,omitempty"`

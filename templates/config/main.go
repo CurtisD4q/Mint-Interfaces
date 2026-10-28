@@ -1,4 +1,4 @@
-// Starter for the config layout (appkit.LayoutConfig), used by the Settings, Device and Rules archetypes.
+// Starter for the Settings archetype: read the current values, edit them, and apply.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,8 +8,7 @@ func main() {
 		Name:              "sysctl",
 		Title:             "◈ Sysctl",
 		Desc:              "Configure kernel parameters at runtime",
-		ArchetypeID:       "settings", // any archetype on the config layout: see mint-gen --list-archetypes
-		Archetype:         appkit.LayoutConfig,
+		ArchetypeID:       "settings",
 		TargetLabel:       "Parameter / key=value",
 		TargetPlaceholder: "net.ipv4.ip_forward=1",
 		NeedsRoot:         true,

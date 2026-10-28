@@ -1,4 +1,4 @@
-// Starter for the monitor layout (appkit.LayoutMonitor), used by the Watch, Follow and Control archetypes.
+// Starter for the Control archetype: a live list of running things, with an action on each.
 package main
 
 import (
@@ -12,8 +12,7 @@ func main() {
 		Name:              "systemctl",
 		Title:             "◈ Systemctl",
 		Desc:              "Control the systemd system and service manager",
-		ArchetypeID:       "control", // any archetype on the monitor layout: see mint-gen --list-archetypes
-		Archetype:         appkit.LayoutMonitor,
+		ArchetypeID:       "control",
 		TargetLabel:       "Service / unit pattern",
 		TargetPlaceholder: "nginx.service",
 		PollInterval:      3 * time.Second,

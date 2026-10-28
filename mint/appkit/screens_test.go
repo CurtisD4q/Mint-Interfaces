@@ -180,39 +180,90 @@ func TestArchetypeLabelsReplaceLayoutLabels(t *testing.T) {
 		t.Fatalf("probe home: %+v", homeLabels(home))
 	}
 
-	// No archetype id: the layout's own labels.
+	// No archetype id: a stored layout value does not choose the screen.
 	plain := newTestApp(t, ToolSpec{Name: "x", Bin: "echo", Archetype: LayoutExplorer})
 	plainScr := plain.MainScreen()
-	if plainScr.Title != "x — Explorer" || !hasSection(plainScr, "Search & Query") || !hasSection(plainScr, "Query Results") {
-		t.Fatalf("plain explorer: title %q sections %v", plainScr.Title, sectionNames(plainScr))
+	if plainScr.Title != "x" {
+		t.Fatalf("plain title %q", plainScr.Title)
+	}
+	names := sectionNames(plainScr)
+	for _, banned := range []string{"Search & Query", "Query Results", "Discovered Targets & Ports", "Subcommand Tabs (ArchetypeSuite)"} {
+		if hasSection(plainScr, banned) {
+			t.Fatalf("layout label %q still on %+v", banned, names)
+		}
 	}
 	plainLabels := strings.Join(screenLabels(plainScr), "\n")
-	if !strings.Contains(plainLabels, "Run query (x)") {
-		t.Fatalf("plain explorer button: %q", plainLabels)
+	if !strings.Contains(plainLabels, "Run x") || strings.Contains(plainLabels, "Run query") {
+		t.Fatalf("plain button: %q", plainLabels)
 	}
-	if !homeHas(plain.BuildApp(), "Search & Query Explorer") {
+	if !homeHas(plain.BuildApp(), "Run") || homeHas(plain.BuildApp(), "Search & Query Explorer") {
 		t.Fatalf("plain home: %v", homeLabels(plain.BuildApp()))
 	}
 }
 
+func TestComposableZones(t *testing.T) {
+	// Live refresh with a read-only status polls; without one it is a one-shot note.
+	watch := newTestApp(t, ToolSpec{Name: "w", Bin: "echo", ArchetypeID: "watch", ReadOnly: true})
+	wscr := watch.MainScreen()
+	if !hasSection(wscr, "Live values") || !strings.Contains(strings.Join(screenLabels(wscr), "\n"), "Poll now") {
+		t.Fatalf("watch: %v %v", sectionNames(wscr), screenLabels(wscr))
+	}
+	if watch.MonitorScreen().Title != watch.RunnerScreen().Title {
+		t.Fatal("layout shims diverged")
+	}
+	pkill := newTestApp(t, ToolSpec{Name: "pkill", Bin: "echo", ArchetypeID: "control"})
+	plabels := strings.Join(screenLabels(pkill.MainScreen()), "\n")
+	if !strings.Contains(plabels, "not polled") || !strings.Contains(plabels, "Control (pkill)") {
+		t.Fatalf("control without a status command: %q", plabels)
+	}
+
+	// State editor: apply, and refresh when a status command exists.
+	device := newTestApp(t, ToolSpec{Name: "als", Bin: "echo", ArchetypeID: "device"})
+	dev := device.MainScreen()
+	devLabels := strings.Join(screenLabels(dev), "\n")
+	if strings.Contains(devLabels, "Apply configuration") || !strings.Contains(devLabels, "Apply (als)") {
+		t.Fatalf("device button: %q", devLabels)
+	}
+	if !strings.Contains(devLabels, "No read-only status command") {
+		t.Fatalf("device without StatusArgs: %q", devLabels)
+	}
+	if !hasSection(dev, "Device") || !hasSection(dev, "Current state") || hasSection(dev, "Live") {
+		t.Fatalf("device sections: %v", sectionNames(dev))
+	}
+	withStatus := newTestApp(t, ToolSpec{Name: "als", Bin: "echo", ArchetypeID: "device", StatusArgs: []string{"--show"}})
+	if !strings.Contains(strings.Join(screenLabels(withStatus.MainScreen()), "\n"), "Refresh live state") {
+		t.Fatal("state editor with StatusArgs lost Refresh live state")
+	}
+
+	// Answer-once and record keep an inline result even without a table feature.
+	ask := newTestApp(t, ToolSpec{Name: "q", Bin: "echo", ArchetypeID: "ask"})
+	if !hasSection(ask.MainScreen(), "Answer") {
+		t.Fatalf("ask sections: %v", sectionNames(ask.MainScreen()))
+	}
+	record := newTestApp(t, ToolSpec{Name: "cap", Bin: "echo", ArchetypeID: "record"})
+	if !hasSection(record.MainScreen(), "Capture Output") {
+		t.Fatalf("record sections: %v", sectionNames(record.MainScreen()))
+	}
+}
+
 func TestRunnerFoldsScannerAndExplorer(t *testing.T) {
+	// A stored layout does not add a scanner section or a preset picker.
 	scan := newTestApp(t, ToolSpec{Name: "s", Bin: "echo", Archetype: LayoutScanner})
-	if scan.ScannerScreen().Title != scan.RunnerScreen().Title {
-		t.Fatal("scanner screen diverged from runner")
+	if scan.ScannerScreen().Title != scan.RunnerScreen().Title || scan.MainScreen().Title != "s" {
+		t.Fatal("scanner shim diverged from the one screen")
 	}
-	if !hasSection(scan.MainScreen(), "Discovered Targets & Ports") {
-		t.Fatal("scanner layout lost its results section")
+	if hasSection(scan.MainScreen(), "Discovered Targets & Ports") {
+		t.Fatal("a layout value still names the results section")
 	}
-	ids := screenRowIDs(scan.MainScreen())
-	for _, id := range ids {
+	for _, id := range screenRowIDs(scan.MainScreen()) {
 		if id == "profile" {
 			t.Fatal("preset picker without profiles")
 		}
 	}
 
 	exp := newTestApp(t, ToolSpec{Name: "e", Bin: "echo", Archetype: LayoutExplorer})
-	if !hasSection(exp.ExplorerScreen(), "Query Results") {
-		t.Fatal("explorer screen lost its results section")
+	if hasSection(exp.ExplorerScreen(), "Query Results") || hasSection(exp.ExplorerScreen(), "Search & Query") {
+		t.Fatalf("explorer layout labels: %v", sectionNames(exp.ExplorerScreen()))
 	}
 
 	// FeatProfiles (probe) shows the picker; generate does not.
@@ -257,13 +308,14 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 		t.Fatalf("suite button: %q", screenLabels(suite))
 	}
 
-	// No archetype id keeps the layout heading.
+	// No archetype id: the picker is still there, and the heading is not a Go type name.
 	generic := newTestApp(t, ToolSpec{
 		Name: "box", Bin: "echo", Archetype: LayoutSuite,
 		Subcommands: []SubcommandSpec{{Name: "default", Label: "Default"}},
 	})
-	if !hasSection(generic.MainScreen(), "Subcommand Tabs (ArchetypeSuite)") {
-		t.Fatalf("generic suite sections: %v", sectionNames(generic.MainScreen()))
+	gsec := sectionNames(generic.MainScreen())
+	if !hasSection(generic.MainScreen(), "Subcommands") || hasSection(generic.MainScreen(), "Subcommand Tabs (ArchetypeSuite)") {
+		t.Fatalf("generic suite sections: %v", gsec)
 	}
 }
 

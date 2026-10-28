@@ -120,32 +120,23 @@ func TestStartJobAndDirectoryListing(t *testing.T) {
 	}
 }
 
-func TestAllArchetypesAnd6Layouts(t *testing.T) {
-	layouts := AllArchetypes()
-	if len(layouts) != 6 {
-		t.Fatalf("len(AllArchetypes()) = %d, want 6", len(layouts))
-	}
+func TestEveryArchetypeBuildsAScreen(t *testing.T) {
 	if mixins := AllMixins(); len(mixins) < 8 {
 		t.Fatalf("len(AllMixins()) = %d, want at least the original 8", len(mixins))
 	}
-	seenLayout := map[Archetype]int{}
 	for _, def := range AllArchetypeDefs() {
 		app := New(ToolSpec{Name: "test-" + string(def.ID), Bin: "echo", ArchetypeID: string(def.ID)})
-		want := def.Blueprint().Layout
-		if app.Spec.Archetype != want {
-			t.Fatalf("archetype %s: layout %q, want %q", def.ID, app.Spec.Archetype, want)
+		if app.Spec.ArchetypeID != string(def.ID) {
+			t.Fatalf("archetype %s: id %q", def.ID, app.Spec.ArchetypeID)
 		}
-		seenLayout[want]++
 		if scr := app.MainScreen(); scr == nil || len(scr.Sections) == 0 {
-			t.Fatalf("archetype %s (%s): MainScreen returned empty screen", def.ID, want)
+			t.Fatalf("archetype %s: MainScreen returned empty screen", def.ID)
+		}
+		if app.ConfigScreen().Title != app.RunnerScreen().Title || app.MonitorScreen().Title != app.MainScreen().Title {
+			t.Fatalf("archetype %s: layout shims diverged from MainScreen", def.ID)
 		}
 		if mintApp := app.BuildApp(); mintApp == nil || len(mintApp.Items) < 3 {
 			t.Fatalf("archetype %s: BuildApp returned insufficient HomeItems", def.ID)
-		}
-	}
-	for _, l := range layouts {
-		if seenLayout[l] == 0 {
-			t.Fatalf("layout %q has no archetype", l)
 		}
 	}
 }
