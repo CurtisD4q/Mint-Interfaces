@@ -885,3 +885,308 @@ func TestConfidenceSplit(t *testing.T) {
 	try("swap: op + md + other", "", nil, op, md, ot)
 	try("no fifth part", "", nil)
 }
+
+// TestNewLayoutSearch tries new ways to use the fifth part. The four front
+// parts (name, summary, description, usage), the behaviour cues and SEE
+// ALSO are scored as now; the fifth part's points per archetype are then
+// added in one of these ways:
+//
+//	plain   the points ×m (m = 1 is how they are added now)
+//	topK    only to the K archetypes the front parts rank highest
+//	agree   only to archetypes the front parts gave some points
+//	share   F points shared out in proportion to the fifth part's points,
+//	        so a long help with something for everyone gives each little
+//	share+topK, share+agree  both
+//
+// The fifth part is the whole help (main), all sections read together, a
+// group of sections, or "breadth": a phrase counts once per section it
+// appears in, however often it is repeated there.
+// Settings are chosen by 5-fold cross-validation.
+func TestNewLayoutSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "layouts" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=layouts")
+	}
+	defs := appkit.AllArchetypeDefs()
+	idx := map[appkit.ArchetypeID]int{}
+	for i, d := range defs {
+		idx[d.ID] = i
+	}
+	w := defaultArchWeights
+	w.Words.Whole, w.Words.WholeCap = w.Words.Section, w.Words.SectionCap
+	md, op, ot, en := secMoreDescription, secOptions, secOther, secEnvironment
+	group4 := []string{md, op, en, ot}
+	type source struct {
+		name  string
+		fair  bool // nothing in it was chosen on these programs
+		build func(pe phraseEvidence) map[int]int
+	}
+	sum := func(secs []string) func(pe phraseEvidence) map[int]int {
+		return func(pe phraseEvidence) map[int]int {
+			m := map[int]int{}
+			for _, s := range secs {
+				for i, n := range pe.zones[zoneOf(s)] {
+					m[i] += n
+				}
+			}
+			return m
+		}
+	}
+	breadth := func(secs []string) func(pe phraseEvidence) map[int]int {
+		return func(pe phraseEvidence) map[int]int {
+			m := map[int]int{}
+			for _, s := range secs {
+				for i, n := range pe.zones[zoneOf(s)] {
+					if n > 0 {
+						m[i]++
+					}
+				}
+			}
+			return m
+		}
+	}
+	sources := []source{
+		{"whole help", true, func(pe phraseEvidence) map[int]int { return pe.zones[zoneWhole] }},
+		{"all sections together", true, sum(helpSections[:])},
+		{"breadth, all sections", true, breadth(helpSections[:])},
+		{"group [md op env other]", false, sum(group4)},
+		{"breadth [md op env other]", false, breadth(group4)},
+	}
+	vec := func(s []ArchetypeScore) []float64 {
+		v := make([]float64, len(defs))
+		for _, x := range s {
+			v[idx[x.ID]] = float64(x.Score)
+		}
+		return v
+	}
+	type doc struct {
+		want    int
+		front   []float64
+		contrib [][]float64 // per source
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.readWhole, p.read = true, helpSections[:]
+		ev := findArchEvidence(p)
+		with := func(build func(phraseEvidence) map[int]int) archEvidence {
+			e := ev
+			for _, pe := range []*phraseEvidence{&e.words, &e.broad} {
+				var z map[int]int
+				if build != nil {
+					z = build(*pe)
+				}
+				for k := zoneSection; k < numZones; k++ {
+					pe.zones[k] = nil
+				}
+				pe.zones[zoneWhole] = z
+			}
+			return e
+		}
+		d := doc{want: idx[c.Want], front: vec(scoreArchEvidence(w, with(nil)))}
+		for _, s := range sources {
+			full := vec(scoreArchEvidence(w, with(s.build)))
+			cv := make([]float64, len(defs))
+			for i := range cv {
+				cv[i] = full[i] - d.front[i]
+			}
+			d.contrib = append(d.contrib, cv)
+		}
+		docs = append(docs, d)
+	}
+	type layout struct {
+		name string
+		src  int
+		mode string
+		m    float64
+		k, f int
+	}
+	var layouts []layout
+	for si, s := range sources {
+		for _, m := range []float64{0.5, 0.75, 1, 1.25, 1.5, 2} {
+			layouts = append(layouts, layout{fmt.Sprintf("%s: plain ×%.2f", s.name, m), si, "plain", m, 0, 0})
+			layouts = append(layouts, layout{fmt.Sprintf("%s: agree ×%.2f", s.name, m), si, "agree", m, 0, 0})
+			for _, k := range []int{2, 3, 4, 6} {
+				layouts = append(layouts, layout{fmt.Sprintf("%s: top%d ×%.2f", s.name, k, m), si, "topK", m, k, 0})
+			}
+		}
+		for _, f := range []int{20, 30, 40, 50, 60, 80, 100} {
+			layouts = append(layouts, layout{fmt.Sprintf("%s: share %d", s.name, f), si, "share", 0, 0, f})
+			layouts = append(layouts, layout{fmt.Sprintf("%s: share %d + agree", s.name, f), si, "share+agree", 0, 0, f})
+			for _, k := range []int{2, 3, 4, 6} {
+				layouts = append(layouts, layout{fmt.Sprintf("%s: share %d + top%d", s.name, f, k), si, "share+topK", 0, k, f})
+			}
+		}
+	}
+	family := func(l layout) string {
+		return strings.TrimPrefix(l.mode, "")
+	}
+	type res struct {
+		right bool
+		lead  float64
+	}
+	apply := func(l layout, d doc) res {
+		c := d.contrib[l.src]
+		fin := append([]float64(nil), d.front...)
+		allowed := make([]bool, len(fin))
+		switch l.mode {
+		case "topK", "share+topK":
+			order := make([]int, len(fin))
+			for i := range order {
+				order[i] = i
+			}
+			sort.SliceStable(order, func(a, b int) bool { return d.front[order[a]] > d.front[order[b]] })
+			for _, i := range order[:l.k] {
+				allowed[i] = true
+			}
+		case "agree", "share+agree":
+			for i, v := range d.front {
+				allowed[i] = v > 0
+			}
+		default:
+			for i := range allowed {
+				allowed[i] = true
+			}
+		}
+		if strings.HasPrefix(l.mode, "share") {
+			tot := 0.0
+			for i, v := range c {
+				if allowed[i] && v > 0 {
+					tot += v
+				}
+			}
+			for i, v := range c {
+				if allowed[i] && v > 0 {
+					fin[i] += float64(l.f) * v / tot
+				}
+			}
+		} else {
+			for i, v := range c {
+				if allowed[i] {
+					fin[i] += l.m * v
+				}
+			}
+		}
+		best, second := 0, -1
+		for i := 1; i < len(fin); i++ {
+			if fin[i] > fin[best] {
+				best, second = i, best
+			} else if second < 0 || fin[i] > fin[second] {
+				second = i
+			}
+		}
+		return res{best == d.want, fin[best] - fin[second]}
+	}
+	results := make([][]res, len(layouts))
+	for li, l := range layouts {
+		results[li] = make([]res, len(docs))
+		for i, d := range docs {
+			results[li][i] = apply(l, d)
+		}
+	}
+	right := func(rs []res, keep func(int) bool) (n int) {
+		for i, r := range rs {
+			if keep(i) && r.right {
+				n++
+			}
+		}
+		return
+	}
+	all := func(int) bool { return true }
+	tot := len(docs)
+	pct := func(n int) float64 { return 100 * float64(n) / float64(tot) }
+	cvOver := func(pick func(layout) bool) (int, []string) {
+		n := 0
+		var chose []string
+		for f := 0; f < 5; f++ {
+			best, bestN := -1, -1
+			for li, l := range layouts {
+				if !pick(l) {
+					continue
+				}
+				if c := right(results[li], func(i int) bool { return i%5 != f }); c > bestN {
+					best, bestN = li, c
+				}
+			}
+			n += right(results[best], func(i int) bool { return i%5 == f })
+			chose = append(chose, layouts[best].name)
+		}
+		return n, chose
+	}
+	find := func(name string) int {
+		for li, l := range layouts {
+			if l.name == name {
+				return li
+			}
+		}
+		t.Fatalf("no layout %q", name)
+		return -1
+	}
+	mainLi, grpLi := find("whole help: plain ×1.00"), find("group [md op env other]: plain ×1.00")
+	t.Logf("%d programs, %d layouts", tot, len(layouts))
+	t.Logf("main (whole help, plain ×1):              %d/%d (%.1f%%)", right(results[mainLi], all), tot, pct(right(results[mainLi], all)))
+	t.Logf("grouped [md op env other] (plain ×1):     %d/%d (%.1f%%), group chosen on these programs", right(results[grpLi], all), tot, pct(right(results[grpLi], all)))
+	t.Log("fair score of each way (settings and fifth part chosen by cross-validation, sources with no choice made on these programs):")
+	modes := []string{"plain", "agree", "topK", "share", "share+agree", "share+topK"}
+	for _, m := range modes {
+		n, chose := cvOver(func(l layout) bool { return family(l) == m && sources[l.src].fair })
+		t.Logf("  %-12s %d/%d (%.1f%%)  folds chose %v", m, n, tot, pct(n), chose)
+	}
+	n, chose := cvOver(func(l layout) bool { return sources[l.src].fair })
+	t.Logf("  ANY (fair sources)  %d/%d (%.1f%%)  folds chose %v", n, tot, pct(n), chose)
+	n, chose = cvOver(func(layout) bool { return true })
+	t.Logf("  ANY (incl. group)   %d/%d (%.1f%%)  folds chose %v", n, tot, pct(n), chose)
+	order := make([]int, len(layouts))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return right(results[order[a]], all) > right(results[order[b]], all) })
+	t.Log("best seen (on these programs, so optimistic):")
+	for _, li := range order[:20] {
+		t.Logf("  %d/%d %s", right(results[li], all), tot, layouts[li].name)
+	}
+	split := func(rs []res, lead float64) (cr, cw, mr, mw int) {
+		for _, r := range rs {
+			switch {
+			case r.lead >= lead && r.right:
+				cr++
+			case r.lead >= lead:
+				cw++
+			case r.right:
+				mr++
+			default:
+				mw++
+			}
+		}
+		return
+	}
+	conf := func(li int) {
+		rs := results[li]
+		cr, cw, mr, mw := split(rs, float64(clearLead))
+		cal := 0.0
+		for l := 0.0; l <= 400; l += 0.5 {
+			a, b, _, _ := split(rs, l)
+			if a+b > 0 && a*100 >= 85*(a+b) {
+				cal = l
+				break
+			}
+		}
+		a, b, c, d := split(rs, cal)
+		t.Logf("  %-46s at 32: %3d %3d %3d %3d | at %5.1f: %3d %3d %3d %3d", layouts[li].name, cr, cw, mr, mw, cal, a, b, c, d)
+	}
+	t.Log("clear right, clear wrong, maybe right, maybe wrong:")
+	conf(mainLi)
+	conf(grpLi)
+	for _, li := range order[:8] {
+		conf(li)
+	}
+	if v := os.Getenv("MINT_LAYOUT"); v != "" {
+		conf(find(v))
+	}
+}
