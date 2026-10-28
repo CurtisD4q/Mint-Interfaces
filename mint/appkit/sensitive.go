@@ -60,7 +60,8 @@ var toolData = map[string]dataClass{
 	"conntrack": {DataSensitive, "shows the network connections this computer tracks"},
 	// Traces and probes that map who is reached and how.
 	"mtr": {DataSensitive, "gathers information about people and organisations"}, "traceroute": {DataSensitive, "gathers information about people and organisations"},
-	"tracepath": {DataSensitive, "gathers information about people and organisations"},
+	"tracepath":   {DataSensitive, "gathers information about people and organisations"},
+	"geoiplookup": {DataSensitive, "gathers information about people and organisations"}, "geoiplookup6": {DataSensitive, "gathers information about people and organisations"},
 	// Findings of security scanners describe weaknesses.
 	"ffuf": {DataSensitive, "its findings describe weaknesses of this computer or a target"}, "gobuster": {DataSensitive, "its findings describe weaknesses of this computer or a target"},
 	// Encoders that are often used on keys and tokens.
@@ -74,6 +75,7 @@ var toolData = map[string]dataClass{
 	"pg_dump": {DataSensitive, "copies a whole database"}, "pg_dumpall": {DataSensitive, "copies whole databases"},
 	"mysqldump": {DataSensitive, "copies a whole database"}, "mariadb-dump": {DataSensitive, "copies a whole database"},
 	"mongodump": {DataSensitive, "copies a whole database"}, "sqlite3": {DataSensitive, "reads database contents"},
+	"less":     {DataSensitive, "shows the contents of files, which can be private"},
 	"printenv": {DataSensitive, "prints environment variables, which can hold tokens"},
 	"env":      {DataSensitive, "prints environment variables, which can hold tokens"},
 	"sqlmap":   {DataSensitive, "can extract data from the databases it tests"},
