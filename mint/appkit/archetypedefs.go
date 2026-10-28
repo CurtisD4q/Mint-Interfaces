@@ -12,9 +12,9 @@ import (
 // design style can later be blended in by weight (see Blueprint). There are
 // no sub-archetypes: a program is exactly one of these.
 //
-// The 6 base layouts (Archetype: config, runner, scanner, monitor,
-// explorer, suite) are what an app is built from; an archetype prefers one
-// or more of them.
+// The 6 base layouts (Layout: config, runner, scanner, monitor, explorer,
+// suite) are what an app is built from; an archetype prefers one or more
+// of them.
 
 // ArchetypeID names one of the 35 archetypes: "probe", "look-up"…
 type ArchetypeID string
@@ -55,8 +55,8 @@ func AllFeatures() []Feature {
 
 // Preferences are weights from 0 (not wanted) to 1 (essential).
 type Preferences struct {
-	Layouts  map[Archetype]float64 `json:"layouts"`
-	Features map[Feature]float64   `json:"features"`
+	Layouts  map[Layout]float64  `json:"layouts"`
+	Features map[Feature]float64 `json:"features"`
 }
 
 // ArchetypeDef is one archetype.
@@ -72,10 +72,12 @@ type ArchetypeDef struct {
 
 	Prefer Preferences `json:"prefer"`
 
-	TargetLabel       string        `json:"target_label,omitempty"`
-	TargetPlaceholder string        `json:"target_placeholder,omitempty"`
-	PollInterval      time.Duration `json:"poll_interval,omitempty"`
-	DefaultExt        string        `json:"default_ext,omitempty"` // for saved output, when nothing better is known
+	TargetLabel             string        `json:"target_label,omitempty"`
+	TargetPlaceholder       string        `json:"target_placeholder,omitempty"`
+	SecondTargetLabel       string        `json:"second_target_label,omitempty"`
+	SecondTargetPlaceholder string        `json:"second_target_placeholder,omitempty"`
+	PollInterval            time.Duration `json:"poll_interval,omitempty"`
+	DefaultExt              string        `json:"default_ext,omitempty"` // for saved output, when nothing better is known
 
 	// Data is how sensitive this kind of program's results usually are
 	// ("", DataSensitive or DataSecret), for programs not classified on
@@ -97,10 +99,10 @@ const (
 )
 
 // lay and feat build preference maps tersely.
-func lay(pairs ...any) map[Archetype]float64 {
-	m := map[Archetype]float64{}
+func lay(pairs ...any) map[Layout]float64 {
+	m := map[Layout]float64{}
 	for i := 0; i+1 < len(pairs); i += 2 {
-		m[pairs[i].(Archetype)] = pairs[i+1].(float64)
+		m[pairs[i].(Layout)] = pairs[i+1].(float64)
 	}
 	return m
 }
@@ -148,7 +150,9 @@ var archetypeRegistry = []ArchetypeDef{
 	{ID: "compare", Name: "Compare", Group: GroupAnswer,
 		Is: "Shows the differences between inputs.", Takes: "Two inputs: left and right.",
 		Runs: "Once.", Shows: "The two sides in columns, change by change.",
-		Prefer: Preferences{lay(ArchetypeExplorer, 1.0), feat(FeatTwoInputs, 1.0, FeatDiff, 1.0, FeatCollapsible, 0.4, FeatFileOutput, 0.3)}},
+		Prefer:      Preferences{lay(ArchetypeExplorer, 1.0), feat(FeatTwoInputs, 1.0, FeatDiff, 1.0, FeatCollapsible, 0.4, FeatFileOutput, 0.3)},
+		TargetLabel: "Left", TargetPlaceholder: "e.g. a.txt",
+		SecondTargetLabel: "Right", SecondTargetPlaceholder: "e.g. b.txt"},
 	{ID: "read", Name: "Read", Group: GroupAnswer,
 		Is: "Browses documents or manuals.", Takes: "A topic, page or section.",
 		Runs: "Once.", Shows: "A page to read and search.",
@@ -213,8 +217,9 @@ var archetypeRegistry = []ArchetypeDef{
 	{ID: "transfer", DefaultExt: "dat", Name: "Transfer", Group: GroupMake,
 		Is: "Fetches or sends something over the network.", Takes: "A URL or remote, and where it goes.",
 		Runs: "As a job with progress.", Shows: "Progress and speed, then the saved file.",
-		Prefer:      Preferences{lay(ArchetypeRunner, 1.0), feat(FeatTarget, 1.0, FeatFileOutput, 0.9, FeatProgress, 0.8, FeatProfiles, 0.5, FeatHistory, 0.4)},
-		TargetLabel: "URL or remote", TargetPlaceholder: "e.g. https://example.com/file.iso"},
+		Prefer:      Preferences{lay(ArchetypeRunner, 1.0), feat(FeatTwoInputs, 1.0, FeatTarget, 1.0, FeatFileOutput, 0.9, FeatProgress, 0.8, FeatProfiles, 0.5, FeatHistory, 0.4)},
+		TargetLabel: "URL or remote", TargetPlaceholder: "e.g. https://example.com/file.iso",
+		SecondTargetLabel: "Destination", SecondTargetPlaceholder: "e.g. ./file.iso"},
 	{ID: "present", Name: "Present", Group: GroupMake,
 		Is: "Shows, plays, prints or announces something; that is its effect.", Takes: "What to present, and on which device.",
 		Runs: "Once, or until it finishes.", Shows: "Only whether it worked.",
@@ -228,7 +233,9 @@ var archetypeRegistry = []ArchetypeDef{
 	{ID: "mirror", Name: "Mirror", Group: GroupChange,
 		Is: "Makes a destination match a source.", Takes: "A source, a destination, and rules.",
 		Runs: "As a job.", Shows: "What will change, then progress.",
-		Prefer: Preferences{lay(ArchetypeRunner, 1.0), feat(FeatPreview, 0.9, FeatConfirm, 0.8, FeatProgress, 0.7, FeatProfiles, 0.6)}},
+		Prefer:      Preferences{lay(ArchetypeRunner, 1.0), feat(FeatTwoInputs, 1.0, FeatPreview, 0.9, FeatConfirm, 0.8, FeatProgress, 0.7, FeatProfiles, 0.6)},
+		TargetLabel: "Source", TargetPlaceholder: "e.g. /src",
+		SecondTargetLabel: "Destination", SecondTargetPlaceholder: "e.g. /dest"},
 	{ID: "settings", Name: "Settings", Group: GroupChange,
 		Is: "Reads and sets named values.", Takes: "The current values.",
 		Runs: "Once.", Shows: "A table of keys and values to edit and apply.",
@@ -317,7 +324,7 @@ const wantThreshold = 0.5
 // the features switched on. Today it is the archetype's own preferences;
 // a design style will later be blended in by weight.
 type Blueprint struct {
-	Layout   Archetype
+	Layout   Layout
 	Features []Feature // in AllFeatures order
 }
 
@@ -333,8 +340,8 @@ func (b Blueprint) Has(f Feature) bool {
 
 // BlendPreferences mixes two sets of preferences: weight w of a, 1-w of b.
 func BlendPreferences(a, b Preferences, w float64) Preferences {
-	out := Preferences{Layouts: map[Archetype]float64{}, Features: map[Feature]float64{}}
-	for _, l := range AllArchetypes() {
+	out := Preferences{Layouts: map[Layout]float64{}, Features: map[Feature]float64{}}
+	for _, l := range AllLayouts() {
 		if v := w*a.Layouts[l] + (1-w)*b.Layouts[l]; v > 0 {
 			out.Layouts[l] = v
 		}
@@ -353,7 +360,7 @@ func BlendPreferences(a, b Preferences, w float64) Preferences {
 func BlueprintFrom(p Preferences) Blueprint {
 	var b Blueprint
 	best := -1.0
-	for _, l := range AllArchetypes() {
+	for _, l := range AllLayouts() {
 		if v := p.Layouts[l]; v > best {
 			b.Layout, best = l, v
 		}
@@ -382,11 +389,37 @@ func (a ArchetypeDef) ApplyTo(spec *ToolSpec) {
 	if spec.Archetype == "" {
 		spec.Archetype = b.Layout
 	}
+	// A label the caller already set is explicit: the target box stays,
+	// even when this archetype does not usually take one. An empty label
+	// means the archetype decides (FeatTarget, or a label of its own).
+	explicitTarget := spec.TargetLabel != ""
 	if spec.TargetLabel == "" && a.TargetLabel != "" {
 		spec.TargetLabel = a.TargetLabel
 	}
 	if spec.TargetPlaceholder == "" && a.TargetPlaceholder != "" {
 		spec.TargetPlaceholder = a.TargetPlaceholder
+	}
+	if b.Has(FeatTwoInputs) {
+		spec.TwoInputs = true
+		if spec.SecondTargetLabel == "" {
+			spec.SecondTargetLabel = a.SecondTargetLabel
+			if spec.SecondTargetLabel == "" {
+				spec.SecondTargetLabel = "Right"
+			}
+		}
+		if spec.SecondTargetPlaceholder == "" {
+			spec.SecondTargetPlaceholder = a.SecondTargetPlaceholder
+			if spec.SecondTargetPlaceholder == "" {
+				spec.SecondTargetPlaceholder = "second input"
+			}
+		}
+	}
+	if !explicitTarget {
+		spec.WantTarget = b.Has(FeatTarget) || b.Has(FeatTwoInputs) || a.TargetLabel != ""
+		spec.HideTarget = !spec.WantTarget
+	} else {
+		spec.WantTarget = true
+		spec.HideTarget = false
 	}
 	if spec.PollInterval <= 0 && a.PollInterval > 0 {
 		spec.PollInterval = a.PollInterval

@@ -148,7 +148,7 @@ func (a *ToolApp) statusArgs() (args []string, ok bool) {
 	switch {
 	case len(a.Spec.StatusArgs) > 0:
 		args = append(args, a.Spec.StatusArgs...)
-		if a.Spec.Archetype != ArchetypeConfig {
+		if a.Spec.Archetype != LayoutConfig {
 			flagArgs, _ := a.buildFlagAndTargetArgs()
 			args = append(args, flagArgs...)
 		}
@@ -445,7 +445,7 @@ func (a *ToolApp) executeFromUI(c *mint.Ctx) {
 // produced one, says what the run will change.
 func (a *ToolApp) confirmAndRun(c *mint.Ctx, summary string) {
 	needConfirm := a.Spec.ConfirmRun
-	if a.Spec.Archetype == ArchetypeSuite {
+	if a.Spec.Archetype == LayoutSuite {
 		if sub := a.activeSubcommandSpec(); sub != nil && sub.Confirm {
 			needConfirm = true
 		}
@@ -541,18 +541,18 @@ func (a *ToolApp) freeTextWarning(found []FreeTextSecret) string {
 	return msg + " Run anyway?"
 }
 
-// ConfigScreen builds the ArchetypeConfig ("config") State Editor screen.
+// ConfigScreen builds the config layout ("config") State Editor screen.
 func (a *ToolApp) ConfigScreen() *mint.Screen {
 	s := &mint.Screen{
 		Icon:  "⚙",
-		Title: a.Spec.Name + " — Configuration",
+		Title: a.titled(a.Spec.Name + " — Configuration"),
 		Status: func() []mint.Badge {
 			return a.statusBadges()
 		},
 	}
 	s.Refresh = func(scr *mint.Screen) {
 		var sections []mint.Section
-		sections = append(sections, a.targetAndPresetSection("Configuration Target"))
+		sections = append(sections, a.targetAndPresetSection(a.inputSectionName("Configuration Target")))
 		sections = append(sections, a.flagSections()...)
 		if rootSec := a.rootAuthSection(); rootSec != nil {
 			sections = append(sections, *rootSec)
@@ -565,7 +565,7 @@ func (a *ToolApp) ConfigScreen() *mint.Screen {
 					Get:   func() string { return a.CommandPreview() },
 				}),
 				mint.Action(mint.ActionOpts{
-					Label: "Apply configuration (" + a.Spec.Name + ")",
+					Label: a.actionLabel("Apply configuration (" + a.Spec.Name + ")"),
 					Hint:  "apply",
 					OnActivate: func(c *mint.Ctx) {
 						a.executeFromUI(c)
@@ -574,25 +574,17 @@ func (a *ToolApp) ConfigScreen() *mint.Screen {
 				a.refreshRow("Refresh live state"),
 			},
 		})
-		sections = append(sections, a.buildOutputDisplaySection("Current State"))
+		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Current State")))
 		scr.Sections = sections
 	}
 	s.Refresh(s)
 	return s
 }
 
-// ScannerScreen builds the ArchetypeScanner ("scanner") Target -> Live Table + Log screen.
+// ScannerScreen builds the scanner layout. It is the runner screen: archetype
+// labels name the sections, and results stay on the page.
 func (a *ToolApp) ScannerScreen() *mint.Screen {
-	s := a.RunnerScreen()
-	s.Icon = "◎"
-	s.Title = a.Spec.Name + " — Scanner"
-	origRefresh := s.Refresh
-	s.Refresh = func(scr *mint.Screen) {
-		origRefresh(scr)
-		scr.Sections = append(scr.Sections, a.buildOutputDisplaySection("Discovered Targets & Ports"))
-	}
-	s.Refresh(s)
-	return s
+	return a.RunnerScreen()
 }
 
 // MonitorScreen builds the ArchetypeMonitor ("monitor") Live Poller & Controller screen.
@@ -612,7 +604,7 @@ func (a *ToolApp) MonitorScreen() *mint.Screen {
 
 	s := &mint.Screen{
 		Icon:  "◧",
-		Title: a.Spec.Name + " — Live Monitor",
+		Title: a.titled(a.Spec.Name + " — Live Monitor"),
 		Status: func() []mint.Badge {
 			switch {
 			case !canPoll:
@@ -644,15 +636,7 @@ func (a *ToolApp) MonitorScreen() *mint.Screen {
 	}
 
 	s.Refresh = func(scr *mint.Screen) {
-		controls := []mint.Row{
-			mint.Text(mint.TextOpts{
-				ID:          "monitor:target",
-				Label:       a.Spec.TargetLabel,
-				Placeholder: a.Spec.TargetPlaceholder,
-				Get:         func() string { return a.Target },
-				Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-			}),
-		}
+		controls := a.targetRows("monitor:")
 		if canPoll {
 			controls = append(controls,
 				mint.Toggle(mint.ToggleOpts{
@@ -689,14 +673,14 @@ func (a *ToolApp) MonitorScreen() *mint.Screen {
 					Get:   func() string { return a.CommandPreview() },
 				}),
 				mint.Action(mint.ActionOpts{
-					Label:      "Run " + a.Spec.Name,
+					Label:      a.actionLabel("Run " + a.Spec.Name),
 					Hint:       "run",
 					OnActivate: func(c *mint.Ctx) { a.executeFromUI(c) },
 				}),
 			)
 		}
 		var sections []mint.Section
-		sections = append(sections, mint.Section{Name: "Monitor Controls", Rows: controls})
+		sections = append(sections, mint.Section{Name: a.inputSectionName("Monitor Controls"), Rows: controls})
 		sections = append(sections, a.flagSections()...)
 		if a.Spec.OutputsFile {
 			sections = append(sections, a.outputFileSection())
@@ -704,59 +688,18 @@ func (a *ToolApp) MonitorScreen() *mint.Screen {
 		if rootSec := a.rootAuthSection(); rootSec != nil {
 			sections = append(sections, *rootSec)
 		}
-		sections = append(sections, a.buildOutputDisplaySection("Live Telemetry & Rows"))
+		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Live Telemetry & Rows")))
 		scr.Sections = sections
 	}
 	s.Refresh(s)
 	return s
 }
 
-// ExplorerScreen builds the ArchetypeExplorer ("explorer") Query -> Results -> Detail screen.
+// ExplorerScreen builds the explorer layout. It is the runner screen, so a
+// spec that still says "explorer" keeps its archetype's labels and its
+// results section without a second screen builder.
 func (a *ToolApp) ExplorerScreen() *mint.Screen {
-	s := &mint.Screen{
-		Icon:  "⌕",
-		Title: a.Spec.Name + " — Explorer",
-		Status: func() []mint.Badge {
-			return a.statusBadges()
-		},
-	}
-	s.Refresh = func(scr *mint.Screen) {
-		var sections []mint.Section
-		sections = append(sections, mint.Section{
-			Name: "Search & Query",
-			Rows: []mint.Row{
-				mint.Text(mint.TextOpts{
-					ID:          "explorer:target",
-					Label:       a.Spec.TargetLabel,
-					Placeholder: a.Spec.TargetPlaceholder,
-					Get:         func() string { return a.Target },
-					Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-				}),
-				mint.Value(mint.ValueOpts{
-					Label: "Command preview",
-					Get:   func() string { return a.CommandPreview() },
-				}),
-				mint.Action(mint.ActionOpts{
-					Label: "Run query (" + a.Spec.Name + ")",
-					Hint:  "query",
-					OnActivate: func(c *mint.Ctx) {
-						a.executeFromUI(c)
-					},
-				}),
-			},
-		})
-		sections = append(sections, a.flagSections()...)
-		if a.Spec.OutputsFile {
-			sections = append(sections, a.outputFileSection())
-		}
-		if rootSec := a.rootAuthSection(); rootSec != nil {
-			sections = append(sections, *rootSec)
-		}
-		sections = append(sections, a.buildOutputDisplaySection("Query Results"))
-		scr.Sections = sections
-	}
-	s.Refresh(s)
-	return s
+	return a.RunnerScreen()
 }
 
 func (a *ToolApp) activeSubcommandSpec() *SubcommandSpec {
@@ -771,20 +714,31 @@ func (a *ToolApp) activeSubcommandSpec() *SubcommandSpec {
 	return &a.Spec.Subcommands[0]
 }
 
-// SuiteScreen builds the ArchetypeSuite ("suite") Multi-Subcommand Manager screen.
+// suiteTabSectionName is the subcommand picker's heading: the archetype's
+// own name when one is set, and the layout's generic heading otherwise.
+func (a *ToolApp) suiteTabSectionName() string {
+	if l, ok := a.screenWording(); ok && l.Title != "" {
+		return l.Title
+	}
+	return "Subcommand Tabs (ArchetypeSuite)"
+}
+
+// SuiteScreen builds the suite layout ("suite") Multi-Subcommand Manager screen.
+// With no subcommands (a generated pack tool whose help listed none) it is
+// the runner screen, instead of an empty "Default" picker.
 func (a *ToolApp) SuiteScreen() *mint.Screen {
+	if len(a.Spec.Subcommands) == 0 {
+		return a.RunnerScreen()
+	}
 	s := &mint.Screen{
 		Icon:  "❖",
-		Title: a.Spec.Name + " — Suite",
+		Title: a.titled(a.Spec.Name + " — Suite"),
 		Status: func() []mint.Badge {
 			return a.statusBadges()
 		},
 	}
 	s.Refresh = func(scr *mint.Screen) {
 		subs := a.Spec.Subcommands
-		if len(subs) == 0 {
-			subs = []SubcommandSpec{{Name: "default", Label: "Default", Desc: "Run " + a.Spec.Name}}
-		}
 		subNames := make([]string, len(subs))
 		for i, sub := range subs {
 			subNames[i] = sub.Name
@@ -793,34 +747,30 @@ func (a *ToolApp) SuiteScreen() *mint.Screen {
 			a.ActiveSubcommand = subs[0].Name
 		}
 
+		rows := []mint.Row{
+			mint.Picker(mint.PickerOpts{
+				ID:      "suite:subcommand",
+				Label:   "Subcommand mode",
+				Options: subNames,
+				Get:     func() string { return a.ActiveSubcommand },
+				Set:     func(v string) { a.ActiveSubcommand = v },
+			}),
+			mint.Value(mint.ValueOpts{
+				Label: "Mode description",
+				Get: func() string {
+					if sub := a.activeSubcommandSpec(); sub != nil && sub.Desc != "" {
+						return sub.Desc
+					}
+					return a.Spec.Desc
+				},
+			}),
+		}
+		rows = append(rows, a.targetRows("suite:")...)
+
 		var sections []mint.Section
 		sections = append(sections, mint.Section{
-			Name: "Subcommand Tabs (ArchetypeSuite)",
-			Rows: []mint.Row{
-				mint.Picker(mint.PickerOpts{
-					ID:      "suite:subcommand",
-					Label:   "Subcommand mode",
-					Options: subNames,
-					Get:     func() string { return a.ActiveSubcommand },
-					Set:     func(v string) { a.ActiveSubcommand = v },
-				}),
-				mint.Value(mint.ValueOpts{
-					Label: "Mode description",
-					Get: func() string {
-						if sub := a.activeSubcommandSpec(); sub != nil && sub.Desc != "" {
-							return sub.Desc
-						}
-						return a.Spec.Desc
-					},
-				}),
-				mint.Text(mint.TextOpts{
-					ID:          "suite:target",
-					Label:       a.Spec.TargetLabel,
-					Placeholder: a.Spec.TargetPlaceholder,
-					Get:         func() string { return a.Target },
-					Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-				}),
-			},
+			Name: a.suiteTabSectionName(),
+			Rows: rows,
 		})
 
 		sections = append(sections, a.flagSections()...)
@@ -838,7 +788,7 @@ func (a *ToolApp) SuiteScreen() *mint.Screen {
 					Get:   func() string { return a.CommandPreview() },
 				}),
 				mint.Action(mint.ActionOpts{
-					Label: "Run subcommand",
+					Label: a.actionLabel("Run subcommand"),
 					Hint:  "run",
 					OnActivate: func(c *mint.Ctx) {
 						a.executeFromUI(c)
@@ -846,7 +796,7 @@ func (a *ToolApp) SuiteScreen() *mint.Screen {
 				}),
 			},
 		})
-		sections = append(sections, a.buildOutputDisplaySection("Subcommand Output"))
+		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Subcommand Output")))
 		scr.Sections = sections
 	}
 	s.Refresh(s)

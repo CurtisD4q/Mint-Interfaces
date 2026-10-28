@@ -185,12 +185,23 @@ var (
 	reOptLoad    = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:concurrency|connections|concurrent|requests|duration|threads|rate|warmup|runs|iterations|time)\b.*\b(?:concurren|connections|requests|seconds|duration|threads|runs|iterations)`)
 	reOptLength  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:length|count|number|num|seed|width|font)\b`)
 
+	// A typed session: an interactive shell, REPL, or a prompt the user
+	// answers. sessionCuesMatch is true when either matches.
+	reInteractive = regexp.MustCompile(`(?i)\b(?:interactive(?:ly)?|repl|interpreter|command prompt|sql shell|database shell|interactive shell|interactive terminal)\b`)
+	rePromptCue   = regexp.MustCompile(`(?i)\b(?:prompt|sqlite>|psql>|ftp>|mysql>|gdb)\b|(?:^|\n)\s*(?:[>#]|=>)\s`)
+
 	// What a summary or description says the program does.
 	reSaysReports = regexp.MustCompile(`(?i)\b(?:display|displays|print|prints|show|shows|report|reports|determine|determines|identify|identifies|describe|describes|dump|dumps|examine|examines|inspect|inspects)\b(?:\W+\w+){0,5}?\W+(?:information|info|contents?|details|symbols|type|types|attributes|metadata|properties|dependencies|structure|sections|headers|tags|status)\b`)
 	reSaysLists   = regexp.MustCompile(`(?i)^\s*(?:list|lists|show|shows|display|displays|print|prints|report|reports)\b(?:\W+\w+){0,5}?\W+\w+[^uis\W]s\b`)
 	reSaysFiles   = regexp.MustCompile(`(?i)\bfiles?\b`)
 	reSaysStdin   = regexp.MustCompile(`(?i)\b(?:standard input|stdin)\b.{0,80}\b(?:standard output|stdout)\b|\bwrit\w* (?:the )?result to standard output\b`)
 )
+
+// sessionCuesMatch reports whether help text looks like a typed session:
+// reInteractive (a shell, REPL, or interpreter) or a prompt cue.
+func sessionCuesMatch(text string) bool {
+	return reInteractive.MatchString(text) || rePromptCue.MatchString(text)
+}
 
 // subcommandKinds: subcommand names that say what a suite manages.
 var subcommandKinds = []struct {

@@ -1,28 +1,48 @@
 package appkit
 
-// Archetype identifies one of the 6 base TUI interaction patterns.
-type Archetype string
+// Layout identifies one of the 6 base TUI interaction patterns.
+// The 35 program shapes are ArchetypeID / ArchetypeDef; a layout is the
+// screen an app is built from.
+type Layout string
 
 const (
-	ArchetypeConfig   Archetype = "config"   // State Editor (read -> tweak -> apply)
-	ArchetypeRunner   Archetype = "runner"   // Task & Pipeline (input + flags -> progress -> output)
-	ArchetypeScanner  Archetype = "scanner"  // Target -> Live Table + Log
-	ArchetypeMonitor  Archetype = "monitor"  // Live Poller & Controller (tick -> gauges/table -> row actions)
-	ArchetypeExplorer Archetype = "explorer" // Query -> Results -> Detail
-	ArchetypeSuite    Archetype = "suite"    // Multi-Tab Subcommand Manager
+	LayoutConfig   Layout = "config"   // State Editor (read -> tweak -> apply)
+	LayoutRunner   Layout = "runner"   // Task & Pipeline (input + flags -> progress -> output)
+	LayoutScanner  Layout = "scanner"  // Target -> Live Table + Log
+	LayoutMonitor  Layout = "monitor"  // Live Poller & Controller (tick -> gauges/table -> row actions)
+	LayoutExplorer Layout = "explorer" // Query -> Results -> Detail
+	LayoutSuite    Layout = "suite"    // Multi-Tab Subcommand Manager
 )
 
-// AllArchetypes returns the 6 base archetypes in canonical order.
-func AllArchetypes() []Archetype {
-	return []Archetype{
-		ArchetypeConfig,
-		ArchetypeRunner,
-		ArchetypeScanner,
-		ArchetypeMonitor,
-		ArchetypeExplorer,
-		ArchetypeSuite,
+// Deprecated: Archetype is the former name of Layout. It remains so saved
+// specs and callers that still say Archetype keep compiling. JSON specs
+// keep the key "archetype" (and also accept "layout").
+type Archetype = Layout
+
+// Deprecated names for the six layouts. Prefer the Layout* constants.
+const (
+	ArchetypeConfig   = LayoutConfig
+	ArchetypeRunner   = LayoutRunner
+	ArchetypeScanner  = LayoutScanner
+	ArchetypeMonitor  = LayoutMonitor
+	ArchetypeExplorer = LayoutExplorer
+	ArchetypeSuite    = LayoutSuite
+)
+
+// AllLayouts returns the 6 base layouts in canonical order.
+func AllLayouts() []Layout {
+	return []Layout{
+		LayoutConfig,
+		LayoutRunner,
+		LayoutScanner,
+		LayoutMonitor,
+		LayoutExplorer,
+		LayoutSuite,
 	}
 }
+
+// AllArchetypes is the former name of AllLayouts.
+func AllArchetypes() []Layout { return AllLayouts() }
 
 // MixinName identifies a composable capability mixin (an add-on).
 type MixinName string
@@ -39,7 +59,7 @@ const (
 )
 
 // Mixins describes which of the 8 original composable mixins are enabled
-// for a spec. Archetypes set these; later add-ons are switched on by their
+// for a spec. Layouts set these; later add-ons are switched on by their
 // own ToolSpec field and are listed by ToolSpec.EnabledMixinNames.
 type Mixins struct {
 	WithFileOutput        bool `json:"with_file_output,omitempty"`
