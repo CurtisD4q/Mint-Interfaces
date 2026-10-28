@@ -141,7 +141,7 @@ const (
 // cueHit is one behaviour cue found for an archetype.
 type cueHit struct {
 	level cueLevel
-	zone  int // the part of the help it was found in: zoneName … zoneBody
+	zone  int // the part of the help it was found in (see zoneLabels)
 	why   string
 }
 
@@ -306,7 +306,7 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 		// The subcommands count as part of the usage when a usage line
 		// has a place for them ("git [options] <command>"), and as part of
 		// the rest of the help when only a list names them.
-		subZone := zoneBody
+		subZone := zoneOf(secCommands)
 		if has(reArgSubcommand) {
 			subZone = zoneUsage
 		}
@@ -321,32 +321,32 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 		}
 	}
 
-	// Options.
-	body := p.Body
+	// Options, read in the whole help.
+	body := p.Whole
 	if reOptFollow.MatchString(body) {
-		add("follow", zoneBody, cueMedium, "it can follow new output")
+		add("follow", zoneOf(secOptions), cueMedium, "it can follow new output")
 	}
 	if reOptListen.MatchString(body) {
-		add("serve", zoneBody, cueMedium, "it listens for connections")
+		add("serve", zoneOf(secOptions), cueMedium, "it listens for connections")
 	}
 	if reOptCommand.MatchString(body) || reOptBatch.MatchString(body) {
-		add("session", zoneBody, cueMedium, "it takes commands to run in its session")
+		add("session", zoneOf(secOptions), cueMedium, "it takes commands to run in its session")
 	}
 	if reOptRepeat.MatchString(body) {
-		add("watch", zoneBody, cueWeak, "an option repeats it")
+		add("watch", zoneOf(secOptions), cueWeak, "an option repeats it")
 	}
 	if reOptDryRun.MatchString(body) {
-		add("edit-files", zoneBody, cueWeak, "it has a dry run")
-		add("mirror", zoneBody, cueWeak, "it has a dry run")
+		add("edit-files", zoneOf(secOptions), cueWeak, "it has a dry run")
+		add("mirror", zoneOf(secOptions), cueWeak, "it has a dry run")
 	}
 	if n := len(reOptLoad.FindAllString(body, 4)); n >= 2 {
-		add("measure", zoneBody, cueMedium, "it sets a load: concurrency, requests, duration or runs")
+		add("measure", zoneOf(secOptions), cueMedium, "it sets a load: concurrency, requests, duration or runs")
 	}
 	if reOptFormat.MatchString(body) {
-		add("convert", zoneBody, cueWeak, "it chooses a format")
+		add("convert", zoneOf(secOptions), cueWeak, "it chooses a format")
 	}
 	if len(args) == 0 && reOptLength.MatchString(body) {
-		add("generate", zoneBody, cueWeak, "it takes only settings (length, count…)")
+		add("generate", zoneOf(secOptions), cueWeak, "it takes only settings (length, count…)")
 	}
 
 	// What it says it does.
@@ -419,7 +419,7 @@ func usageArgs(usage []string) []usageArg {
 
 // archWeights weigh the evidence for archetypes.
 type archWeights struct {
-	CueZone     [numZones]int // points for a behaviour cue by where it was found: name, summary, description, usage, rest
+	CueZone     [numZones]int // points for a behaviour cue by where it was found (see zoneLabels)
 	CueStrength [4]int        // percent of those points for a base, weak, medium and strong cue
 	Words       scoreWeights  // the archetype phrases
 	Broad       scoreWeights  // the broader phrases of each archetype (archetypeBroadPhrases)
@@ -428,19 +428,30 @@ type archWeights struct {
 	ClearLead   int           // the lead over the next archetype a clear choice needs
 }
 
+// splitZones gives points to the name, summary, description and usage, and
+// the same to each help section.
+func splitZones(name, summary, description, usage, section int) [numZones]int {
+	var z [numZones]int
+	z[zoneName], z[zoneSummary], z[zoneDescription], z[zoneUsage] = name, summary, description, usage
+	for i := zoneSection; i < numZones; i++ {
+		z[i] = section
+	}
+	return z
+}
+
 // defaultArchWeights give behaviour cues and phrases alike their points
 // by where they were found: usage 30, summary 25, description 20, name 15,
-// the rest of the help 10. A cue's strength is a percent of its part's
-// points; the strengths, the weak-word points, the body limit and the
+// and 10 for each help section read (sectionsRead). A cue's strength is a percent of its part's
+// points; the strengths, the weak-word points, the section limit and the
 // share of the broad subject phrases were chosen by a cross-validated
 // search within that split (MINT_ARCHETYPE_BENCH=tune).
 var defaultArchWeights = archWeights{
-	CueZone:     [numZones]int{zoneName: 15, zoneSummary: 25, zoneDescription: 20, zoneUsage: 30, zoneBody: 10},
+	CueZone:     splitZones(15, 25, 20, 30, 10),
 	CueStrength: [4]int{cueBase: 15, cueWeak: 75, cueMedium: 127, cueStrong: 150},
 	Words: scoreWeights{
-		Name: 15, Summary: 25, Description: 20, Usage: 30, Body: 10,
+		Name: 15, Summary: 25, Description: 20, Usage: 30, Section: 10,
 		WeakName: 8, WeakSummary: 13, WeakDescription: 11, WeakUsage: 16,
-		BodyHits: 2, BodyCap: 30,
+		Hits: 2, SectionCap: 30,
 	},
 	Broad:      defaultWeights,
 	BroadShare: 60,

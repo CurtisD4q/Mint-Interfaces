@@ -315,10 +315,11 @@ func TestArchetypeTuning(t *testing.T) {
 	// The split by where evidence was found stays fixed; the search varies
 	// how strong cues count within it and the limits.
 	// MINT_ARCHETYPE_SPLIT sets the split, e.g. "usage=30,summary=25,
-	// description=20,name=15,body=10"; else the default one.
+	// description=20,name=15,sections=10" (sections: each help section
+	// read); else the default one.
 	base0 := defaultArchWeights
 	if spec := os.Getenv("MINT_ARCHETYPE_SPLIT"); spec != "" {
-		zone := map[string]int{"name": zoneName, "summary": zoneSummary, "description": zoneDescription, "usage": zoneUsage, "body": zoneBody}
+		zone := map[string]int{"name": zoneName, "summary": zoneSummary, "description": zoneDescription, "usage": zoneUsage, "sections": zoneSection}
 		for _, kv := range strings.Split(spec, ",") {
 			k, v, _ := strings.Cut(strings.TrimSpace(kv), "=")
 			z, ok := zone[k]
@@ -329,25 +330,27 @@ func TestArchetypeTuning(t *testing.T) {
 			base0.CueZone[z] = n
 		}
 		cz := base0.CueZone
-		base0.Words.Name, base0.Words.Summary, base0.Words.Description, base0.Words.Usage, base0.Words.Body = cz[zoneName], cz[zoneSummary], cz[zoneDescription], cz[zoneUsage], cz[zoneBody]
-		base0.Related = cz[zoneBody]
+		base0.CueZone = splitZones(cz[zoneName], cz[zoneSummary], cz[zoneDescription], cz[zoneUsage], cz[zoneSection])
+		ww := &base0.Words
+		ww.Name, ww.Summary, ww.Description, ww.Usage, ww.Section = cz[zoneName], cz[zoneSummary], cz[zoneDescription], cz[zoneUsage], cz[zoneSection]
+		base0.Related = cz[zoneSection]
 	}
-	t.Logf("split: name %d summary %d description %d usage %d body %d", base0.CueZone[zoneName], base0.CueZone[zoneSummary], base0.CueZone[zoneDescription], base0.CueZone[zoneUsage], base0.CueZone[zoneBody])
+	t.Logf("split: name %d summary %d description %d usage %d each section %d", base0.CueZone[zoneName], base0.CueZone[zoneSummary], base0.CueZone[zoneDescription], base0.CueZone[zoneUsage], base0.CueZone[zoneSection])
 	var grid []archWeights
 	for _, scale := range []int{50, 100, 150} {
 		for _, base := range []int{10, 20} {
 			for _, weak := range []int{25, 35, 50} {
 				for _, med := range []int{55, 70, 85} {
 					for _, weakWord := range []int{30, 40, 55} {
-						for _, bodyCap := range []int{2, 3, 5} {
+						for _, bodyCap := range []int{2, 3, 5} { // each section's limit, in matches
 							for _, share := range []int{0, 30, 60} {
 								for _, rel := range []int{0, 1} {
 									w := base0
 									w.CueStrength = [4]int{base * scale / 100, weak * scale / 100, med * scale / 100, scale}
 									ww := &w.Words
 									ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
-									ww.BodyCap = bodyCap * ww.Body
-									w.BroadShare, w.Related = share, rel*ww.Body
+									ww.SectionCap = bodyCap * ww.Section
+									w.BroadShare, w.Related = share, rel*ww.Section
 									grid = append(grid, w)
 								}
 							}
@@ -357,16 +360,6 @@ func TestArchetypeTuning(t *testing.T) {
 			}
 		}
 	}
-	// The scorer before the split, for comparison: cue points by strength
-	// alone, phrases by the old part points.
-	prev := defaultArchWeights
-	prev.CueZone = [numZones]int{100, 100, 100, 100, 100}
-	prev.CueStrength = [4]int{1, 2, 4, 6}
-	prev.Words = defaultWeights
-	prev.Words.BodyCap = 3
-	prev.BroadShare = 0
-	prev.Related = 2
-	grid = append(grid, prev)
 	// Score every program once per set of weights (in parallel), then
 	// cross-validate from the table of right answers.
 	ok := make([][]bool, len(grid))
@@ -424,9 +417,6 @@ func TestArchetypeTuning(t *testing.T) {
 		}
 	}
 	t.Logf("this split, default cue strengths: %d/%d (%.1f%%)", n0, tot, 100*float64(n0)/float64(tot))
-	if np, _ := right(len(grid)-1, func(int) bool { return true }); true {
-		t.Logf("current scorer (PR #60): %d/%d (%.1f%%)", np, tot, 100*float64(np)/float64(tot))
-	}
 	t.Logf("5-fold cross-validated search: %d/%d (%.1f%%)", cvRight, cvTotal, 100*float64(cvRight)/float64(cvTotal))
 	// The best on all tunable programs.
 	type res struct {
@@ -441,7 +431,125 @@ func TestArchetypeTuning(t *testing.T) {
 	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
 	for i := 0; i < 10; i++ {
 		w := all[i].w
-		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d broad %d%% related %d", all[i].n, tot,
-			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.BroadShare, w.Related)
+		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d section cap %d broad %d%% related %d", all[i].n, tot,
+			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.SectionCap, w.BroadShare, w.Related)
+	}
+}
+
+// TestSectionSearch tries reading every set of 1 to 4 help sections, each
+// as a part of its own, on the tunable programs, and estimates by 5-fold
+// cross-validation how well choosing the best set generalises
+// (MINT_ARCHETYPE_BENCH=sections).
+func TestSectionSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "sections" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=sections")
+	}
+	type doc struct {
+		want appkit.ArchetypeID
+		ev   archEvidence // with every section read
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.read = helpSections[:]
+		docs = append(docs, doc{c.Want, findArchEvidence(p)})
+	}
+	// with keeps the chosen sections' zones and empties the others.
+	with := func(ev archEvidence, chosen []string) archEvidence {
+		keep := map[int]bool{}
+		for _, s := range chosen {
+			keep[zoneOf(s)] = true
+		}
+		for z := zoneSection; z < numZones; z++ {
+			if !keep[z] {
+				ev.words.zones[z] = nil
+				ev.broad.zones[z] = nil
+			}
+		}
+		return ev
+	}
+	var subsets [][]string
+	var pick func(start int, cur []string)
+	pick = func(start int, cur []string) {
+		if len(cur) > 0 {
+			subsets = append(subsets, append([]string(nil), cur...))
+		}
+		if len(cur) == 4 {
+			return
+		}
+		for i := start; i < numSections; i++ {
+			pick(i+1, append(cur, helpSections[i]))
+		}
+	}
+	pick(0, nil)
+	ok := make([][]bool, len(subsets))
+	for si, sub := range subsets {
+		row := make([]bool, len(docs))
+		for i, d := range docs {
+			row[i] = scoreArchEvidence(defaultArchWeights, with(d.ev, sub))[0].ID == d.want
+		}
+		ok[si] = row
+	}
+	count := func(row []bool, keep func(int) bool) (n int) {
+		for i, r := range row {
+			if keep(i) && r {
+				n++
+			}
+		}
+		return
+	}
+	nAll, nNone := 0, 0
+	for _, d := range docs {
+		if scoreArchEvidence(defaultArchWeights, d.ev)[0].ID == d.want {
+			nAll++
+		}
+		if scoreArchEvidence(defaultArchWeights, with(d.ev, nil))[0].ID == d.want {
+			nNone++
+		}
+	}
+	all := func(int) bool { return true }
+	fold := func(i int) int { return i % 5 }
+	cv := 0
+	for f := 0; f < 5; f++ {
+		best, bestN := 0, -1
+		for si := range subsets {
+			if n := count(ok[si], func(i int) bool { return fold(i) != f }); n > bestN {
+				best, bestN = si, n
+			}
+		}
+		cv += count(ok[best], func(i int) bool { return fold(i) == f })
+		t.Logf("fold %d chose %v", f, subsets[best])
+	}
+	tot := len(docs)
+	pct := func(n int) float64 { return 100 * float64(n) / float64(tot) }
+	t.Logf("%d sets of 1-4 sections, %d programs", len(subsets), tot)
+	t.Logf("all 12 sections:   %d/%d (%.1f%%)", nAll, tot, pct(nAll))
+	t.Logf("no sections:       %d/%d (%.1f%%)", nNone, tot, pct(nNone))
+	t.Logf("cross-validated choice: %d/%d (%.1f%%)", cv, tot, pct(cv))
+	order := make([]int, len(subsets))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		na, nb := count(ok[order[a]], all), count(ok[order[b]], all)
+		if na != nb {
+			return na > nb
+		}
+		return len(subsets[order[a]]) < len(subsets[order[b]])
+	})
+	for _, si := range order[:15] {
+		t.Logf("%d/%d %v", count(ok[si], all), tot, subsets[si])
+	}
+	for si, sub := range subsets {
+		if len(sub) == 1 {
+			t.Logf("alone: %-16s %d/%d", sub[0], count(ok[si], all), tot)
+		}
 	}
 }

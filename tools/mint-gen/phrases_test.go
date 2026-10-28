@@ -14,7 +14,7 @@ func manWithName(name, summary, body string) string {
 
 // scoreBroad scores the archetypes' broad phrases (subjects) alone.
 func scoreBroad(name, summary string, usage []string, body string) []PhraseScore {
-	p := programText{Name: name, Summary: summary, Usage: usage, Body: body}
+	p := programText{Name: name, Summary: summary, Usage: usage, Whole: body, readWhole: true}
 	return scoreEvidenceIn(broadSignalList, defaultWeights, findEvidenceIn(broadSignalList, p))
 }
 
@@ -44,7 +44,7 @@ func TestBodyIsCapped(t *testing.T) {
 		t.Fatalf("the long man page won: %s (%s): %v", id, why, scores)
 	}
 	for _, s := range scores {
-		if s.ID == "pack" && s.Score > defaultWeights.BodyCap {
+		if s.ID == "pack" && s.Score > defaultWeights.WholeCap+defaultWeights.Summary {
 			t.Fatalf("body score %d over the cap", s.Score)
 		}
 	}

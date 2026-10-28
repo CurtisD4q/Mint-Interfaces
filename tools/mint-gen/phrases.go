@@ -65,17 +65,19 @@ var dataTopicPhrases = map[string][]string{
 // scoreWeights says how much each kind of phrase evidence counts and when
 // the best group is clear enough to choose.
 type scoreWeights struct {
-	Name, Summary, Description, Usage, Body           int // a word in the program's name, summary, description, usage lines, rest of its help
-	WeakName, WeakSummary, WeakDescription, WeakUsage int // weak words ("~"); they never count in the body
-	BodyHits                                          int // at most this many body matches per idea…
-	BodyCap                                           int // …and this many body points per group, so a long man page cannot win on length
+	Name, Summary, Description, Usage                 int // a phrase in the program's name, summary, description, usage lines
+	Whole                                             int // a phrase anywhere in the whole help, read as one part (see programText.readWhole)
+	Section                                           int // a phrase in a help section, each read as a part of its own (see sectionsRead)
+	WeakName, WeakSummary, WeakDescription, WeakUsage int // weak words ("~"); they never count in the whole help or a section
+	Hits                                              int // at most this many matches per idea in the whole help or a section…
+	WholeCap, SectionCap                              int // …and this many points per group from the whole help, and from each section, so a long man page cannot win on length
 	MinScore, MinMargin                               int // the winner needs at least MinScore, and MinMargin more than the runner-up
 }
 
 var defaultWeights = scoreWeights{
-	Name: 8, Summary: 5, Description: 3, Usage: 2, Body: 1,
+	Name: 8, Summary: 5, Description: 3, Usage: 2, Whole: 1, Section: 1,
 	WeakName: 3, WeakSummary: 2, WeakDescription: 1, WeakUsage: 1,
-	BodyHits: 2, BodyCap: 4,
+	Hits: 2, WholeCap: 4, SectionCap: 4,
 	MinScore: 4, MinMargin: 3,
 }
 
@@ -275,11 +277,14 @@ func zoneMatchesIn(list []signal, text string, prose bool) map[int]int {
 // programText is what the scorer reads about a program.
 type programText struct {
 	Name        string
-	Summary     string   // one line: what it is (see extractSummary)
-	Description string   // the opening of the man page's DESCRIPTION (see extractDescription)
-	Usage       []string // usage lines
-	Body        string   // all of the man page and help
-	Related     []string // programs from SEE ALSO
+	Summary     string            // one line: what it is (see extractSummary)
+	Description string            // the opening of the man page's DESCRIPTION (see extractDescription)
+	Usage       []string          // usage lines
+	Whole       string            // all of the man page and help: for behaviour cues, and read as one part for data topics
+	Related     []string          // programs from SEE ALSO
+	sections    map[string]string // the help sections (see splitHelpSections)
+	read        []string          // the help sections to read as parts of their own
+	readWhole   bool              // read the whole help as one part
 
 	manLines, helpLines []string          // cleaned, for reading behaviour (see archetype.go)
 	options             []appkit.FlagSpec // options from the help, then the man page
@@ -288,12 +293,15 @@ type programText struct {
 // programTextFrom gathers a programText from man and help text.
 func programTextFrom(name, manText, helpText string) programText {
 	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
+	secs := splitHelpSections(manLines, helpLines)
 	return programText{
 		Name:        name,
 		Summary:     extractSummary(name, manLines, helpLines),
 		Description: extractDescription(manLines),
 		Usage:       usageLines(name, manLines, helpLines),
-		Body:        manText + "\n" + helpText,
+		Whole:       manText + "\n" + helpText,
+		sections:    secs,
+		read:        sectionsRead,
 		Related:     seeAlsoPrograms(manText),
 		manLines:    manLines,
 		helpLines:   helpLines,
@@ -310,7 +318,7 @@ type phraseEvidence struct {
 
 // findEvidenceIn finds the phrases of list in a program's help.
 func findEvidenceIn(list []signal, p programText) phraseEvidence {
-	name, summary, usage, body := p.Name, p.Summary, p.Usage, p.Body
+	name, summary, usage := p.Name, p.Summary, p.Usage
 	var ev phraseEvidence
 	// A program's own name in its usage and help is not evidence about
 	// itself: "crontab" all through crontab's help says nothing about
@@ -334,10 +342,18 @@ func findEvidenceIn(list []signal, p programText) phraseEvidence {
 	}
 	// The summary is the exception: there the name is used as a word
 	// ("Print sensors information", "maintain crontab files").
-	texts := [numZones]string{nameZone, summary, mask(p.Description), mask(strings.Join(usage, "\n")), mask(body)}
+	var texts [numZones]string
+	texts[zoneName], texts[zoneSummary] = nameZone, summary
+	texts[zoneDescription], texts[zoneUsage] = mask(p.Description), mask(strings.Join(usage, "\n"))
+	if p.readWhole {
+		texts[zoneWhole] = mask(p.Whole)
+	}
+	for _, s := range p.read {
+		texts[zoneOf(s)] = mask(p.sections[s])
+	}
 	for z, text := range texts {
 		if text != "" {
-			ev.zones[z] = zoneMatchesIn(list, text, z == zoneDescription || z == zoneBody)
+			ev.zones[z] = zoneMatchesIn(list, text, z != zoneName && z != zoneSummary && z != zoneUsage)
 		}
 	}
 	return ev
@@ -440,16 +456,28 @@ const (
 	zoneSummary
 	zoneDescription
 	zoneUsage
-	zoneBody
-	numZones
+	zoneWhole   // the whole help as one part (data topics)
+	zoneSection // the first help section; each has its own zone (zoneOf)
+	numZones    = zoneSection + numSections
 )
 
-var zoneLabels = [numZones]string{"name", "summary", "description", "usage", "body"}
+var zoneLabels = func() [numZones]string {
+	l := [numZones]string{"name", "summary", "description", "usage", "whole help"}
+	for i, s := range helpSections {
+		l[zoneSection+i] = s
+	}
+	return l
+}()
 
 // scoreEvidenceIn weighs evidence found with list, best group first.
 func scoreEvidenceIn(list []signal, w scoreWeights, ev phraseEvidence) []PhraseScore {
-	strong := [numZones]int{w.Name, w.Summary, w.Description, w.Usage, w.Body}
-	weak := [numZones]int{w.WeakName, w.WeakSummary, w.WeakDescription, w.WeakUsage, 0}
+	var strong, weak, capOf [numZones]int
+	strong[zoneName], strong[zoneSummary], strong[zoneDescription], strong[zoneUsage], strong[zoneWhole] = w.Name, w.Summary, w.Description, w.Usage, w.Whole
+	weak[zoneName], weak[zoneSummary], weak[zoneDescription], weak[zoneUsage] = w.WeakName, w.WeakSummary, w.WeakDescription, w.WeakUsage
+	capOf[zoneWhole] = w.WholeCap
+	for z := zoneSection; z < numZones; z++ {
+		strong[z], capOf[z] = w.Section, w.SectionCap
+	}
 	scores := map[string]*PhraseScore{}
 	get := func(id string) *PhraseScore {
 		if scores[id] == nil {
@@ -457,7 +485,7 @@ func scoreEvidenceIn(list []signal, w scoreWeights, ev phraseEvidence) []PhraseS
 		}
 		return scores[id]
 	}
-	bodyScore := map[string]int{}
+	capped := map[[2]string]int{} // points so far per capped zone and group
 	for z, counts := range ev.zones {
 		idx := make([]int, 0, len(counts))
 		for i := range counts {
@@ -477,23 +505,24 @@ func scoreEvidenceIn(list []signal, w scoreWeights, ev phraseEvidence) []PhraseS
 				continue
 			}
 			ts := get(s.group)
-			if z != zoneBody {
+			if z < zoneWhole {
 				ts.Score += pts
 				ts.Hits = append(ts.Hits, zoneLabels[z]+": "+s.label)
 				continue
 			}
 			n := counts[i]
-			if n > w.BodyHits {
-				n = w.BodyHits
+			if n > w.Hits {
+				n = w.Hits
 			}
 			add := n * pts
-			if bodyScore[s.group]+add > w.BodyCap {
-				add = w.BodyCap - bodyScore[s.group]
+			key := [2]string{zoneLabels[z], s.group}
+			if capped[key]+add > capOf[z] {
+				add = capOf[z] - capped[key]
 			}
 			if add > 0 {
-				bodyScore[s.group] += add
+				capped[key] += add
 				ts.Score += add
-				ts.Hits = append(ts.Hits, fmt.Sprintf("body: %s ×%d", s.label, n))
+				ts.Hits = append(ts.Hits, fmt.Sprintf("%s: %s ×%d", zoneLabels[z], s.label, n))
 			}
 		}
 	}
@@ -572,6 +601,9 @@ func pickGroupWith(w scoreWeights, scores []PhraseScore) (string, string) {
 // (sensitive). It only ever raises a level (see ParseManAndHelpIO): an
 // archetype says what a program does, not what it handles.
 func topicDataLevel(p programText) (level, reason string) {
+	// All of the help is read here as one part, whichever sections the
+	// archetype scorer reads: what a program handles can be said anywhere.
+	p.readWhole, p.read = true, nil
 	scores := scoreEvidenceIn(topicContestList, defaultWeights, findEvidenceIn(topicContestList, p))
 	scores = addTopicRelated(scores, p)
 	id, _ := pickGroup(scores)
