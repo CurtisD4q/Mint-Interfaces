@@ -247,7 +247,7 @@ func TestZoneWindowsMatchFullSearch(t *testing.T) {
 		}
 		n++
 		lower := asciiLower(text)
-		for _, list := range [][]signal{templateSignalList, archetypeSignalList} {
+		for _, list := range [][]signal{archetypeSignalList, broadSignalList, dataTopicSignalList} {
 			for i, s := range list {
 				if full, win := fmt.Sprint(signalLocations(s, text, "")), fmt.Sprint(signalLocations(s, text, lower)); full != win {
 					t.Errorf("%s, signal %d (%s): full %.80s window %.80s", c.Name, i, s.label, full, win)
@@ -347,7 +347,7 @@ func TestArchetypeTuning(t *testing.T) {
 									ww := &w.Words
 									ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
 									ww.BodyCap = bodyCap * ww.Body
-									w.TemplateShare, w.Related = share, rel*ww.Body
+									w.BroadShare, w.Related = share, rel*ww.Body
 									grid = append(grid, w)
 								}
 							}
@@ -363,7 +363,8 @@ func TestArchetypeTuning(t *testing.T) {
 	prev.CueZone = [numZones]int{100, 100, 100, 100, 100}
 	prev.CueStrength = [4]int{1, 2, 4, 6}
 	prev.Words = defaultWeights
-	prev.Words.BodyCap, prev.Words.Related = 3, 0
+	prev.Words.BodyCap = 3
+	prev.BroadShare = 0
 	prev.Related = 2
 	grid = append(grid, prev)
 	// Score every program once per set of weights (in parallel), then
@@ -440,7 +441,7 @@ func TestArchetypeTuning(t *testing.T) {
 	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
 	for i := 0; i < 10; i++ {
 		w := all[i].w
-		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d template %d%% related %d", all[i].n, tot,
-			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.TemplateShare, w.Related)
+		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d broad %d%% related %d", all[i].n, tot,
+			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.BroadShare, w.Related)
 	}
 }

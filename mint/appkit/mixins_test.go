@@ -21,15 +21,15 @@ func TestOriginalMixinsKeepTheirOrder(t *testing.T) {
 }
 
 // For the original 8, the registry agrees with the Mixins struct, for
-// every template.
+// every archetype.
 func TestEnabledMixinNamesMatchesMixinsStruct(t *testing.T) {
 	original := map[MixinName]bool{}
 	for _, n := range AllMixins()[:8] {
 		original[n] = true
 	}
-	for _, tpl := range AllTemplates() {
-		spec := ToolSpec{Name: "x", Template: string(tpl.ID)}
-		tpl.ApplyTo(&spec)
+	for _, def := range AllArchetypeDefs() {
+		spec := ToolSpec{Name: "x"}
+		def.ApplyTo(&spec)
 		var names []MixinName
 		for _, n := range spec.EnabledMixinNames() {
 			if original[n] {
@@ -37,7 +37,7 @@ func TestEnabledMixinNamesMatchesMixinsStruct(t *testing.T) {
 			}
 		}
 		if want := spec.EnabledMixins().Names(); !reflect.DeepEqual(names, want) {
-			t.Errorf("%s: EnabledMixinNames %v, Mixins.Names %v", tpl.ID, names, want)
+			t.Errorf("%s: EnabledMixinNames %v, Mixins.Names %v", def.ID, names, want)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 // Package appkit provides a declarative runtime for turning command-line
-// programs into Mint TUI applications using the 6 Base Archetypes, Composable
-// Mixins, and 28 Template Types (T01..T28).
+// programs into Mint TUI applications using 35 archetypes, 6 base layouts
+// and composable mixins (add-ons).
 package appkit
 
 import (
@@ -100,7 +100,7 @@ type ProfileSpec struct {
 	ExtraArgs []string          `json:"extra_args,omitempty"`
 }
 
-// ToolSpec defines the metadata, template/archetype, mixins, flags, and presets
+// ToolSpec defines the metadata, archetype, mixins, flags, and presets
 // for a wrapped CLI program.
 type ToolSpec struct {
 	Name              string           `json:"name"`
@@ -108,7 +108,7 @@ type ToolSpec struct {
 	Title             string           `json:"title,omitempty"`
 	Desc              string           `json:"desc,omitempty"`
 	Version           string           `json:"version,omitempty"`
-	Template          string           `json:"template,omitempty"`     // older apps: "T01".."T28" or template slug (see ArchetypeForTemplate)
+	Template          string           `json:"template,omitempty"`     // apps made before archetypes: an old template "T01".."T28" or slug, converted to its archetype (see legacy.go)
 	ArchetypeID       string           `json:"archetype_id,omitempty"` // which of the 34 archetypes: "probe", "look-up"… (see ArchetypeDef)
 	Archetype         Archetype        `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite
 	TargetLabel       string           `json:"target_label,omitempty"`
@@ -250,8 +250,8 @@ type ToolApp struct {
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its
 // archetype's defaults (ArchetypeID, else the archetype list). An app made
-// before archetypes, with only a Template, gets that template's defaults
-// exactly as before.
+// before archetypes, with only an old Template, gets the archetype that
+// template stood for.
 func New(spec ToolSpec) *ToolApp {
 	switch {
 	case spec.ArchetypeID != "":
@@ -259,8 +259,8 @@ func New(spec ToolSpec) *ToolApp {
 			a.ApplyTo(&spec)
 		}
 	case spec.Template != "":
-		if tpl, ok := LookupTemplate(spec.Template); ok {
-			tpl.ApplyTo(&spec)
+		if a, ok := ArchetypeForLegacyTemplate(spec.Template); ok {
+			a.ApplyTo(&spec)
 		}
 	default:
 		if a, ok := ArchetypeForTool(spec.BinaryName()); ok {
@@ -271,7 +271,7 @@ func New(spec ToolSpec) *ToolApp {
 	ApplySafetyDefaults(&spec)
 	if spec.Transcript != nil {
 		// A session's output is its transcript, even when the program's
-		// template (sqlite3's Query one, say) saves output to a file.
+		// archetype (sqlite3's Session one, say) saves output to a file.
 		spec.OutputsFile = false
 	}
 	if spec.Archetype == "" {

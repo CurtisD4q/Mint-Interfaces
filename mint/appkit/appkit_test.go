@@ -120,84 +120,70 @@ func TestStartJobAndDirectoryListing(t *testing.T) {
 	}
 }
 
-func TestAll28TemplatesAnd6Archetypes(t *testing.T) {
-	templates := AllTemplates()
-	if len(templates) != 28 {
-		t.Fatalf("len(AllTemplates()) = %d, want 28", len(templates))
+func TestAllArchetypesAnd6Layouts(t *testing.T) {
+	layouts := AllArchetypes()
+	if len(layouts) != 6 {
+		t.Fatalf("len(AllArchetypes()) = %d, want 6", len(layouts))
 	}
-
-	archetypes := AllArchetypes()
-	if len(archetypes) != 6 {
-		t.Fatalf("len(AllArchetypes()) = %d, want 6", len(archetypes))
-	}
-
-	mixins := AllMixins()
-	if len(mixins) < 8 {
+	if mixins := AllMixins(); len(mixins) < 8 {
 		t.Fatalf("len(AllMixins()) = %d, want at least the original 8", len(mixins))
 	}
-
-	seenIDs := map[TemplateID]bool{}
-	seenSlugs := map[string]bool{}
-	seenArch := map[Archetype]int{}
-
-	for _, tpl := range templates {
-		if tpl.ID == "" || tpl.Slug == "" || tpl.Name == "" {
-			t.Fatalf("template missing required identity fields: %+v", tpl)
+	seenLayout := map[Archetype]int{}
+	for _, def := range AllArchetypeDefs() {
+		app := New(ToolSpec{Name: "test-" + string(def.ID), Bin: "echo", ArchetypeID: string(def.ID)})
+		want := def.Blueprint().Layout
+		if app.Spec.Archetype != want {
+			t.Fatalf("archetype %s: layout %q, want %q", def.ID, app.Spec.Archetype, want)
 		}
-		if seenIDs[tpl.ID] {
-			t.Fatalf("duplicate TemplateID: %s", tpl.ID)
+		seenLayout[want]++
+		if scr := app.MainScreen(); scr == nil || len(scr.Sections) == 0 {
+			t.Fatalf("archetype %s (%s): MainScreen returned empty screen", def.ID, want)
 		}
-		if seenSlugs[tpl.Slug] {
-			t.Fatalf("duplicate Slug: %s", tpl.Slug)
-		}
-		seenIDs[tpl.ID] = true
-		seenSlugs[tpl.Slug] = true
-		seenArch[tpl.Archetype]++
-
-		if byID, ok := LookupTemplate(string(tpl.ID)); !ok || byID.Slug != tpl.Slug {
-			t.Fatalf("LookupTemplate(%q) failed", tpl.ID)
-		}
-		if bySlug, ok := LookupTemplate(tpl.Slug); !ok || bySlug.ID != tpl.ID {
-			t.Fatalf("LookupTemplate(%q) failed", tpl.Slug)
-		}
-
-		for _, ex := range tpl.ExampleTools {
-			bin := strings.Fields(ex)[0]
-			if matched, ok := TemplateForTool(bin); !ok {
-				t.Fatalf("TemplateForTool(%q) returned false", bin)
-			} else if matched.ID == "" {
-				t.Fatalf("TemplateForTool(%q) returned empty ID", bin)
-			}
-		}
-
-		spec := ToolSpec{Name: "test-" + strings.ToLower(string(tpl.ID)), Bin: "echo", Template: string(tpl.ID)}
-		app := New(spec)
-		if app.Spec.Archetype != tpl.Archetype {
-			t.Fatalf("template %s: app.Spec.Archetype = %q, want %q", tpl.ID, app.Spec.Archetype, tpl.Archetype)
-		}
-		scr := app.MainScreen()
-		if scr == nil || len(scr.Sections) == 0 {
-			t.Fatalf("template %s (%s): MainScreen returned empty screen", tpl.ID, tpl.Archetype)
-		}
-		mintApp := app.BuildApp()
-		if mintApp == nil || len(mintApp.Items) < 3 {
-			t.Fatalf("template %s: BuildApp returned insufficient HomeItems", tpl.ID)
+		if mintApp := app.BuildApp(); mintApp == nil || len(mintApp.Items) < 3 {
+			t.Fatalf("archetype %s: BuildApp returned insufficient HomeItems", def.ID)
 		}
 	}
-
-	for _, arch := range archetypes {
-		if seenArch[arch] == 0 {
-			t.Fatalf("archetype %q has 0 templates assigned", arch)
+	for _, l := range layouts {
+		if seenLayout[l] == 0 {
+			t.Fatalf("layout %q has no archetype", l)
 		}
+	}
+}
+
+// An app made before archetypes, naming an old template by ID or slug,
+// starts as the archetype that template stood for.
+func TestLegacyTemplatesBecomeArchetypes(t *testing.T) {
+	if len(legacyTemplates) != 28 {
+		t.Fatalf("%d legacy templates, want 28", len(legacyTemplates))
+	}
+	seen := map[string]bool{}
+	for _, lt := range legacyTemplates {
+		for _, key := range []string{lt.id, lt.slug} {
+			if seen[key] {
+				t.Fatalf("duplicate %q", key)
+			}
+			seen[key] = true
+			a, ok := ArchetypeForLegacyTemplate(key)
+			if !ok || a.ID != lt.archetype {
+				t.Fatalf("%s: %s %v, want %s", key, a.ID, ok, lt.archetype)
+			}
+			app := New(ToolSpec{Name: "old-" + key, Bin: "echo", Template: key})
+			if app.Spec.ArchetypeID != string(lt.archetype) || app.Spec.Archetype != a.Blueprint().Layout {
+				t.Fatalf("%s: started as %s/%s", key, app.Spec.ArchetypeID, app.Spec.Archetype)
+			}
+		}
+	}
+	if _, ok := ArchetypeForLegacyTemplate("T99"); ok {
+		t.Fatal("T99 accepted")
 	}
 }
 
 func TestMixinsAndDynamicChoicesAndSplitSections(t *testing.T) {
 	spec := ToolSpec{
-		Name:      "net-demo",
-		Bin:       "echo",
-		Template:  "T12", // network-scanner: Scanner + Table + Collapsible + FileOutput + Profiles + RootAuth + History
-		NeedsRoot: true,
+		Name:        "net-demo",
+		Bin:         "echo",
+		ArchetypeID: "probe", // Scanner + Table + Collapsible + FileOutput + Profiles + History
+		NeedsRoot:   true,
 		Flags: []FlagSpec{
 			{
 				Flag:       "-i",
@@ -215,8 +201,8 @@ func TestMixinsAndDynamicChoicesAndSplitSections(t *testing.T) {
 
 	enabled := app.Spec.EnabledMixins()
 	names := enabled.Names()
-	if !enabled.WithTableOutput || !enabled.WithCollapsibleOutput || !enabled.WithFileOutput || !enabled.WithRootAuth || !enabled.WithDynamicChoices {
-		t.Fatalf("unexpected enabled mixins for T12 + ChoicesCmd: %+v (%v)", enabled, names)
+	if !enabled.WithTableOutput || !enabled.WithFileOutput || !enabled.WithRootAuth || !enabled.WithDynamicChoices {
+		t.Fatalf("unexpected enabled mixins for probe + ChoicesCmd: %+v (%v)", enabled, names)
 	}
 
 	// Mint never wraps commands in sudo: root comes from starting the app with sudo.

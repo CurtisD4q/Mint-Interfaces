@@ -171,14 +171,19 @@ func TestScaffoldAppAndCLI(t *testing.T) {
 }
 
 func TestDetectArchetypeAndCLIFlags(t *testing.T) {
-	for _, flag := range []string{"--list-archetypes", "--list-templates"} {
-		if code := runCLI([]string{flag}); code != 0 {
-			t.Fatalf("%s returned %d, want 0", flag, code)
-		}
+	if code := runCLI([]string{"--list-archetypes"}); code != 0 {
+		t.Fatalf("--list-archetypes returned %d, want 0", code)
 	}
-	for _, flag := range []string{"--archetype", "--template"} {
-		if code := runCLI([]string{flag, "INVALID-T99", "echo"}); code == 0 {
-			t.Fatalf("expected a non-zero exit code for an unknown %s", flag)
+	if code := runCLI([]string{"--archetype", "INVALID-T99", "echo"}); code == 0 {
+		t.Fatal("expected a non-zero exit code for an unknown --archetype")
+	}
+	// The old template names and flags are gone.
+	if code := runCLI([]string{"--archetype", "T12", "echo"}); code == 0 {
+		t.Fatal("an old template ID was accepted")
+	}
+	for _, flag := range []string{"--template", "--list-templates"} {
+		if code := runCLI([]string{flag}); code == 0 {
+			t.Fatalf("%s is still accepted", flag)
 		}
 	}
 

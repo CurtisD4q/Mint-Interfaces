@@ -21,13 +21,13 @@ func isTextExtension(ext string) bool {
 //  2. a format named in the output option's own description ("write JSON
 //     to FILE");
 //  3. ".log" for a tool that only prints messages;
-//  4. the template's, when the tool writes the file itself, or when it is
+//  4. the archetype's, when the tool writes the file itself, or when it is
 //     a text extension (Mint saving printed text never calls it .pcap);
 //  5. ".txt".
 //
 // At run time the app also switches the extension of its automatic file
 // name to match a chosen output format (pandoc -t html, --json).
-func chooseExtension(spec appkit.ToolSpec, m IOModel, outputDesc, tplExt string) (string, string) {
+func chooseExtension(spec appkit.ToolSpec, m IOModel, outputDesc, archExt string) (string, string) {
 	kt, known := KnownToolIO(spec.Name)
 	writes := m.Save == SaveByOption || m.Save == SaveByPositional
 	switch {
@@ -44,8 +44,8 @@ func chooseExtension(spec appkit.ToolSpec, m IOModel, outputDesc, tplExt string)
 	if m.Save == SaveLog {
 		return "log", "it prints only messages"
 	}
-	if tplExt != "" && (writes || isTextExtension(tplExt)) {
-		return tplExt, "the default for its archetype (" + spec.ArchetypeID + ")"
+	if archExt != "" && (writes || isTextExtension(archExt)) {
+		return archExt, "the default for its archetype (" + spec.ArchetypeID + ")"
 	}
 	return "txt", "default"
 }

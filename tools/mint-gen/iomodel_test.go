@@ -21,7 +21,7 @@ func TestIOModel(t *testing.T) {
 		{"ffmpeg", "usage: ffmpeg [options] [[infile options] -i infile]... {[outfile options] outfile}...",
 			SaveByPositional, true, StdoutLog, "mkv", ""},
 		{"wget", "Usage: wget [OPTION]... [URL]...\n  -O,  --output-document=FILE      write documents to FILE\n  -o,  --output-file=FILE          log messages to FILE",
-			SaveByOption, false, StdoutLog, "dat", "-O"}, // the downloader template's extension
+			SaveByOption, false, StdoutLog, "dat", "-O"}, // the Transfer archetype's extension
 		{"gzip", "Usage: gzip [OPTION]... [FILE]...", SaveLog, false, StdoutLog, "", ""},
 		{"mycopy", "Usage: mycopy [OPTION]... SOURCE DEST", SaveLog, false, StdoutLog, "", ""},
 		{"mylist", "Usage: mylist [OPTION]... [FILE]...", SaveByCapture, false, "", "", ""},

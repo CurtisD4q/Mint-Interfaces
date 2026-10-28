@@ -75,14 +75,16 @@ func TestExplainArchetypeChoice(t *testing.T) {
 	}
 }
 
-// --archetype takes an archetype by ID or name, or an old template ID or slug.
+// --archetype takes an archetype by ID or name; old template IDs are gone.
 func TestResolveArchetypeFlag(t *testing.T) {
-	for v, want := range map[string]appkit.ArchetypeID{"probe": "probe", "Look up": "look-up", "T12": "probe", "network-scanner": "probe", "T20": "follow"} {
+	for v, want := range map[string]appkit.ArchetypeID{"probe": "probe", "Look up": "look-up", "follow": "follow"} {
 		if a, ok := resolveArchetypeFlag(v); !ok || a.ID != want {
 			t.Errorf("%q: %s %v, want %s", v, a.ID, ok, want)
 		}
 	}
-	if _, ok := resolveArchetypeFlag("T99"); ok {
-		t.Error("T99 accepted")
+	for _, v := range []string{"T12", "network-scanner", "T99"} {
+		if _, ok := resolveArchetypeFlag(v); ok {
+			t.Errorf("%q accepted", v)
+		}
 	}
 }

@@ -37,7 +37,7 @@ func archetypeLabel(id appkit.ArchetypeID) string {
 }
 
 // printArchetypeChoice writes the build output's archetype line. forced is
-// the --archetype (or --template) value, when one was given.
+// the --archetype value, when one was given.
 func printArchetypeChoice(w io.Writer, program string, c ArchetypeChoice, forced string) {
 	p := func(format string, a ...any) { fmt.Fprint(w, safeTerminalText(fmt.Sprintf(format, a...))+"\n") }
 	prog := shellWord(program)
@@ -114,12 +114,8 @@ func lowerFirst(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
-// resolveArchetypeFlag reads an --archetype or --template value: an
-// archetype ("probe", "Look up"), or an old template ID or slug ("T12",
-// "network-scanner"), which stands for an archetype.
+// resolveArchetypeFlag reads an --archetype value: an archetype's ID or
+// name ("probe", "Look up").
 func resolveArchetypeFlag(v string) (appkit.ArchetypeDef, bool) {
-	if a, ok := appkit.LookupArchetype(v); ok {
-		return a, true
-	}
-	return appkit.ArchetypeForTemplate(v)
+	return appkit.LookupArchetype(v)
 }

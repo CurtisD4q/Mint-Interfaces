@@ -21,28 +21,26 @@ func main() {
 func runCLI(args []string) int {
 	fs := flag.NewFlagSet("mint-gen", flag.ContinueOnError)
 	var (
-		checkTarget   string
-		explainTarget string
-		templateFlag  string
-		listTemplates bool
-		listApps      bool
-		force         bool
-		buildBin      bool
-		runApp        bool
-		removeApp     bool
-		rootFlag      bool
-		noRootFlag    bool
-		outDir        string
-		repoRoot      string
-		tuiMode       bool
-		probeTerm     bool
+		checkTarget    string
+		explainTarget  string
+		archetypeFlag  string
+		listArchetypes bool
+		listApps       bool
+		force          bool
+		buildBin       bool
+		runApp         bool
+		removeApp      bool
+		rootFlag       bool
+		noRootFlag     bool
+		outDir         string
+		repoRoot       string
+		tuiMode        bool
+		probeTerm      bool
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
-	fs.StringVar(&templateFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
-	fs.StringVar(&templateFlag, "template", "", "Older name for --archetype; also takes T01..T28 or a template slug")
-	fs.BoolVar(&listTemplates, "list-archetypes", false, "List the 35 archetypes, the 6 base layouts and the add-ons")
-	fs.BoolVar(&listTemplates, "list-templates", false, "Older name for --list-archetypes")
+	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
+	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 35 archetypes, the 6 base layouts and the add-ons")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
@@ -59,8 +57,8 @@ func runCLI(args []string) int {
 		return 2
 	}
 
-	if listTemplates {
-		printTemplateCatalogue()
+	if listArchetypes {
+		printArchetypeCatalogue()
 		return 0
 	}
 
@@ -119,7 +117,7 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-templates] [--explain <program>] [--template <T01..T28|slug>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-archetypes] [--explain <program>] [--archetype <archetype>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
 		return 2
 	}
 
@@ -153,10 +151,10 @@ func runCLI(args []string) int {
 	spec, model := ParseProgramIO(program)
 	printHelpNotes(model.HelpNotes)
 
-	if templateFlag != "" {
-		a, ok := resolveArchetypeFlag(templateFlag)
+	if archetypeFlag != "" {
+		a, ok := resolveArchetypeFlag(archetypeFlag)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(templateFlag))
+			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(archetypeFlag))
 			return 2
 		}
 		spec.Archetype = a.Blueprint().Layout
@@ -176,7 +174,7 @@ func runCLI(args []string) int {
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
-	printArchetypeChoice(os.Stdout, program, model.Archetype, templateFlag)
+	printArchetypeChoice(os.Stdout, program, model.Archetype, archetypeFlag)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
 	printKnownToolWarnings(os.Stderr)
@@ -236,7 +234,7 @@ func flagsFirst(fs *flag.FlagSet, args []string) []string {
 	return append(flags, plain...)
 }
 
-func printTemplateCatalogue() {
+func printArchetypeCatalogue() {
 	fmt.Println("Mint-Interfaces — 6 Base Layouts:")
 	fmt.Println("  config    State Editor (read live state -> edit controls/rules -> apply)")
 	fmt.Println("  runner    Task & Pipeline (target + flags + presets -> background job + progress -> output)")
@@ -255,8 +253,6 @@ func printTemplateCatalogue() {
 	for _, a := range appkit.AllArchetypeDefs() {
 		fmt.Printf("  %-11s  %-19s  %-9s  %s\n", a.ID, a.Group, a.Blueprint().Layout, a.Is)
 	}
-	fmt.Println()
-	fmt.Println("Older template names (T01..T28 and their slugs) still work with --archetype.")
 }
 
 func printCompatReport(rep CompatReport) {
@@ -414,9 +410,9 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 		spec, _ = ParseProgram(prog)
 	}
 
-	tplOptions := make([]string, len(appkit.AllArchetypeDefs()))
+	archOptions := make([]string, len(appkit.AllArchetypeDefs()))
 	for i, a := range appkit.AllArchetypeDefs() {
-		tplOptions[i] = string(a.ID)
+		archOptions[i] = string(a.ID)
 	}
 
 	mainScr := func() *mint.Screen {
@@ -457,9 +453,9 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							},
 						}),
 						mint.Picker(mint.PickerOpts{
-							ID:      "template",
+							ID:      "archetype",
 							Label:   "Archetype",
-							Options: tplOptions,
+							Options: archOptions,
 							Get:     func() string { return spec.ArchetypeID },
 							Set: func(v string) {
 								if a, ok := appkit.LookupArchetype(v); ok {
@@ -553,9 +549,9 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 	app := &mint.App{
 		Title: "◈ Mint Generator",
 		Crumb: "mint-gen",
-		Note:  "man-page & --help interface scaffolder (28 Templates · 6 Archetypes · Mixins)",
+		Note:  "man-page & --help interface scaffolder (35 Archetypes · 6 Layouts · Mixins)",
 		Items: []mint.HomeItem{
-			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Auto-detect template T01..T28, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
+			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Detect the archetype, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
 		},
 	}
 	app.Run()

@@ -622,11 +622,13 @@ func tableExample(rawLines []string) mint.Row {
 }
 ```
 
-## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (6 Archetypes · Mixins · 28 Templates)
+## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (35 Archetypes · 6 Layouts · Mixins)
 
-For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **6 Base Archetypes**, **Composable Mixins** (add-ons), and **28 Template Types (`T01`–`T28`)**:
+For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **35 archetypes** (what kind of program a tool is), **6 base layouts** and **composable mixins** (add-ons):
 
-- **6 Base Archetypes (`appkit.Archetype`)**:
+- **35 archetypes (`appkit.ArchetypeDef`, `appkit.AllArchetypeDefs`)**: Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Setting `ArchetypeID: "probe"` on `appkit.ToolSpec` applies the archetype's layout, add-ons, target label and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-archetypes`).
+
+- **6 base layouts (`appkit.Archetype`)**:
   - `ArchetypeConfig` (`"config"` — State Editor: reads live state, renders controls/rules, applies changes).
   - `ArchetypeRunner` (`"runner"` — Task & Pipeline: target + flags + presets $\rightarrow$ background `runner.Job` with `Progress` bar $\rightarrow$ output + history).
   - `ArchetypeScanner` (`"scanner"` — Target $\rightarrow$ Live Table + Log: target/interface + preset $\rightarrow$ live parsed `mint.Table` alongside collapsible raw logs).
@@ -649,8 +651,7 @@ For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarat
   | `WithReorder` | `Reorder *ReorderSpec` | Rules: `iptables`, `ip6tables`, `nft`, `ufw`, `ip rule` | Move rules, review the exact commands, apply. The current rules are saved to a file first; the old order comes back by itself unless the user keeps the new one within 30 s, or quits first. `ip route` is refused: routes have no order | yes |
 
   The engines behind them are packages of their own, usable without appkit: `mint/diff`, `mint/findings`, `mint/fileplan`, `mint/follow`, `mint/procnet`, `mint/transcript` and `mint/reorder`. `appkit.KnownDiffSpec`, `KnownFindingsSpec`, `KnownPreviewSpec`, `KnownFollowSpec`, `KnownServiceSpec`, `KnownTranscriptSpec` and `KnownReorderSpec` return the settings for the programs Mint knows.
-- **28 Template Types (`T01`–`T28`)**:
-  - Setting `Template: "T12"` (or `"network-scanner"`) on `appkit.ToolSpec` automatically applies its archetype, mixins, target labels, subcommands, and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-templates`).
+- **Older apps**: a spec made before archetypes may name one of the old 28 templates (`Template: "T12"`); it starts as the archetype that template stood for and keeps the data level it gave.
 
 ```go
 func appkitExample() appkit.ToolSpec {
@@ -658,7 +659,7 @@ func appkitExample() appkit.ToolSpec {
 		Name:              "nmap",
 		Title:             "◈ Nmap",
 		Desc:              "Network exploration tool and security / port scanner",
-		Template:          "T12",
+		ArchetypeID:       "probe",
 		Archetype:         appkit.ArchetypeScanner,
 		TargetLabel:       "Target host / network",
 		OutputsFile:       true,
@@ -697,7 +698,7 @@ func appkitAddonExamples() []appkit.ToolSpec {
 }
 ```
 
-`tools/mint-gen` checks whether a target binary can run inside a pure detached TUI (`--check <program>`), auto-classifies any CLI tool into `T01`–`T28` (`DetectTemplate`, overridable via `--template <T01..T28|slug>`), and parses its `man` page and `--help` output into a standalone `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, `<tool>-mint.el`).
+`tools/mint-gen` checks whether a target binary can run inside a pure detached TUI (`--check <program>`), detects any CLI tool's archetype (`DetectArchetype`, overridable with `--archetype <archetype>`), and parses its `man` page and `--help` output into a standalone `apps/<tool>/` module (`go.mod`, `main.go`, `spec.go`, `<tool>-mint.el`).
 
 ## Part C: Rules
 

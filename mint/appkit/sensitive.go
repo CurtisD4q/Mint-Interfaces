@@ -38,16 +38,9 @@ func higherData(a, b string) string {
 
 type dataClass struct{ level, reason string }
 
-// Templates whose tools usually handle private data.
-var templateData = map[string]dataClass{
-	"T13": {DataSensitive, "captures network traffic, which can include passwords and private messages"},
-	"T14": {DataSensitive, "gathers information about people and organisations"},
-	"T15": {DataSensitive, "its findings describe weaknesses of this computer or a target"},
-	"T16": {DataSecret, "works with keys, passwords and decrypted data"},
-	"T20": {DataSensitive, "logs can include user names, addresses and sometimes passwords"},
-}
+const captureReason = "captures network traffic, which can include passwords and private messages"
 
-// Tools classified on their own, whatever their template.
+// Tools classified on their own, whatever their archetype.
 var toolData = map[string]dataClass{
 	// Password managers and secret stores print secrets.
 	"pass": {DataSecret, "prints stored passwords"}, "gopass": {DataSecret, "prints stored passwords"},
@@ -61,12 +54,24 @@ var toolData = map[string]dataClass{
 	"openssl": {DataSecret, "works with private keys and decrypted data"},
 	"john":    {DataSecret, "shows cracked passwords"}, "hashcat": {DataSecret, "shows cracked passwords"},
 	// Captures, dumps and tracers.
-	"tcpdump": {DataSensitive, templateData["T13"].reason}, "tshark": {DataSensitive, templateData["T13"].reason},
-	"dumpcap": {DataSensitive, templateData["T13"].reason}, "ngrep": {DataSensitive, templateData["T13"].reason},
-	"termshark": {DataSensitive, templateData["T13"].reason},
-	"strace":    {DataSensitive, "shows what a program reads and writes, including passwords"},
-	"ltrace":    {DataSensitive, "shows what a program reads and writes, including passwords"},
-	"pg_dump":   {DataSensitive, "copies a whole database"}, "pg_dumpall": {DataSensitive, "copies whole databases"},
+	"tcpdump": {DataSensitive, captureReason}, "tshark": {DataSensitive, captureReason},
+	"dumpcap": {DataSensitive, captureReason}, "ngrep": {DataSensitive, captureReason},
+	"termshark": {DataSensitive, captureReason},
+	"conntrack": {DataSensitive, "shows the network connections this computer tracks"},
+	// Traces and probes that map who is reached and how.
+	"mtr": {DataSensitive, "gathers information about people and organisations"}, "traceroute": {DataSensitive, "gathers information about people and organisations"},
+	"tracepath": {DataSensitive, "gathers information about people and organisations"},
+	// Findings of security scanners describe weaknesses.
+	"ffuf": {DataSensitive, "its findings describe weaknesses of this computer or a target"}, "gobuster": {DataSensitive, "its findings describe weaknesses of this computer or a target"},
+	// Encoders that are often used on keys and tokens.
+	"base64":  {DataSecret, "works with keys, passwords and decrypted data"},
+	"mcookie": {DataSecret, "makes authentication cookies"},
+	// Login records and audit logs.
+	"ausearch": {DataSensitive, "logs can include user names, addresses and sometimes passwords"}, "faillock": {DataSensitive, "logs can include user names, addresses and sometimes passwords"},
+	"last": {DataSensitive, "logs can include user names, addresses and sometimes passwords"}, "lastlog": {DataSensitive, "logs can include user names, addresses and sometimes passwords"},
+	"strace":  {DataSensitive, "shows what a program reads and writes, including passwords"},
+	"ltrace":  {DataSensitive, "shows what a program reads and writes, including passwords"},
+	"pg_dump": {DataSensitive, "copies a whole database"}, "pg_dumpall": {DataSensitive, "copies whole databases"},
 	"mysqldump": {DataSensitive, "copies a whole database"}, "mariadb-dump": {DataSensitive, "copies a whole database"},
 	"mongodump": {DataSensitive, "copies a whole database"}, "sqlite3": {DataSensitive, "reads database contents"},
 	"printenv": {DataSensitive, "prints environment variables, which can hold tokens"},
@@ -74,14 +79,15 @@ var toolData = map[string]dataClass{
 	"sqlmap":   {DataSensitive, "can extract data from the databases it tests"},
 }
 
-// Tools in a sensitive template whose results are not sensitive.
+// Tools whose results are not sensitive, though programs like them are
+// (sockets lists beside packet captures, checksums beside keys).
 var normalDataTools = map[string]bool{
 	"ss": true, "netstat": true, "md5sum": true, "sha1sum": true, "sha224sum": true, "sha256sum": true,
 	"sha384sum": true, "sha512sum": true, "b2sum": true, "cksum": true,
 }
 
 // ClassifyData says how sensitive a tool's results are, and why: from the
-// tool itself, else its template.
+// tool itself, else an older app's template, else its archetype.
 func ClassifyData(spec ToolSpec) (level, reason string) {
 	base := toolBase(spec.BinaryName())
 	if c, ok := toolData[base]; ok {
@@ -90,20 +96,10 @@ func ClassifyData(spec ToolSpec) (level, reason string) {
 	if normalDataTools[base] {
 		return DataNormal, ""
 	}
-	// The program's old template (named in the spec, or from the old lists)
-	// keeps the level it always had, so moving to archetypes never makes a
-	// program's results less protected.
-	id := spec.Template
-	if id == "" {
-		if tpl, ok := TemplateForTool(base); ok {
-			id = string(tpl.ID)
-		}
-	}
-	if tpl, ok := LookupTemplate(id); ok {
-		id = string(tpl.ID)
-	}
-	if c, ok := templateData[id]; ok {
-		return c.level, c.reason
+	// An app made before archetypes keeps the level its old template gave
+	// it.
+	if t, ok := lookupLegacyTemplate(spec.Template); ok && t.data != "" {
+		return t.data, t.reason
 	}
 	if a, ok := LookupArchetype(spec.ArchetypeID); ok && a.Data != "" {
 		return a.Data, a.DataReason

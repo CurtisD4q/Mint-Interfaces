@@ -1,4 +1,4 @@
-// Starter for ArchetypeScanner (T12..T14: Network/Port Scanners, Packet Analysers, and OSINT/Recon Gatherers).
+// Starter for the scanner layout (appkit.ArchetypeScanner), used by the Probe and Record archetypes.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,7 +8,7 @@ func main() {
 		Name:              "nmap",
 		Title:             "◈ Nmap",
 		Desc:              "Network exploration and security / port scanner",
-		Template:          "T12", // T12 (network-scanner), T13 (packet-analyser), T14 (osint-recon)
+		ArchetypeID:       "probe", // any archetype on the scanner layout: see mint-gen --list-archetypes
 		Archetype:         appkit.ArchetypeScanner,
 		TargetLabel:       "Target host / CIDR / range",
 		TargetPlaceholder: "scanme.nmap.org or 192.168.1.0/24",
