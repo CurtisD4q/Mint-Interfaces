@@ -9,11 +9,11 @@ import (
 
 func TestChoiceConfidence(t *testing.T) {
 	for _, c := range []struct {
-		lead int
+		lead float64
 		want string
 	}{{clearLead, ConfidenceClear}, {clearLead + 9, ConfidenceClear}, {clearLead - 1, ConfidenceClose}, {0, ConfidenceClose}} {
 		if got := choiceConfidence(c.lead); got != c.want {
-			t.Errorf("lead %d: %s, want %s", c.lead, got, c.want)
+			t.Errorf("lead %v: %s, want %s", c.lead, got, c.want)
 		}
 	}
 }

@@ -183,7 +183,7 @@ func TestArchetypeBenchmark(t *testing.T) {
 					if i == 3 {
 						break
 					}
-					top += fmt.Sprintf(" %s:%d", s.ID, s.Score)
+					top += fmt.Sprintf(" %s:%s", s.ID, points(s.Score))
 				}
 				t.Logf("  %-6s %-14s want %-10s got %-10s %-5s%s", r.Set, r.Name, r.Want, r.choice.ID, r.choice.Confidence, top)
 			}
@@ -266,7 +266,7 @@ func TestArchetypeCalibration(t *testing.T) {
 		t.Skip("set MINT_ARCHETYPE_BENCH=calibrate")
 	}
 	rs, _ := runArchBench(t, func(c archCase) bool { return c.tunable() })
-	for _, lead := range []int{1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 45, 50} {
+	for _, lead := range []float64{1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 45, 50} {
 		var clear, clearRight, close, closeRight int
 		for _, r := range rs {
 			right := r.choice.ID == r.Want
@@ -282,7 +282,7 @@ func TestArchetypeCalibration(t *testing.T) {
 				}
 			}
 		}
-		t.Logf("lead>=%2d: clear %3d (%3.0f%%) right %3.0f%% | close %3d right %3.0f%%", lead, clear,
+		t.Logf("lead>=%4.1f: clear %3d (%3.0f%%) right %3.0f%% | close %3d right %3.0f%%", lead, clear,
 			100*float64(clear)/float64(len(rs)), 100*float64(clearRight)/float64(max(clear, 1)), close, 100*float64(closeRight)/float64(max(close, 1)))
 	}
 }
@@ -330,7 +330,7 @@ func TestArchetypeTuning(t *testing.T) {
 		}
 		cz := base0.CueZone
 		base0.Words.Name, base0.Words.Summary, base0.Words.Description, base0.Words.Usage, base0.Words.Body = cz[zoneName], cz[zoneSummary], cz[zoneDescription], cz[zoneUsage], cz[zoneBody]
-		base0.Related = cz[zoneBody]
+		base0.Related = float64(cz[zoneBody])
 	}
 	t.Logf("split: name %d summary %d description %d usage %d body %d", base0.CueZone[zoneName], base0.CueZone[zoneSummary], base0.CueZone[zoneDescription], base0.CueZone[zoneUsage], base0.CueZone[zoneBody])
 	var grid []archWeights
@@ -347,7 +347,7 @@ func TestArchetypeTuning(t *testing.T) {
 									ww := &w.Words
 									ww.WeakName, ww.WeakSummary, ww.WeakDescription, ww.WeakUsage = ww.Name*weakWord/100, ww.Summary*weakWord/100, ww.Description*weakWord/100, ww.Usage*weakWord/100
 									ww.BodyCap = bodyCap * ww.Body
-									w.BroadShare, w.Related = share, rel*ww.Body
+									w.BroadShare, w.Related = float64(share), float64(rel*ww.Body)
 									grid = append(grid, w)
 								}
 							}
@@ -441,7 +441,7 @@ func TestArchetypeTuning(t *testing.T) {
 	sort.SliceStable(all, func(i, j int) bool { return all[i].n > all[j].n })
 	for i := 0; i < 10; i++ {
 		w := all[i].w
-		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d broad %d%% related %d", all[i].n, tot,
+		t.Logf("%d/%d cue strength %v weak words %d/%d/%d/%d bodycap %d broad %v%% related %v", all[i].n, tot,
 			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.BroadShare, w.Related)
 	}
 }

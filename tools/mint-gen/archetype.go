@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -28,7 +30,7 @@ import (
 // ArchetypeScore is how well an archetype fits a program, and why.
 type ArchetypeScore struct {
 	ID    appkit.ArchetypeID
-	Score int
+	Score float64
 	Hits  []string
 }
 
@@ -425,9 +427,9 @@ type archWeights struct {
 	CueStrength [4]int        // percent of those points for a base, weak, medium and strong cue
 	Words       scoreWeights  // the archetype phrases
 	Broad       scoreWeights  // the broader phrases of each archetype (archetypeBroadPhrases)
-	BroadShare  int           // percent of an archetype's broad-phrase score that is added to it
-	Related     int           // per related program (SEE ALSO) on the archetype lists, at most two per archetype
-	ClearLead   int           // the lead over the next archetype a clear choice needs
+	BroadShare  float64       // percent of an archetype's broad-phrase score that is added to it
+	Related     float64       // per related program (SEE ALSO) on the archetype lists, at most two per archetype
+	ClearLead   float64       // the lead over the next archetype a clear choice needs
 }
 
 // defaultArchWeights give behaviour cues and phrases alike their points
@@ -444,10 +446,16 @@ var defaultArchWeights = archWeights{
 		WeakName: 8, WeakSummary: 13, WeakDescription: 11, WeakUsage: 16,
 		BodyHits: 2, BodyCap: 30,
 	},
-	Broad:      defaultWeights,
-	BroadShare: 60,
+	// The broad subject phrases on the same part points as the archetype
+	// phrases, for 22.5% of them (cross-validated; 15% did as well).
+	Broad: scoreWeights{
+		Name: 15, Summary: 25, Description: 20, Usage: 30, Body: 10,
+		WeakName: 8, WeakSummary: 13, WeakDescription: 11, WeakUsage: 16,
+		BodyHits: 2, BodyCap: 30,
+	},
+	BroadShare: 22.5,
 	Related:    10, // SEE ALSO is in the rest of the help
-	ClearLead:  32, // calibrated: clear choices are right about 85% of the time
+	ClearLead:  34, // calibrated: clear choices are right about 85% of the time
 }
 
 // archEvidence is what was found in a program's help, before weighing.
@@ -501,17 +509,17 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	for _, def := range appkit.AllArchetypeDefs() {
 		s := ArchetypeScore{ID: def.ID}
 		for _, h := range ev.cues[def.ID] {
-			s.Score += w.CueZone[h.zone] * w.CueStrength[h.level] / 100
+			s.Score += float64(w.CueZone[h.zone]) * float64(w.CueStrength[h.level]) / 100
 			s.Hits = append(s.Hits, h.why)
 		}
 		if ws, ok := words[def.ID]; ok {
-			s.Score += ws.Score
+			s.Score += float64(ws.Score)
 			s.Hits = append(s.Hits, ws.Hits...)
 		}
 		if bs, ok := broad[def.ID]; ok {
-			if pts := bs.Score * w.BroadShare / 100; pts > 0 {
+			if pts := float64(bs.Score) * w.BroadShare / 100; pts > 0 {
 				s.Score += pts
-				s.Hits = append(s.Hits, fmt.Sprintf("its subject (%d): %s", pts, strings.Join(bs.Hits, ", ")))
+				s.Hits = append(s.Hits, fmt.Sprintf("its subject (%s): %s", points(pts), strings.Join(bs.Hits, ", ")))
 			}
 		}
 		for _, r := range ev.related[def.ID] {
@@ -536,10 +544,15 @@ const (
 	ConfidenceClose  = "close"  // chosen, but the next one was near
 )
 
+// points shows a score with at most one decimal place: "31.8", "45".
+func points(x float64) string {
+	return strconv.FormatFloat(math.Round(x*10)/10, 'f', -1, 64)
+}
+
 // clearLead is the lead over the next archetype a choice needs to be clear.
 var clearLead = defaultArchWeights.ClearLead
 
-func choiceConfidence(lead int) string {
+func choiceConfidence(lead float64) string {
 	if lead >= clearLead {
 		return ConfidenceClear
 	}
@@ -551,7 +564,7 @@ type ArchetypeChoice struct {
 	ID           appkit.ArchetypeID
 	Why          string
 	Confidence   string           // ConfidenceListed, ConfidenceClear or ConfidenceClose
-	Lead         int              // points over the next archetype
+	Lead         float64          // points over the next archetype
 	Scores       []ArchetypeScore // best first (for --explain)
 	Alternatives []appkit.ArchetypeID
 }
@@ -565,7 +578,7 @@ func chooseArchetypeFor(p programText) ArchetypeChoice {
 // chooseFromScores is the choice from ranked scores.
 func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 	c := ArchetypeChoice{ID: scores[0].ID, Scores: scores, Lead: scores[0].Score - scores[1].Score}
-	c.Why = fmt.Sprintf("best evidence (%d points, %d ahead of %s)", scores[0].Score, c.Lead, scores[1].ID)
+	c.Why = fmt.Sprintf("best evidence (%s points, %s ahead of %s)", points(scores[0].Score), points(c.Lead), scores[1].ID)
 	c.Confidence = choiceConfidence(c.Lead)
 	for _, s := range scores[1:3] {
 		if s.Score > 0 && scores[0].Score-s.Score < 2*clearLead {
