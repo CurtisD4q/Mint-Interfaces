@@ -108,7 +108,6 @@ type ToolSpec struct {
 	Title             string           `json:"title,omitempty"`
 	Desc              string           `json:"desc,omitempty"`
 	Version           string           `json:"version,omitempty"`
-	Template          string           `json:"template,omitempty"`     // apps made before archetypes: an old template "T01".."T28" or slug, converted to its archetype (see legacy.go)
 	ArchetypeID       string           `json:"archetype_id,omitempty"` // which of the 34 archetypes: "probe", "look-up"… (see ArchetypeDef)
 	Archetype         Archetype        `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite
 	TargetLabel       string           `json:"target_label,omitempty"`
@@ -249,17 +248,11 @@ type ToolApp struct {
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its
-// archetype's defaults (ArchetypeID, else the archetype list). An app made
-// before archetypes, with only an old Template, gets the archetype that
-// template stood for.
+// archetype's defaults (ArchetypeID, else the archetype list).
 func New(spec ToolSpec) *ToolApp {
 	switch {
 	case spec.ArchetypeID != "":
 		if a, ok := LookupArchetype(spec.ArchetypeID); ok {
-			a.ApplyTo(&spec)
-		}
-	case spec.Template != "":
-		if a, ok := ArchetypeForLegacyTemplate(spec.Template); ok {
 			a.ApplyTo(&spec)
 		}
 	default:

@@ -23,7 +23,7 @@ func TestTranscriptSpec(t *testing.T) {
 	if err := (ToolSpec{Name: "x", Transcript: &TranscriptSpec{Adapter: "nope"}}).Validate(); err == nil || !strings.Contains(err.Error(), "known: ftp, gdb, lines") {
 		t.Fatalf("unknown adapter: %v", err)
 	}
-	// sqlite3's template saves output to a file; a session doesn't.
+	// sqlite3's archetype may save output to a file; a session doesn't.
 	if a := newTestApp(t, ToolSpec{Name: "sqlite3", Transcript: &TranscriptSpec{Adapter: "sqlite3"}}); a.Spec.OutputsFile {
 		t.Fatal("session app saves output to a file")
 	}

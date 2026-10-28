@@ -16,15 +16,14 @@ func TestClassifyData(t *testing.T) {
 		{ToolSpec{Name: "x", Bin: "/usr/bin/gpg"}, DataSecret},
 		{ToolSpec{Name: "pass"}, DataSecret},
 		{ToolSpec{Name: "pg_dump"}, DataSensitive},
-		{ToolSpec{Name: "mytool", Template: "T20"}, DataSensitive},
-		{ToolSpec{Name: "mytool", Template: "log-analyser"}, DataSensitive},
-		{ToolSpec{Name: "sha256sum", Template: "T16"}, DataNormal},
-		{ToolSpec{Name: "ss", Template: "T13"}, DataNormal},
+		{ToolSpec{Name: "mytool", ArchetypeID: "follow"}, DataSensitive},
+		{ToolSpec{Name: "sha256sum", ArchetypeID: "inspect"}, DataNormal},
+		{ToolSpec{Name: "ss", ArchetypeID: "list"}, DataNormal},
 		{ToolSpec{Name: "ls"}, DataNormal},
 	}
 	for _, c := range cases {
 		if got, _ := ClassifyData(c.spec); got != c.want {
-			t.Errorf("%s/%s: %q, want %q", c.spec.Name, c.spec.Template, got, c.want)
+			t.Errorf("%s/%s: %q, want %q", c.spec.Name, c.spec.ArchetypeID, got, c.want)
 		}
 	}
 	// An explicit level is kept.

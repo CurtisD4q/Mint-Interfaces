@@ -132,24 +132,15 @@ func TestArchetypeDataLevels(t *testing.T) {
 	}
 }
 
-// New applies the archetype; an older app with only a template gets the
-// archetype that template stood for, and keeps its data level.
-func TestNewAppliesArchetypeOrTemplate(t *testing.T) {
+// New applies the archetype named in the spec, else the listed one.
+func TestNewAppliesArchetype(t *testing.T) {
 	app := New(ToolSpec{Name: "nmap", Bin: "nmap"})
 	if app.Spec.ArchetypeID != "probe" || app.Spec.Archetype != ArchetypeScanner {
 		t.Errorf("listed: %s %s", app.Spec.ArchetypeID, app.Spec.Archetype)
 	}
-	// An archetype named in the spec wins over the list (a --template choice).
+	// An archetype named in the spec wins over the list (an --archetype choice).
 	chosen := New(ToolSpec{Name: "nmap", Bin: "nmap", ArchetypeID: "general"})
 	if chosen.Spec.ArchetypeID != "general" || chosen.Spec.Archetype != ArchetypeRunner {
 		t.Errorf("chosen: %s %s", chosen.Spec.ArchetypeID, chosen.Spec.Archetype)
-	}
-	old := New(ToolSpec{Name: "x9", Template: "T12"})
-	if old.Spec.ArchetypeID != "probe" || old.Spec.Archetype != ArchetypeScanner || !old.Spec.TableOutput {
-		t.Errorf("older app: %+v", old.Spec)
-	}
-	crypto := New(ToolSpec{Name: "x9", Template: "crypto-hash-tool"})
-	if crypto.Spec.ArchetypeID != "convert" || crypto.Spec.Data != DataSecret {
-		t.Errorf("older crypto app: %s %q", crypto.Spec.ArchetypeID, crypto.Spec.Data)
 	}
 }
