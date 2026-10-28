@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1189,4 +1190,137 @@ func TestNewLayoutSearch(t *testing.T) {
 	if v := os.Getenv("MINT_LAYOUT"); v != "" {
 		conf(find(v))
 	}
+}
+
+// TestGroupedPlusSearch compares main, main without its noise sections,
+// grouped sections, and grouped sections with options and more
+// description also read as separate parts (kept in the group too, or
+// moved out of it), with how many clear and close choices are right.
+func TestGroupedPlusSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "grouped-plus" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=grouped-plus")
+	}
+	type doc struct {
+		want appkit.ArchetypeID
+		ev   archEvidence
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.readWhole, p.read = true, helpSections[:]
+		docs = append(docs, doc{c.Want, findArchEvidence(p)})
+	}
+	w := defaultArchWeights
+	w.Words.Whole, w.Words.WholeCap = w.Words.Section, w.Words.SectionCap
+	md, op := secMoreDescription, secOptions
+	group := []string{md, op, secEnvironment, secOther}
+	without := func(drop ...string) []string {
+		var out []string
+		for _, s := range group {
+			if !slices.Contains(drop, s) {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	// fifth: "whole", "quiet" (whole less credits, SEE ALSO and BUGS) or
+	// "group" (the sections in grp read together); parts are separate.
+	shape := func(pe phraseEvidence, fifth string, grp, parts []string) phraseEvidence {
+		switch fifth {
+		case "group":
+			merged := map[int]int{}
+			for _, s := range grp {
+				for i, n := range pe.zones[zoneOf(s)] {
+					merged[i] += n
+				}
+			}
+			pe.zones[zoneWhole] = merged
+		case "quiet":
+			merged := map[int]int{}
+			for i, n := range pe.zones[zoneWhole] {
+				merged[i] = n
+			}
+			for _, s := range []string{secCredits, secSeeAlso, secBugs} {
+				for i, n := range pe.zones[zoneOf(s)] {
+					merged[i] -= n
+				}
+			}
+			for i, n := range merged {
+				if n <= 0 {
+					delete(merged, i)
+				}
+			}
+			pe.zones[zoneWhole] = merged
+		}
+		keep := map[int]bool{}
+		for _, s := range parts {
+			keep[zoneOf(s)] = true
+		}
+		for z := zoneSection; z < numZones; z++ {
+			if !keep[z] {
+				pe.zones[z] = nil
+			}
+		}
+		return pe
+	}
+	type res struct {
+		right bool
+		lead  int
+	}
+	split := func(rs []res, lead int) (cr, cw, mr, mw int) {
+		for _, r := range rs {
+			switch {
+			case r.lead >= lead && r.right:
+				cr++
+			case r.lead >= lead:
+				cw++
+			case r.right:
+				mr++
+			default:
+				mw++
+			}
+		}
+		return
+	}
+	t.Logf("%-52s %5s | %-23s | %s", "", "", "clear lead 32", "clear line set for 85% right")
+	t.Logf("%-52s %5s | %5s %5s %5s %5s | %4s %5s %5s %5s %5s", "setup", "right", "clrOK", "clrNO", "mayOK", "mayNO", "lead", "clrOK", "clrNO", "mayOK", "mayNO")
+	try := func(name, fifth string, grp []string, parts ...string) {
+		rs := make([]res, len(docs))
+		n := 0
+		for i, d := range docs {
+			ev := d.ev
+			ev.words = shape(ev.words, fifth, grp, parts)
+			ev.broad = shape(ev.broad, fifth, grp, parts)
+			s := scoreArchEvidence(w, ev)
+			rs[i] = res{s[0].ID == d.want, s[0].Score - s[1].Score}
+			if rs[i].right {
+				n++
+			}
+		}
+		cr, cw, mr, mw := split(rs, clearLead)
+		cal := 0
+		for l := 0; l <= 400; l++ {
+			a, b, _, _ := split(rs, l)
+			if a+b > 0 && a*100 >= 85*(a+b) {
+				cal = l
+				break
+			}
+		}
+		a, b, c, d := split(rs, cal)
+		t.Logf("%-52s %5d | %5d %5d %5d %5d | %4d %5d %5d %5d %5d", name, n, cr, cw, mr, mw, cal, a, b, c, d)
+	}
+	try("main (whole help)", "whole", nil)
+	try("main without credits, SEE ALSO, BUGS", "quiet", nil)
+	try("grouped [md op env other]", "group", group)
+	try("grouped + options (options read twice)", "group", group, op)
+	try("grouped [md env other] + options", "group", without(op), op)
+	try("grouped + options + md (both read twice)", "group", group, op, md)
+	try("grouped [env other] + options + md", "group", without(op, md), op, md)
 }
