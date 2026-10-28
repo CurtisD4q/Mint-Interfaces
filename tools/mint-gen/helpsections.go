@@ -153,6 +153,12 @@ func splitHelpSections(manLines, helpLines []string) map[string]string {
 				continue
 			}
 		}
+		// An option's line is an option under any heading ("Output
+		// control:", "Examples:"), except in a list of commands.
+		if strings.HasPrefix(t, "-") && sec != secCommands {
+			add(secOptions, l)
+			continue
+		}
 		add(sec, l)
 	}
 	res := map[string]string{}
