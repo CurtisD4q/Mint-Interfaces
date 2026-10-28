@@ -1,8 +1,7 @@
 package appkit
 
-// archetypeTools are programs whose archetype was decided by a person: the
-// programs of the old template lists, each looked at again on its own (the
-// old lists mixed kinds: ps lists processes, pkill acts on them). mint-gen
+// archetypeTools are programs whose archetype was decided by a person, each
+// looked at on its own (ps lists processes, pkill acts on them). mint-gen
 // checks this list before it reads any help.
 //
 // Names are lower case: programs are looked up by their lower-case base name.

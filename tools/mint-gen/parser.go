@@ -80,7 +80,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 		Desc:              titleName + " command-line interface",
 		TargetLabel:       "Target / arguments",
 		TargetPlaceholder: "arguments",
-		// No extension yet: the template may give one, and chooseExtension
+		// No extension yet: the archetype may give one, and chooseExtension
 		// decides at the end.
 	}
 
@@ -181,10 +181,6 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	choice := chooseArchetype(name, manText, helpText)
 	def, _ := appkit.LookupArchetype(string(choice.ID))
 	def.ApplyTo(&spec)
-	// A program of the old template lists keeps its template's extension.
-	if tpl, ok := appkit.TemplateForTool(name); ok && tpl.DefaultExt != "" {
-		spec.DefaultExt = tpl.DefaultExt
-	}
 	if spec.Archetype == appkit.ArchetypeSuite && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
 			spec.Subcommands = subs
@@ -193,7 +189,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	if len(spec.Profiles) == 0 {
 		spec.Profiles = buildDefaultProfiles(flags)
 	}
-	tplExt := spec.DefaultExt // the archetype's or old template's, if any
+	archExt := spec.DefaultExt // the archetype's, if any
 	appkit.ApplySafetyDefaults(&spec)
 	// What the help is about can only raise the data level.
 	if lvl, why := topicDataLevel(text); dataRank(lvl) > dataRank(spec.Data) {
@@ -219,7 +215,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// One answer for what the tool reads and writes (see BuildIOModel).
 	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
 	applyIOModel(&spec, model)
-	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, tplExt)
+	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, archExt)
 	model.Archetype = choice
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))

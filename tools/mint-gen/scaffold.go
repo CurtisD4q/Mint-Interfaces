@@ -189,8 +189,6 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	fmt.Fprintf(&buf, "\t\tDesc:              %q,\n", spec.Desc)
 	if spec.ArchetypeID != "" {
 		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
-	} else if spec.Template != "" {
-		fmt.Fprintf(&buf, "\t\tTemplate:          %q,\n", spec.Template)
 	}
 	if spec.Archetype != "" {
 		fmt.Fprintf(&buf, "\t\tArchetype:         appkit.%s,\n", archetypeIdent(spec.Archetype))

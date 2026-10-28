@@ -1,4 +1,4 @@
-// Starter for ArchetypeRunner (T05..T07, T10..T11, T15..T16: Batch, Media, Download, Build, Benchmark, Audit, Crypto).
+// Starter for the runner layout (appkit.ArchetypeRunner), used by the Audit, Build, Convert, Edit files, Filter, Generate, Measure, Mirror, Present, Serve, Session, Transfer, Wrap and General archetypes.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,7 +8,7 @@ func main() {
 		Name:              "curl",
 		Title:             "◈ Curl",
 		Desc:              "Transfer a URL with live progress and file output",
-		Template:          "T07", // T05..T07, T10..T11, T15..T16
+		ArchetypeID:       "transfer", // any archetype on the runner layout: see mint-gen --list-archetypes
 		Archetype:         appkit.ArchetypeRunner,
 		TargetLabel:       "Target URL",
 		TargetPlaceholder: "https://example.com/file.tar.gz",

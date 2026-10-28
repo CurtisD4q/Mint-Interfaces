@@ -210,7 +210,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Is: "Builds or tests a project.", Takes: "A project folder and a target.",
 		Runs: "As a job.", Shows: "The log, then pass or fail.",
 		Prefer: Preferences{lay(ArchetypeRunner, 1.0), feat(FeatCollapsible, 0.9, FeatHistory, 0.7, FeatProgress, 0.6, FeatProfiles, 0.6)}},
-	{ID: "transfer", Name: "Transfer", Group: GroupMake,
+	{ID: "transfer", DefaultExt: "dat", Name: "Transfer", Group: GroupMake,
 		Is: "Fetches or sends something over the network.", Takes: "A URL or remote, and where it goes.",
 		Runs: "As a job with progress.", Shows: "Progress and speed, then the saved file.",
 		Prefer:      Preferences{lay(ArchetypeRunner, 1.0), feat(FeatTarget, 1.0, FeatFileOutput, 0.9, FeatProgress, 0.8, FeatProfiles, 0.5, FeatHistory, 0.4)},
@@ -455,25 +455,4 @@ func ArchetypeToolNames() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// templateArchetype is the archetype an old template (T01..T28) stands
-// for, so --template T12 and apps generated with a template keep working.
-var templateArchetype = map[TemplateID]ArchetypeID{
-	T01: "settings", T02: "settings", T03: "device", T04: "rules",
-	T05: "edit-files", T06: "convert", T07: "transfer", T08: "pack",
-	T09: "history", T10: "build", T11: "measure", T12: "probe",
-	T13: "record", T14: "look-up", T15: "audit", T16: "convert",
-	T17: "watch", T18: "control", T19: "list", T20: "follow",
-	T21: "history", T22: "toolkit", T23: "records", T24: "list",
-	T25: "search", T26: "query", T27: "read", T28: "schedule",
-}
-
-// ArchetypeForTemplate is the archetype an old template ID or slug stands for.
-func ArchetypeForTemplate(idOrSlug string) (ArchetypeDef, bool) {
-	tpl, ok := LookupTemplate(idOrSlug)
-	if !ok {
-		return ArchetypeDef{}, false
-	}
-	return LookupArchetype(string(templateArchetype[tpl.ID]))
 }

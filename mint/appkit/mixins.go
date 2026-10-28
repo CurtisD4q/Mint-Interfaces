@@ -17,7 +17,7 @@ import (
 // MixinInfo describes a registered mixin.
 type MixinInfo struct {
 	Name    MixinName
-	Summary string // one line, for mint-gen --list-templates
+	Summary string // one line, for mint-gen --list-archetypes
 	Fields  string // the ToolSpec fields that switch it on and configure it
 	Order   int    // canonical position: the original 8 are 1..8
 

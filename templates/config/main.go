@@ -1,4 +1,4 @@
-// Starter for ArchetypeConfig (T01..T04: System, Dotfile, Hardware, and Firewall Rule Configurators).
+// Starter for the config layout (appkit.ArchetypeConfig), used by the Settings, Device and Rules archetypes.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,7 +8,7 @@ func main() {
 		Name:              "sysctl",
 		Title:             "◈ Sysctl",
 		Desc:              "Configure kernel parameters at runtime",
-		Template:          "T01", // T01..T04 (system-config, dotfile-config, hardware-controller, rule-table-editor)
+		ArchetypeID:       "settings", // any archetype on the config layout: see mint-gen --list-archetypes
 		Archetype:         appkit.ArchetypeConfig,
 		TargetLabel:       "Parameter / key=value",
 		TargetPlaceholder: "net.ipv4.ip_forward=1",

@@ -18,7 +18,8 @@ import (
 //     --follow, --listen or -c COMMAND.
 //   - Words: each archetype's phrases (archetypeSignals), read in the
 //     program's name, summary, description, usage and the rest of its help,
-//     weighed as for templates (see scoreWeights).
+//     weighed by where they were found (see archWeights); and broader
+//     subject phrases (archetypeBroadPhrases) for a share of their points.
 //
 // It always chooses, and says how sure it is (see choiceConfidence).
 
@@ -30,8 +31,8 @@ type ArchetypeScore struct {
 }
 
 // archetypeSignals are each archetype's phrases, in the notation of
-// templateSignals: "a|b" are ways of saying one idea, "~" marks a weak one
-// (it counts in the name, summary, description and usage, not the body).
+// phrases.go: "a|b" are ways of saying one idea, "~" marks a weak one (it
+// counts in the name, summary, description and usage, not the body).
 var archetypeSignals = map[string][]string{
 	"ask": {"calculator|calculate|arbitrary precision", "~expression", "unit conversion|convert units|units of measure",
 		"calendar", "date and time|current date|current time", "~factor|prime factors", "fortune|epigram|random quotation",
@@ -418,20 +419,20 @@ func usageArgs(usage []string) []usageArg {
 
 // archWeights weigh the evidence for archetypes.
 type archWeights struct {
-	CueZone       [numZones]int // points for a behaviour cue by where it was found: name, summary, description, usage, rest
-	CueStrength   [4]int        // percent of those points for a base, weak, medium and strong cue
-	Words         scoreWeights  // the archetype phrases
-	Template      scoreWeights  // the template phrases, read as evidence for the archetype each template stands for
-	TemplateShare int           // percent of the best template score of an archetype that is added to it
-	Related       int           // per related program (SEE ALSO) on the archetype lists, at most two per archetype
-	ClearLead     int           // the lead over the next archetype a clear choice needs
+	CueZone     [numZones]int // points for a behaviour cue by where it was found: name, summary, description, usage, rest
+	CueStrength [4]int        // percent of those points for a base, weak, medium and strong cue
+	Words       scoreWeights  // the archetype phrases
+	Broad       scoreWeights  // the broader phrases of each archetype (archetypeBroadPhrases)
+	BroadShare  int           // percent of an archetype's broad-phrase score that is added to it
+	Related     int           // per related program (SEE ALSO) on the archetype lists, at most two per archetype
+	ClearLead   int           // the lead over the next archetype a clear choice needs
 }
 
 // defaultArchWeights give behaviour cues and phrases alike their points
 // by where they were found: usage 30, summary 25, description 20, name 15,
 // the rest of the help 10. A cue's strength is a percent of its part's
 // points; the strengths, the weak-word points, the body limit and the
-// share of the old template phrases were chosen by a cross-validated
+// share of the broad subject phrases were chosen by a cross-validated
 // search within that split (MINT_ARCHETYPE_BENCH=tune).
 var defaultArchWeights = archWeights{
 	CueZone:     [numZones]int{zoneName: 15, zoneSummary: 25, zoneDescription: 20, zoneUsage: 30, zoneBody: 10},
@@ -441,21 +442,17 @@ var defaultArchWeights = archWeights{
 		WeakName: 8, WeakSummary: 13, WeakDescription: 11, WeakUsage: 16,
 		BodyHits: 2, BodyCap: 30,
 	},
-	Template: func() scoreWeights {
-		w := defaultWeights
-		w.Related = 0
-		return w
-	}(),
-	TemplateShare: 60,
-	Related:       10, // SEE ALSO is in the rest of the help
-	ClearLead:     32, // calibrated: clear choices are right about 85% of the time
+	Broad:      defaultWeights,
+	BroadShare: 60,
+	Related:    10, // SEE ALSO is in the rest of the help
+	ClearLead:  32, // calibrated: clear choices are right about 85% of the time
 }
 
 // archEvidence is what was found in a program's help, before weighing.
 type archEvidence struct {
 	cues    map[appkit.ArchetypeID][]cueHit
-	words   templateEvidence // archetype phrases
-	tmpl    templateEvidence // template phrases
+	words   phraseEvidence // archetype phrases
+	broad   phraseEvidence // broader archetype phrases
 	related map[appkit.ArchetypeID][]string
 }
 
@@ -463,7 +460,7 @@ func findArchEvidence(p programText) archEvidence {
 	return archEvidence{
 		cues:    archetypeCues(p),
 		words:   findEvidenceIn(archetypeSignalList, p),
-		tmpl:    findEvidenceIn(templateSignalList, programText{Name: p.Name, Summary: p.Summary, Description: p.Description, Usage: p.Usage, Body: p.Body}),
+		broad:   findEvidenceIn(broadSignalList, p),
 		related: relatedArchetypes(p.Name, p.Related),
 	}
 }
@@ -486,16 +483,14 @@ func relatedArchetypes(name string, related []string) map[appkit.ArchetypeID][]s
 // scoreArchEvidence weighs evidence with w: the 35 archetypes, best first;
 // ties go to the order of appkit.AllArchetypeDefs, so every run is the same.
 func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
-	words := map[appkit.ArchetypeID]TemplateScore{}
+	words := map[appkit.ArchetypeID]PhraseScore{}
 	for _, s := range scoreEvidenceIn(archetypeSignalList, w.Words, ev.words) {
 		words[appkit.ArchetypeID(s.ID)] = s
 	}
-	tmpl := map[appkit.ArchetypeID]TemplateScore{}
-	if w.TemplateShare > 0 {
-		for _, s := range scoreEvidenceIn(templateSignalList, w.Template, ev.tmpl) {
-			if a, ok := appkit.ArchetypeForTemplate(s.ID); ok && s.Score > tmpl[a.ID].Score {
-				tmpl[a.ID] = s
-			}
+	broad := map[appkit.ArchetypeID]PhraseScore{}
+	if w.BroadShare > 0 {
+		for _, s := range scoreEvidenceIn(broadSignalList, w.Broad, ev.broad) {
+			broad[appkit.ArchetypeID(s.ID)] = s
 		}
 	}
 	var out []ArchetypeScore
@@ -509,10 +504,10 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 			s.Score += ws.Score
 			s.Hits = append(s.Hits, ws.Hits...)
 		}
-		if ts, ok := tmpl[def.ID]; ok {
-			if pts := ts.Score * w.TemplateShare / 100; pts > 0 {
+		if bs, ok := broad[def.ID]; ok {
+			if pts := bs.Score * w.BroadShare / 100; pts > 0 {
 				s.Score += pts
-				s.Hits = append(s.Hits, fmt.Sprintf("like the %s template (%d)", ts.ID, pts))
+				s.Hits = append(s.Hits, fmt.Sprintf("its subject (%d): %s", pts, strings.Join(bs.Hits, ", ")))
 			}
 		}
 		for _, r := range ev.related[def.ID] {

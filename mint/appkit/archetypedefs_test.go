@@ -60,20 +60,11 @@ func TestLookupArchetype(t *testing.T) {
 	}
 }
 
-// Every listed program names a real archetype; every old template stands
-// for one, so --template T12 and older apps keep working.
+// Every listed program names a real archetype.
 func TestArchetypeListsAndTemplates(t *testing.T) {
 	for _, n := range ArchetypeToolNames() {
 		if _, ok := ArchetypeForTool(n); !ok {
 			t.Errorf("%s: unknown archetype %q", n, archetypeTools[n])
-		}
-	}
-	for _, tpl := range AllTemplates() {
-		if _, ok := ArchetypeForTemplate(string(tpl.ID)); !ok {
-			t.Errorf("%s has no archetype", tpl.ID)
-		}
-		if _, ok := ArchetypeForTemplate(tpl.Slug); !ok {
-			t.Errorf("%s has no archetype by slug", tpl.Slug)
 		}
 	}
 	if a, _ := ArchetypeForTool("/usr/bin/nmap"); a.ID != "probe" {
@@ -124,11 +115,11 @@ func featNames(b Blueprint) []string {
 	return out
 }
 
-// Moving to archetypes never lowers a program's data level: the old
-// template's level still applies, and unlisted programs get their
-// archetype's.
+// Moving to archetypes never lowers a program's data level: programs the
+// old templates protected more than their archetype does are classified
+// on their own, and unlisted programs get their archetype's.
 func TestArchetypeDataLevels(t *testing.T) {
-	// base64 was a crypto-template (T16) program: still secret, though its
+	// base64 was a crypto-template program: still secret, though its
 	// archetype (Convert) has no level of its own.
 	if lvl, _ := ClassifyData(ToolSpec{Name: "base64", ArchetypeID: "convert"}); lvl != DataSecret {
 		t.Errorf("base64: %q", lvl)
@@ -142,7 +133,7 @@ func TestArchetypeDataLevels(t *testing.T) {
 }
 
 // New applies the archetype; an older app with only a template gets the
-// template's defaults as before.
+// archetype that template stood for, and keeps its data level.
 func TestNewAppliesArchetypeOrTemplate(t *testing.T) {
 	app := New(ToolSpec{Name: "nmap", Bin: "nmap"})
 	if app.Spec.ArchetypeID != "probe" || app.Spec.Archetype != ArchetypeScanner {
@@ -154,7 +145,11 @@ func TestNewAppliesArchetypeOrTemplate(t *testing.T) {
 		t.Errorf("chosen: %s %s", chosen.Spec.ArchetypeID, chosen.Spec.Archetype)
 	}
 	old := New(ToolSpec{Name: "x9", Template: "T12"})
-	if old.Spec.ArchetypeID != "" || old.Spec.Archetype != ArchetypeScanner || !old.Spec.CollapsibleOutput {
+	if old.Spec.ArchetypeID != "probe" || old.Spec.Archetype != ArchetypeScanner || !old.Spec.TableOutput {
 		t.Errorf("older app: %+v", old.Spec)
+	}
+	crypto := New(ToolSpec{Name: "x9", Template: "crypto-hash-tool"})
+	if crypto.Spec.ArchetypeID != "convert" || crypto.Spec.Data != DataSecret {
+		t.Errorf("older crypto app: %s %q", crypto.Spec.ArchetypeID, crypto.Spec.Data)
 	}
 }

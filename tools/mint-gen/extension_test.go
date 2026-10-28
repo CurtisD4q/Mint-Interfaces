@@ -52,15 +52,16 @@ func TestChooseExtension(t *testing.T) {
 	}
 }
 
-// Mint saving printed text never names it after a binary template format.
+// Mint saving printed text never names it after a binary format its
+// archetype would give a file the program writes itself.
 func TestTextCaptureNeverGetsBinaryExtension(t *testing.T) {
 	withToolDirs(t)
-	for _, tpl := range []string{"T13", "T08", "T06", "T07"} {
-		spec := appkit.ToolSpec{Name: "unknowntool", Template: tpl}
+	for _, archExt := range []string{"pcap", "tar.gz", "out", "dat"} {
+		spec := appkit.ToolSpec{Name: "unknowntool", ArchetypeID: "record"}
 		m := IOModel{Save: SaveByCapture}
-		ext, _ := chooseExtension(spec, m, "", map[string]string{"T13": "pcap", "T08": "tar.gz", "T06": "out", "T07": "dat"}[tpl])
+		ext, _ := chooseExtension(spec, m, "", archExt)
 		if !isTextExtension(ext) {
-			t.Errorf("%s: captured text saved as .%s", tpl, ext)
+			t.Errorf("%s: captured text saved as .%s", archExt, ext)
 		}
 	}
 }

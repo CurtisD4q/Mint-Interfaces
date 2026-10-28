@@ -1,4 +1,4 @@
-// Starter for ArchetypeSuite (T08..T09, T21..T23, T28: Archive, Backup, VCS, Container, Package, and Schedule Suites).
+// Starter for the suite layout (appkit.ArchetypeSuite), used by the Pack, History, Records, Schedule and Toolkit archetypes.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -8,7 +8,7 @@ func main() {
 		Name:              "git",
 		Title:             "◈ Git",
 		Desc:              "Distributed version control system suite",
-		Template:          "T21", // T08, T09, T21, T22, T23, T28
+		ArchetypeID:       "history", // any archetype on the suite layout: see mint-gen --list-archetypes
 		Archetype:         appkit.ArchetypeSuite,
 		TargetLabel:       "Path / ref / arguments",
 		TargetPlaceholder: "main",

@@ -1,19 +1,19 @@
-# Mint Templates — 6 Base Archetypes, Mixins & 28 Template Types (`T01`–`T28`)
+# Mint Starters — 35 Archetypes, 6 Base Layouts & Mixins
 
-Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archetypes**, **Composable Mixins** (add-ons), and **28 Template Types (`T01`–`T28`)** provided by `mint/appkit` and automatically detected by `tools/mint-gen`.
+Every compatible Linux CLI program can be wrapped in Mint using **35 archetypes** (what kind of program it is), **6 base layouts** and **composable mixins** (add-ons), provided by `mint/appkit`. `tools/mint-gen` detects a program's archetype; the archetype chooses the layout and add-ons.
 
 ---
 
 ## 1. Starter Directories in `templates/`
 
-| Directory | Archetype | Purpose | Covered Templates |
+| Directory | Base layout | Purpose | Archetypes on this layout |
 |---|---|---|---|
-| `templates/config/` | `ArchetypeConfig` (`config`) | **State Editor**: reads live system/app state, renders controls or rule tables, and applies changes | `T01`, `T02`, `T03`, `T04` |
-| `templates/runner/` | `ArchetypeRunner` (`runner`) | **Task & Pipeline**: target + flags + presets $\rightarrow$ background `runner.Job` + `Progress` bar $\rightarrow$ output + history | `T05`, `T06`, `T07`, `T10`, `T11`, `T15`, `T16` |
-| `templates/scanner/` | `ArchetypeScanner` (`scanner`) | **Target $\rightarrow$ Live Table + Log**: target/interface + preset $\rightarrow$ live parsed `mint.Table` + collapsible logs | `T12`, `T13`, `T14` |
-| `templates/monitor/` | `ArchetypeMonitor` (`monitor`) | **Live Poller & Controller**: periodic `Poll` command $\rightarrow$ gauges & live `mint.Table` $\rightarrow$ per-row actions | `T17`, `T18`, `T19`, `T20` |
-| `templates/explorer/` | `ArchetypeExplorer` (`explorer`) | **Query $\rightarrow$ Results $\rightarrow$ Detail**: query/search bar $\rightarrow$ parsed `mint.Table` or `mint.Collapsible` sections | `T24`, `T25`, `T26`, `T27` |
-| `templates/suite/` | `ArchetypeSuite` (`suite`) | **Multi-Subcommand Manager**: subcommand mode selector (`SubcommandSpec`) with per-mode flags, tables, and actions | `T08`, `T09`, `T21`, `T22`, `T23`, `T28` |
+| `templates/config/` | `ArchetypeConfig` (`config`) | **State Editor**: reads live system/app state, renders controls or rule tables, and applies changes | Settings, Device, Rules |
+| `templates/runner/` | `ArchetypeRunner` (`runner`) | **Task & Pipeline**: target + flags + presets $\rightarrow$ background `runner.Job` + `Progress` bar $\rightarrow$ output + history | Audit, Build, Convert, Edit files, Filter, Generate, Measure, Mirror, Present, Serve, Session, Transfer, Wrap, General |
+| `templates/scanner/` | `ArchetypeScanner` (`scanner`) | **Target $\rightarrow$ Live Table + Log**: target/interface + preset $\rightarrow$ live parsed `mint.Table` + collapsible logs | Probe, Record |
+| `templates/monitor/` | `ArchetypeMonitor` (`monitor`) | **Live Poller & Controller**: periodic `Poll` command $\rightarrow$ gauges & live `mint.Table` $\rightarrow$ per-row actions | Watch, Follow, Control |
+| `templates/explorer/` | `ArchetypeExplorer` (`explorer`) | **Query $\rightarrow$ Results $\rightarrow$ Detail**: query/search bar $\rightarrow$ parsed `mint.Table` or `mint.Collapsible` sections | Ask, Look up, Inspect, List, Search, Query, Compare, Read |
+| `templates/suite/` | `ArchetypeSuite` (`suite`) | **Multi-Subcommand Manager**: subcommand mode selector (`SubcommandSpec`) with per-mode flags, tables, and actions | Pack, History, Records, Schedule, Toolkit |
 | `templates/app/` | Low-level `mint` | **Raw `mint` Starter**: direct `mint.App` + `mint.Screen` + `cli.go` helpers for custom multi-screen apps | Custom / hand-crafted |
 
 ---
@@ -33,35 +33,46 @@ Every compatible Linux CLI program can be wrapped in Mint using **6 Base Archety
 
 ---
 
-## 3. All 28 Template Types (`T01`–`T28`)
+## 3. The 35 Archetypes
 
-| ID | Slug | Name | Base Archetype | Enabled Mixins | Representative CLI Programs |
-|---|---|---|---|---|---|
-| `T01` | `system-config` | System & Daemon Configurator | `config` | `WithRootAuth`, `WithTableOutput` | `sysctl`, `timedatectl`, `hostnamectl`, `localectl`, `loginctl`, `resolvectl` |
-| `T02` | `dotfile-config` | Dotfile / App Config Editor | `config` | `WithCollapsibleOutput`, `WithTableOutput` | `git config`, `npm config`, `pip config`, `gh config`, `gsettings`, `dconf` |
-| `T03` | `hardware-controller` | Hardware & Device Controller | `config` | `WithDynamicChoices`, `WithTableOutput` | `xrandr`, `amixer`, `pactl`, `wpctl`, `brightnessctl`, `bluetoothctl`, `nmcli`, `rfkill` |
-| `T04` | `rule-table-editor` | Firewall & Rule-Table Editor | `config` | `WithTableOutput`, `WithRootAuth`, `WithConfirm` | `ufw`, `iptables`, `nft`, `firewall-cmd`, `ip route`, `ip rule` |
-| `T05` | `batch-runner` | Single-Target Batch Runner | `runner` | `WithConfirm`, `WithHistory`, `WithProfiles` | `rsync`, `scp`, `dd`, `shred`, `cp`, `mv` |
-| `T06` | `media-transcoder` | Media & Document Transcoder | `runner` | `WithFileOutput`, `WithProfiles`, `WithHistory` | `ffmpeg`, `magick`, `convert`, `pandoc`, `sox`, `gs`, `qrencode`, `dot` |
-| `T07` | `downloader` | Downloader & Stream Fetcher | `runner` | `WithFileOutput`, `WithProfiles`, `WithHistory` | `curl`, `wget`, `yt-dlp`, `aria2c`, `axel` |
-| `T08` | `archive-manager` | Archive & Compression Tool | `suite` | `WithFileOutput`, `WithTableOutput`, `WithHistory` | `tar`, `7z`, `zip`, `unzip`, `gzip`, `xz`, `zstd`, `cpio` |
-| `T09` | `backup-manager` | Backup & Snapshot Manager | `suite` | `WithTableOutput`, `WithConfirm`, `WithHistory` | `borg`, `restic`, `rclone`, `timeshift`, `snapper` |
-| `T10` | `build-test-runner` | Build, Test & Compiler Runner | `runner` | `WithCollapsibleOutput`, `WithProfiles`, `WithHistory` | `go`, `make`, `cargo`, `ninja`, `cmake`, `pytest`, `gcc`, `clang` |
-| `T11` | `benchmark-tester` | Benchmark & Stress Tester | `runner` | `WithTableOutput`, `WithProfiles`, `WithHistory`, `WithFileOutput` | `hyperfine`, `ab`, `wrk`, `sysbench`, `fio`, `iperf3`, `stress-ng` |
-| `T12` | `network-scanner` | Network & Port Scanner | `scanner` | `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, `WithHistory` | `nmap`, `masscan`, `rustscan`, `arp-scan`, `fping`, `netdiscover` |
-| `T13` | `packet-analyser` | Packet & Traffic Analyser | `scanner` | `WithDynamicChoices`, `WithTableOutput`, `WithFileOutput`, `WithRootAuth`, `WithHistory` | `tshark`, `tcpdump`, `ngrep`, `ss`, `netstat` |
-| `T14` | `osint-recon` | OSINT & Recon Gatherer | `scanner` | `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput`, `WithHistory`, `WithProfiles` | `whois`, `dig`, `host`, `nslookup`, `traceroute`, `mtr`, `subfinder`, `theHarvester` |
-| `T15` | `security-auditor` | Security & Vulnerability Auditor | `runner` | `WithCollapsibleOutput`, `WithFileOutput`, `WithProfiles`, `WithRootAuth`, `WithHistory` | `nikto`, `lynis`, `clamscan`, `rkhunter`, `trivy`, `checksec`, `sqlmap` |
-| `T16` | `crypto-hash-tool` | Password, Hash & Crypto Utility | `runner` | `WithFileOutput`, `WithProfiles`, `WithHistory` | `openssl`, `gpg`, `age`, `sha256sum`, `md5sum`, `b2sum`, `john`, `hashcat` |
-| `T17` | `resource-monitor` | Live System Resource Monitor | `monitor` | `WithTableOutput` | `free`, `vmstat`, `iostat`, `mpstat`, `sensors`, `acpi`, `uptime`, `df` |
-| `T18` | `service-controller` | Service & Daemon Controller | `monitor` | `WithTableOutput`, `WithRootAuth`, `WithConfirm` | `systemctl`, `supervisorctl`, `rc-service`, `service` |
-| `T19` | `process-inspector` | Process & Open-File Inspector | `monitor` | `WithTableOutput`, `WithConfirm` | `ps`, `pgrep`, `pkill`, `lsof`, `fuser`, `pstree` |
-| `T20` | `log-analyser` | Log Streamer & Journal Analyser | `monitor` | `WithCollapsibleOutput`, `WithFileOutput` | `journalctl`, `dmesg`, `tail`, `ausearch`, `last`, `lastlog` |
-| `T21` | `vcs-suite` | Version Control & Repo Suite | `suite` | `WithTableOutput`, `WithCollapsibleOutput` | `git`, `gh`, `glab`, `hg`, `svn` |
-| `T22` | `container-orchestrator` | Container & VM Orchestrator | `suite` | `WithTableOutput`, `WithConfirm` | `docker`, `podman`, `kubectl`, `virsh`, `lxc`, `vagrant` |
-| `T23` | `package-manager` | Package & Plugin Manager | `suite` | `WithTableOutput`, `WithRootAuth`, `WithConfirm` | `pacman`, `yay`, `paru`, `apt`, `dnf`, `flatpak`, `snap`, `pip`, `npm` |
-| `T24` | `disk-inspector` | Disk, Partition & Filesystem Inspector | `explorer` | `WithDynamicChoices`, `WithTableOutput`, `WithRootAuth` | `lsblk`, `blkid`, `findmnt`, `du`, `smartctl`, `hdparm`, `btrfs` |
-| `T25` | `content-searcher` | File & Content Searcher | `explorer` | `WithTableOutput`, `WithFileOutput` | `rg`, `grep`, `find`, `fd`, `locate`, `ack`, `exiftool`, `file`, `strings` |
-| `T26` | `data-query-explorer` | Structured Data & Query Explorer | `explorer` | `WithTableOutput`, `WithCollapsibleOutput`, `WithFileOutput` | `jq`, `yq`, `sqlite3`, `csvtk`, `mlr`, `awk`, `sed`, `column`, `sort`, `uniq` |
-| `T27` | `doc-browser` | Reference & Documentation Browser | `explorer` | `WithCollapsibleOutput` | `man`, `tldr`, `apropos`, `whatis`, `info` |
-| `T28` | `schedule-manager` | Schedule, Cron & Timer Manager | `suite` | `WithTableOutput`, `WithConfirm` | `crontab`, `at`, `anacron` |
+Each archetype says what a program takes, how it runs and what it shows; its blueprint picks the base layout and the add-ons it wants most. `mint-gen --list-archetypes` lists them, and `mint-gen --archetype <id> <program>` chooses one yourself. Programs named below are on the archetype lists (`mint/appkit/archetypetools.go`); any other program gets the archetype its help points to.
+
+| ID | Name | Group | Layout | What it is | Add-ons | Listed programs (examples) |
+|---|---|---|---|---|---|---|
+| `ask` | Ask | Answer once | `explorer` | Answers a question or works out an expression. | history, target | `uptime`, `whatis` |
+| `look-up` | Look up | Answer once | `explorer` | Looks a name up somewhere else and shows its records. | table, history, target | `amass`, `dig`, `dnsrecon`, `drill`, `host` |
+| `inspect` | Inspect | Answer once | `explorer` | Describes one item in detail. | collapsible, target | `acpi`, `b2sum`, `blkid`, `cksum`, `exiftool` |
+| `list` | List | Answer once | `explorer` | Lists the items of a collection. | table, dynamic-choices | `conntrack`, `df`, `du`, `faillock`, `findmnt` |
+| `search` | Search | Answer once | `explorer` | Finds what matches a pattern. | table, collapsible, history, target | `ack`, `ag`, `apropos`, `apt-cache`, `ausearch` |
+| `query` | Query | Answer once | `explorer` | Runs a query language over data. | table, file-output, profiles, history, target | `awk`, `gawk`, `jq`, `mlr`, `yq` |
+| `compare` | Compare | Answer once | `explorer` | Shows the differences between inputs. | diff, two-inputs |  |
+| `read` | Read | Answer once | `explorer` | Browses documents or manuals. | collapsible, history, target | `go-doc`, `help`, `info`, `man`, `perldoc` |
+| `watch` | Watch | Observe over time | `monitor` | Samples values again and again. | table, live-refresh | `free`, `iostat`, `mpstat`, `nvidia-smi`, `pidstat` |
+| `follow` | Follow | Observe over time | `monitor` | Shows events as they happen. | collapsible, follow | `dmesg`, `journalctl`, `ngrep`, `tail` |
+| `record` | Record | Observe over time | `scanner` | Records a live source to a file. | file-output, dynamic-choices, root, progress | `dumpcap`, `tcpdump`, `tshark` |
+| `probe` | Probe | Act on targets | `scanner` | Checks targets and gives one result for each. | table, file-output, profiles, root, history, progress, target | `arp-scan`, `ffuf`, `fping`, `gobuster`, `masscan` |
+| `audit` | Audit | Act on targets | `runner` | Runs checks and lists findings. | table, collapsible, file-output, history, findings, target | `checksec`, `chkrootkit`, `clamscan`, `eslint`, `grype` |
+| `measure` | Measure | Act on targets | `runner` | Runs a workload and reports numbers. | table, profiles, history, progress | `ab`, `fio`, `hey`, `hyperfine`, `iperf3` |
+| `convert` | Convert | Make something | `runner` | Turns an input into an output of another form. | file-output, profiles, progress | `age`, `base64`, `convert`, `dd`, `dot` |
+| `filter` | Filter | Make something | `runner` | Transforms text: input in, output out. | collapsible, file-output | `column`, `cut`, `sed`, `sort`, `tr` |
+| `pack` | Pack | Make something | `suite` | Packs many files into one, or unpacks them. | table, file-output, confirm, progress | `7z`, `7za`, `ar`, `bzip2`, `cpio` |
+| `generate` | Generate | Make something | `runner` | Makes something new from settings alone. | file-output, history | `qrencode` |
+| `build` | Build | Make something | `runner` | Builds or tests a project. | collapsible, profiles, history, progress | `cargo`, `clang`, `cmake`, `g++`, `gcc` |
+| `transfer` | Transfer | Make something | `runner` | Fetches or sends something over the network. | file-output, profiles, progress, target | `aria2c`, `axel`, `curl`, `http`, `scp` |
+| `present` | Present | Make something | `runner` | Shows, plays, prints or announces something; that is its effect. | dynamic-choices, target |  |
+| `edit-files` | Edit files | Change things | `runner` | Changes many files in place: copies, moves, renames, removes. | confirm, preview | `cp`, `install`, `mv`, `shred` |
+| `mirror` | Mirror | Change things | `runner` | Makes a destination match a source. | profiles, confirm, preview, progress | `rsync` |
+| `settings` | Settings | Change things | `config` | Reads and sets named values. | table, row-actions | `dconf`, `gh-config`, `git-config`, `gsettings`, `hostnamectl` |
+| `device` | Device | Change things | `config` | Adjusts a device or session live. | dynamic-choices | `amixer`, `bluetoothctl`, `brightnessctl`, `hdparm`, `iwctl` |
+| `rules` | Rules | Change things | `config` | Edits an ordered list of rules or entries. | table, root, confirm, reorder, row-actions | `firewall-cmd`, `ip-route`, `ip-rule`, `ip6tables`, `iptables` |
+| `control` | Control | Change things | `monitor` | Lists running things and acts on each. | table, root, confirm, live-refresh, row-actions | `incus`, `killall`, `loginctl`, `lxc`, `pct` |
+| `records` | Records | Manage a collection | `suite` | Adds, lists, changes and removes items in a store. | table, confirm, row-actions | `apk`, `apt`, `apt-get`, `brew`, `dnf` |
+| `history` | History | Manage a collection | `suite` | Keeps versions or snapshots of something. | table, confirm, history, row-actions | `borg`, `duplicity`, `fossil`, `git`, `hg` |
+| `toolkit` | Toolkit | Manage a collection | `suite` | Many unrelated commands under one name. | collapsible | `btrfs`, `csvtk`, `docker`, `gh`, `glab` |
+| `wrap` | Wrap | Run other things | `runner` | Runs another command with changes: a limit, a priority, a timer. | collapsible, target |  |
+| `schedule` | Schedule | Run other things | `suite` | Runs something later or on a timetable. | table, confirm, row-actions | `anacron`, `at`, `atq`, `atrm`, `batch` |
+| `serve` | Serve | Run other things | `runner` | Runs as a service until stopped. | collapsible, service |  |
+| `session` | Session | Run other things | `runner` | An interactive prompt, driven one command at a time. | history, transcript | `mysql`, `psql`, `sftp`, `sqlite3` |
+| `general` | General | Anything else | `runner` | Anything else: a command and its output. | collapsible |  |
+
+Apps made before archetypes may still name one of the old 28 templates (`T01`–`T28`) in their spec's `Template` field; they start as the archetype that template stood for, with the data level it gave them (`mint/appkit/legacy.go`).
