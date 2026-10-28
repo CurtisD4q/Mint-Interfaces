@@ -775,3 +775,113 @@ func TestSwapBodySearch(t *testing.T) {
 	try("options + more description + other", false, secOptions, secMoreDescription, secOther)
 	try("options + more description + other + commands", false, secOptions, secMoreDescription, secOther, secCommands)
 }
+
+// TestConfidenceSplit shows, for main and each alternative tried, how many
+// choices were clear and right, clear but wrong, close (a maybe) and right,
+// and close and wrong, at the shipped clear lead and at a lead calibrated
+// so that clear choices are right at least 85% of the time.
+func TestConfidenceSplit(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "confidence" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=confidence")
+	}
+	type doc struct {
+		want appkit.ArchetypeID
+		ev   archEvidence
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		p := programTextFrom(c.Name, man, help)
+		p.readWhole, p.read = true, helpSections[:]
+		docs = append(docs, doc{c.Want, findArchEvidence(p)})
+	}
+	w := defaultArchWeights
+	w.Words.Whole, w.Words.WholeCap = w.Words.Section, w.Words.SectionCap
+	// fifth: "whole" (main), "group" (group read as one part) or "" (none).
+	shape := func(pe phraseEvidence, fifth string, group, parts []string) phraseEvidence {
+		if fifth == "group" {
+			merged := map[int]int{}
+			for _, s := range group {
+				for i, n := range pe.zones[zoneOf(s)] {
+					merged[i] += n
+				}
+			}
+			pe.zones[zoneWhole] = merged
+		} else if fifth == "" {
+			pe.zones[zoneWhole] = nil
+		}
+		keep := map[int]bool{}
+		for _, s := range parts {
+			keep[zoneOf(s)] = true
+		}
+		for z := zoneSection; z < numZones; z++ {
+			if !keep[z] {
+				pe.zones[z] = nil
+			}
+		}
+		return pe
+	}
+	type res struct {
+		right bool
+		lead  int
+	}
+	split := func(rs []res, lead int) (cr, cw, mr, mw int) {
+		for _, r := range rs {
+			switch {
+			case r.lead >= lead && r.right:
+				cr++
+			case r.lead >= lead:
+				cw++
+			case r.right:
+				mr++
+			default:
+				mw++
+			}
+		}
+		return
+	}
+	t.Logf("%-44s %-22s %s", "", "clear lead 32", "calibrated (clear >= 85% right)")
+	t.Logf("%-44s %5s %5s %5s %5s | %4s %5s %5s %5s %5s", "setup", "clrOK", "clrNO", "mayOK", "mayNO", "lead", "clrOK", "clrNO", "mayOK", "mayNO")
+	try := func(name, fifth string, group []string, parts ...string) {
+		rs := make([]res, len(docs))
+		for i, d := range docs {
+			ev := d.ev
+			ev.words = shape(ev.words, fifth, group, parts)
+			ev.broad = shape(ev.broad, fifth, group, parts)
+			s := scoreArchEvidence(w, ev)
+			rs[i] = res{s[0].ID == d.want, s[0].Score - s[1].Score}
+		}
+		cr, cw, mr, mw := split(rs, clearLead)
+		cal := 0
+		for l := 0; l <= 400; l++ {
+			a, b, _, _ := split(rs, l)
+			if a+b > 0 && a*100 >= 85*(a+b) {
+				cal = l
+				break
+			}
+		}
+		a, b, c, d := split(rs, cal)
+		t.Logf("%-44s %5d %5d %5d %5d | %4d %5d %5d %5d %5d", name, cr, cw, mr, mw, cal, a, b, c, d)
+	}
+	md, op, ot, cm := secMoreDescription, secOptions, secOther, secCommands
+	try("main: whole help", "whole", nil)
+	try("main + more description", "whole", nil, md)
+	try("main + options", "whole", nil, op)
+	try("main + options + more description", "whole", nil, op, md)
+	try("grouped [md op environment other]", "group", []string{md, op, secEnvironment, ot})
+	try("grouped [md cmd examples notes] + options", "group", []string{md, cm, secExamples, secNotes}, op)
+	try("grouped [files exit notes] + op + md", "group", []string{secFiles, secExitStatus, secNotes}, op, md)
+	try("all 12 separate", "", nil, helpSections[:]...)
+	try("separate [op files exit notes]", "", nil, op, secFiles, secExitStatus, secNotes)
+	try("swap: other", "", nil, ot)
+	try("swap: other + commands", "", nil, ot, cm)
+	try("swap: op + md", "", nil, op, md)
+	try("swap: op + md + other", "", nil, op, md, ot)
+	try("no fifth part", "", nil)
+}
