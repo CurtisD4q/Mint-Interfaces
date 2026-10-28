@@ -1,4 +1,4 @@
-// Starter for the explorer layout (appkit.ArchetypeExplorer), used by the Ask, Look up, Inspect, List, Search, Query, Compare and Read archetypes.
+// Starter for the explorer layout (appkit.LayoutExplorer), used by the Ask, Look up, Inspect, List, Search, Query, Compare and Read archetypes.
 package main
 
 import "github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
@@ -9,7 +9,7 @@ func main() {
 		Title:             "◈ Ripgrep",
 		Desc:              "Recursively search directories for a regex pattern",
 		ArchetypeID:       "search", // any archetype on the explorer layout: see mint-gen --list-archetypes
-		Archetype:         appkit.ArchetypeExplorer,
+		Archetype:         appkit.LayoutExplorer,
 		TargetLabel:       "Search pattern & path",
 		TargetPlaceholder: "TODO ./mint",
 		OutputsFile:       true,

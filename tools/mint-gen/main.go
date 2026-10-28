@@ -157,8 +157,9 @@ func runCLI(args []string) int {
 			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(archetypeFlag))
 			return 2
 		}
-		spec.Archetype = a.Blueprint().Layout
-		a.ApplyTo(&spec)
+		srcs, _ := CollectHelpNotes(program)
+		manText, helpText := manAndHelp(srcs)
+		applyChosenArchetype(&spec, a, manText+"\n"+helpText)
 	}
 
 	prof, _, cached := ensureTermProfile(false)
@@ -459,13 +460,12 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							Get:     func() string { return spec.ArchetypeID },
 							Set: func(v string) {
 								if a, ok := appkit.LookupArchetype(v); ok {
-									spec.Archetype = a.Blueprint().Layout
-									a.ApplyTo(&spec)
+									applyChosenArchetype(&spec, a, spec.Desc)
 								}
 							},
 						}),
 						mint.Value(mint.ValueOpts{
-							ID:    "archetype",
+							ID:    "layout",
 							Label: "Base layout",
 							Get:   func() string { return string(spec.Archetype) },
 						}),

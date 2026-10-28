@@ -103,16 +103,24 @@ type ProfileSpec struct {
 // ToolSpec defines the metadata, archetype, mixins, flags, and presets
 // for a wrapped CLI program.
 type ToolSpec struct {
-	Name              string           `json:"name"`
-	Bin               string           `json:"bin,omitempty"`
-	Title             string           `json:"title,omitempty"`
-	Desc              string           `json:"desc,omitempty"`
-	Version           string           `json:"version,omitempty"`
-	ArchetypeID       string           `json:"archetype_id,omitempty"` // which of the 34 archetypes: "probe", "look-up"… (see ArchetypeDef)
-	Archetype         Archetype        `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite
-	TargetLabel       string           `json:"target_label,omitempty"`
-	TargetPlaceholder string           `json:"target_placeholder,omitempty"`
-	TargetDefault     string           `json:"target_default,omitempty"`
+	Name                    string `json:"name"`
+	Bin                     string `json:"bin,omitempty"`
+	Title                   string `json:"title,omitempty"`
+	Desc                    string `json:"desc,omitempty"`
+	Version                 string `json:"version,omitempty"`
+	ArchetypeID             string `json:"archetype_id,omitempty"` // which of the 35 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	Archetype               Layout `json:"archetype,omitempty"`    // the base layout: config, runner, scanner, monitor, explorer, suite (JSON also accepts "layout")
+	TargetLabel             string `json:"target_label,omitempty"`
+	TargetPlaceholder       string `json:"target_placeholder,omitempty"`
+	TargetDefault           string `json:"target_default,omitempty"`
+	SecondTargetLabel       string `json:"second_target_label,omitempty"`
+	SecondTargetPlaceholder string `json:"second_target_placeholder,omitempty"`
+	// WantTarget / HideTarget come from FeatTarget when the caller did not
+	// set TargetLabel. TwoInputs comes from FeatTwoInputs (compare, mirror,
+	// transfer): two boxes, both passed as arguments.
+	WantTarget        bool             `json:"want_target,omitempty"`
+	HideTarget        bool             `json:"hide_target,omitempty"`
+	TwoInputs         bool             `json:"two_inputs,omitempty"`
 	OutputsFile       bool             `json:"outputs_file,omitempty"`      // Mixin: WithFileOutput
 	OutputFlag        string           `json:"output_flag,omitempty"`       // e.g. "-o" or "--output"; empty means stdout capture
 	OutputPositional  bool             `json:"output_positional,omitempty"` // the tool writes its output to its last argument (ffmpeg)
@@ -155,6 +163,35 @@ func (s ToolSpec) BinaryName() string {
 		return s.Bin
 	}
 	return s.Name
+}
+
+// UnmarshalJSON accepts the layout under "archetype" (saved specs and
+// starters) or "layout". "archetype" wins when both are present.
+func (s *ToolSpec) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+	if _, has := raw["archetype"]; !has {
+		if v, ok := raw["layout"]; ok {
+			raw["archetype"] = v
+		}
+	}
+	delete(raw, "layout")
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	type plain ToolSpec
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*s = ToolSpec(p)
+	return nil
 }
 
 // EnabledMixins returns which of the original 8 mixins are active on s.
@@ -205,6 +242,7 @@ type FileEntry struct {
 type ToolApp struct {
 	Spec             ToolSpec
 	Target           string
+	SecondTarget     string // the right-hand / destination box when TwoInputs
 	ExtraArgs        string
 	Profile          string
 	ActiveSubcommand string
@@ -268,7 +306,7 @@ func New(spec ToolSpec) *ToolApp {
 		spec.OutputsFile = false
 	}
 	if spec.Archetype == "" {
-		spec.Archetype = ArchetypeRunner
+		spec.Archetype = LayoutRunner
 	}
 	if spec.Title == "" {
 		spec.Title = "◈ " + spec.Name
@@ -276,11 +314,24 @@ func New(spec ToolSpec) *ToolApp {
 	if spec.Desc == "" {
 		spec.Desc = "Configure and run " + spec.Name
 	}
-	if spec.TargetLabel == "" {
-		spec.TargetLabel = "Target / arguments"
+	// A hidden target (list, watch, generate, control, …) keeps no default
+	// label: the box is not drawn. Two inputs fill in a second label when
+	// the archetype did not name one.
+	if !spec.HideTarget {
+		if spec.TargetLabel == "" {
+			spec.TargetLabel = "Target / arguments"
+		}
+		if spec.TargetPlaceholder == "" {
+			spec.TargetPlaceholder = "arguments, file, or host"
+		}
 	}
-	if spec.TargetPlaceholder == "" {
-		spec.TargetPlaceholder = "arguments, file, or host"
+	if spec.TwoInputs {
+		if spec.SecondTargetLabel == "" {
+			spec.SecondTargetLabel = "Right"
+		}
+		if spec.SecondTargetPlaceholder == "" {
+			spec.SecondTargetPlaceholder = "second input"
+		}
 	}
 	if spec.DefaultExt == "" {
 		spec.DefaultExt = "txt"
@@ -511,17 +562,29 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		args = append(args, splitShellWords(extra)...)
 	}
 
+	var operands []string
 	if target := strings.TrimSpace(a.Target); target != "" {
 		if mask {
 			target = maskFreeText(target, a.secretFlagNames())
 		}
+		operands = append(operands, splitShellWords(target)...)
+	}
+	if a.Spec.TwoInputs {
+		if second := strings.TrimSpace(a.SecondTarget); second != "" {
+			if mask {
+				second = maskFreeText(second, a.secretFlagNames())
+			}
+			operands = append(operands, splitShellWords(second)...)
+		}
+	}
+	if len(operands) > 0 {
 		if a.Spec.OperandSeparator {
 			// Without "--", a file named "-rf" (or a target typed as
 			// "-rf x") reaches rm as options. After it, every word is
-			// a name.
+			// a name. Both inputs of a pair come after it.
 			args = append(args, "--")
 		}
-		args = append(args, splitShellWords(target)...)
+		args = append(args, operands...)
 	}
 	if outPath != "" && a.Spec.OutputPositional {
 		// The tool writes to its last argument (ffmpeg … outfile). A path
@@ -579,6 +642,14 @@ func (a *ToolApp) FreeTextSecrets() []FreeTextSecret {
 	for _, s := range FindFreeTextSecrets(a.Target, flags) {
 		if !seen[s.Value] {
 			found = append(found, s)
+			seen[s.Value] = true
+		}
+	}
+	if a.Spec.TwoInputs {
+		for _, s := range FindFreeTextSecrets(a.SecondTarget, flags) {
+			if !seen[s.Value] {
+				found = append(found, s)
+			}
 		}
 	}
 	return found
@@ -603,6 +674,8 @@ func (a *ToolApp) staleMaskedText() string {
 		return "Extra arguments"
 	case strings.Contains(a.Target, secretMask):
 		return a.Spec.TargetLabel
+	case a.Spec.TwoInputs && strings.Contains(a.SecondTarget, secretMask):
+		return a.Spec.SecondTargetLabel
 	}
 	return ""
 }
@@ -799,11 +872,11 @@ func (a *ToolApp) BuildArgs() (args []string, outPath string) {
 }
 
 func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []string) {
-	if a.Spec.Archetype == ArchetypeSuite && len(a.Spec.Subcommands) > 0 {
+	if a.Spec.Archetype == LayoutSuite && len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			args = append(args, sub.Args...)
 		}
-	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
+	} else if a.Spec.Archetype == LayoutConfig && len(a.Spec.ApplyArgs) > 0 {
 		args = append(args, a.Spec.ApplyArgs...)
 	}
 	prefix := len(args) // subcommand or apply words
@@ -819,11 +892,11 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 // argPrefixLen is how many leading words of the argument list are the
 // subcommand (or apply) words, before any options.
 func (a *ToolApp) argPrefixLen() int {
-	if a.Spec.Archetype == ArchetypeSuite && len(a.Spec.Subcommands) > 0 {
+	if a.Spec.Archetype == LayoutSuite && len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			return len(sub.Args)
 		}
-	} else if a.Spec.Archetype == ArchetypeConfig && len(a.Spec.ApplyArgs) > 0 {
+	} else if a.Spec.Archetype == LayoutConfig && len(a.Spec.ApplyArgs) > 0 {
 		return len(a.Spec.ApplyArgs)
 	}
 	return 0
@@ -879,6 +952,7 @@ func splitShellWords(s string) []string {
 
 type persistedSettings struct {
 	Target           string            `json:"target"`
+	SecondTarget     string            `json:"second_target,omitempty"`
 	ExtraArgs        string            `json:"extra_args"`
 	Profile          string            `json:"profile"`
 	ActiveSubcommand string            `json:"active_subcommand,omitempty"`
@@ -905,6 +979,7 @@ func (a *ToolApp) SaveSettings() error {
 	// Passwords typed into the free-text boxes are never written to disk.
 	st := persistedSettings{
 		Target:           maskFreeText(a.Target, a.secretFlagNames()),
+		SecondTarget:     maskFreeText(a.SecondTarget, a.secretFlagNames()),
 		ExtraArgs:        maskFreeText(a.ExtraArgs, a.secretFlagNames()),
 		Profile:          a.Profile,
 		ActiveSubcommand: a.ActiveSubcommand,
@@ -939,6 +1014,9 @@ func (a *ToolApp) LoadSettings() error {
 	}
 	if st.Target != "" {
 		a.Target = st.Target
+	}
+	if st.SecondTarget != "" {
+		a.SecondTarget = st.SecondTarget
 	}
 	a.ExtraArgs = st.ExtraArgs
 	if st.Profile != "" {
@@ -1041,6 +1119,14 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	started := time.Now()
 	cmdLine := a.CommandPreview()
 	shownTarget := maskFreeText(a.Target, a.secretFlagNames())
+	if a.Spec.TwoInputs {
+		if second := maskFreeText(a.SecondTarget, a.secretFlagNames()); second != "" {
+			if shownTarget != "" {
+				shownTarget += "  "
+			}
+			shownTarget += second
+		}
+	}
 	masker := a.newRunMasker()
 	runLevel, _ := a.DataLevel()
 
@@ -1220,16 +1306,53 @@ func (a *ToolApp) jobBadges() []mint.Badge {
 	}
 }
 
-func (a *ToolApp) targetAndPresetSection(secName string) mint.Section {
-	rows := []mint.Row{
-		mint.Text(mint.TextOpts{
-			ID:          "target",
-			Label:       a.Spec.TargetLabel,
-			Placeholder: a.Spec.TargetPlaceholder,
-			Get:         func() string { return a.Target },
-			Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-		}),
+// showTarget reports whether the screen draws the main target box.
+// Two inputs replace it with a pair. HideTarget (set when the archetype
+// has no FeatTarget and the caller did not name a label) omits it.
+func (a *ToolApp) showTarget() bool {
+	if a.Spec.TwoInputs {
+		return false
 	}
+	return !a.Spec.HideTarget
+}
+
+// targetRows is the target box, or the Left/Right (Source/Destination)
+// pair when TwoInputs is set. idPrefix keeps widget ids unique per screen
+// ("" for the runner, "monitor:" for the monitor).
+func (a *ToolApp) targetRows(idPrefix string) []mint.Row {
+	if a.Spec.TwoInputs {
+		return []mint.Row{
+			mint.Text(mint.TextOpts{
+				ID:          idPrefix + "target",
+				Label:       a.Spec.TargetLabel,
+				Placeholder: a.Spec.TargetPlaceholder,
+				Get:         func() string { return a.Target },
+				Set:         func(v string) { a.Target = strings.TrimSpace(v) },
+			}),
+			mint.Text(mint.TextOpts{
+				ID:          idPrefix + "target2",
+				Label:       a.Spec.SecondTargetLabel,
+				Placeholder: a.Spec.SecondTargetPlaceholder,
+				Get:         func() string { return a.SecondTarget },
+				Set:         func(v string) { a.SecondTarget = strings.TrimSpace(v) },
+			}),
+		}
+	}
+	if !a.showTarget() {
+		return nil
+	}
+	return []mint.Row{mint.Text(mint.TextOpts{
+		ID:          idPrefix + "target",
+		Label:       a.Spec.TargetLabel,
+		Placeholder: a.Spec.TargetPlaceholder,
+		Get:         func() string { return a.Target },
+		Set:         func(v string) { a.Target = strings.TrimSpace(v) },
+	})}
+}
+
+func (a *ToolApp) targetAndPresetSection(secName string) mint.Section {
+	rows := a.targetRows("")
+	// The preset picker is FeatProfiles: only when the spec actually has some.
 	if len(a.Spec.Profiles) > 0 {
 		opts := make([]string, len(a.Spec.Profiles))
 		for i, p := range a.Spec.Profiles {
@@ -1684,37 +1807,112 @@ func browsePathPopup(c *mint.Ctx, title, startDir, currentVal string, dirsOnly b
 	}
 }
 
-// MainScreen dispatches to the primary screen for the tool's configured Archetype
-// (ConfigScreen, RunnerScreen, ScannerScreen, MonitorScreen, ExplorerScreen, or SuiteScreen).
-func (a *ToolApp) MainScreen() *mint.Screen {
-	switch a.Spec.Archetype {
-	case ArchetypeConfig:
-		return a.ConfigScreen()
-	case ArchetypeScanner:
-		return a.ScannerScreen()
-	case ArchetypeMonitor:
-		return a.MonitorScreen()
-	case ArchetypeExplorer:
-		return a.ExplorerScreen()
-	case ArchetypeSuite:
-		return a.SuiteScreen()
-	default:
-		return a.RunnerScreen()
+// screenWording is the archetype's labels when ArchetypeID is set, and the
+// layout fallbacks otherwise.
+func (a *ToolApp) screenWording() (ArchetypeLabels, bool) {
+	if a.Spec.ArchetypeID == "" {
+		return ArchetypeLabels{}, false
 	}
+	return ArchetypeLabelsFor(a.Spec.ArchetypeID)
 }
 
-// RunnerScreen builds the ArchetypeRunner ("runner") Task & Pipeline screen.
+func (a *ToolApp) titled(fallback string) string {
+	if l, ok := a.screenWording(); ok && l.Title != "" {
+		return a.Spec.Name + " — " + l.Title
+	}
+	return fallback
+}
+
+func (a *ToolApp) actionLabel(fallback string) string {
+	if l, ok := a.screenWording(); ok && l.Verb != "" {
+		return l.Verb + " (" + a.Spec.Name + ")"
+	}
+	return fallback
+}
+
+func (a *ToolApp) inputSectionName(fallback string) string {
+	if l, ok := a.screenWording(); ok && l.Input != "" {
+		return l.Input
+	}
+	return fallback
+}
+
+func (a *ToolApp) outputSectionName(fallback string) string {
+	if l, ok := a.screenWording(); ok && l.Output != "" {
+		return l.Output
+	}
+	return fallback
+}
+
+func (a *ToolApp) homeLabel(fallback string) string {
+	if l, ok := a.screenWording(); ok && l.Home != "" {
+		return l.Home
+	}
+	return fallback
+}
+
+// inlineResults reports whether the main screen keeps a results section on
+// the page: FeatTable, or the scanner / explorer layouts.
+func (a *ToolApp) inlineResults() bool {
+	return a.Spec.TableOutput || a.Spec.Archetype == LayoutScanner || a.Spec.Archetype == LayoutExplorer
+}
+
+// MainScreen dispatches to the primary screen for the tool's configured layout
+// (ConfigScreen, RunnerScreen, ScannerScreen, MonitorScreen, ExplorerScreen, or SuiteScreen).
+// The title comes from the archetype when ArchetypeID is set, and from the
+// layout's generic title otherwise.
+func (a *ToolApp) MainScreen() *mint.Screen {
+	var scr *mint.Screen
+	switch a.Spec.Archetype {
+	case LayoutConfig:
+		scr = a.ConfigScreen()
+	case LayoutScanner:
+		scr = a.ScannerScreen()
+	case LayoutMonitor:
+		scr = a.MonitorScreen()
+	case LayoutExplorer:
+		scr = a.ExplorerScreen()
+	case LayoutSuite:
+		scr = a.SuiteScreen()
+	default:
+		scr = a.RunnerScreen()
+	}
+	scr.Title = a.titled(scr.Title)
+	return scr
+}
+
+// RunnerScreen builds the runner layout (and, with the scanner or explorer
+// layout, those screens too). Results stay on the page when the archetype
+// wants a table or the layout is scanner or explorer. The preset picker
+// appears only when the spec has profiles.
 func (a *ToolApp) RunnerScreen() *mint.Screen {
+	icon := "▸"
+	title := a.Spec.Name
+	inputFallback := "Target & Preset"
+	buttonFallback := "Run " + a.Spec.Name
+	outputFallback := "Captured Output"
+	switch a.Spec.Archetype {
+	case LayoutScanner:
+		icon = "◎"
+		title = a.Spec.Name + " — Scanner"
+		outputFallback = "Discovered Targets & Ports"
+	case LayoutExplorer:
+		icon = "⌕"
+		title = a.Spec.Name + " — Explorer"
+		inputFallback = "Search & Query"
+		buttonFallback = "Run query (" + a.Spec.Name + ")"
+		outputFallback = "Query Results"
+	}
 	s := &mint.Screen{
-		Icon:  "▸",
-		Title: a.Spec.Name,
+		Icon:  icon,
+		Title: a.titled(title),
 		Status: func() []mint.Badge {
 			return a.statusBadges()
 		},
 	}
 	s.Refresh = func(scr *mint.Screen) {
 		var sections []mint.Section
-		sections = append(sections, a.targetAndPresetSection("Target & Preset"))
+		sections = append(sections, a.targetAndPresetSection(a.inputSectionName(inputFallback)))
 		sections = append(sections, a.flagSections()...)
 		if a.Spec.OutputsFile {
 			sections = append(sections, a.outputFileSection())
@@ -1730,7 +1928,7 @@ func (a *ToolApp) RunnerScreen() *mint.Screen {
 					Get:   func() string { return a.CommandPreview() },
 				}),
 				mint.Action(mint.ActionOpts{
-					Label: "Run " + a.Spec.Name,
+					Label: a.actionLabel(buttonFallback),
 					Hint:  "run",
 					OnActivate: func(c *mint.Ctx) {
 						a.executeFromUI(c)
@@ -1738,6 +1936,9 @@ func (a *ToolApp) RunnerScreen() *mint.Screen {
 				}),
 			},
 		})
+		if a.inlineResults() {
+			sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName(outputFallback)))
+		}
 		scr.Sections = sections
 	}
 	s.Refresh(s)
@@ -2050,22 +2251,23 @@ func (a *ToolApp) BuildApp() *mint.App {
 	primaryLabel := "Configure & Run"
 	primaryIcon := "▸"
 	switch a.Spec.Archetype {
-	case ArchetypeConfig:
+	case LayoutConfig:
 		primaryLabel = "State & Configuration"
 		primaryIcon = "⚙"
-	case ArchetypeScanner:
+	case LayoutScanner:
 		primaryLabel = "Target & Live Scanner"
 		primaryIcon = "◎"
-	case ArchetypeMonitor:
+	case LayoutMonitor:
 		primaryLabel = "Live Monitor & Control"
 		primaryIcon = "◧"
-	case ArchetypeExplorer:
+	case LayoutExplorer:
 		primaryLabel = "Search & Query Explorer"
 		primaryIcon = "⌕"
-	case ArchetypeSuite:
+	case LayoutSuite:
 		primaryLabel = "Subcommand Suite"
 		primaryIcon = "❖"
 	}
+	primaryLabel = a.homeLabel(primaryLabel)
 
 	var items []mint.HomeItem
 	if a.Spec.Reorder != nil {

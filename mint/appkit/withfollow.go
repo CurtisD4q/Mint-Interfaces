@@ -24,6 +24,10 @@ const (
 // FollowSpec configures WithFollow.
 type FollowSpec struct {
 	Format string `json:"format,omitempty"` // FollowText (default) or FollowJournalJSON
+	// Flag is a follow switch parsed from the program's own options
+	// ("-f" or "--follow") when the tool is not one Mint already knows.
+	// followArgs passes it unless that option is already on the command.
+	Flag string `json:"flag,omitempty"`
 	// FollowArgs make the tool keep running and print new lines ("-F"
 	// for tail, "-f" for journalctl), unless one of FollowFlags is in use.
 	FollowArgs  []string `json:"follow_args,omitempty"`
@@ -91,6 +95,9 @@ func validateFollow(s *ToolSpec) error {
 			return fmt.Errorf("follow_args and format_args must be options, got %q", a)
 		}
 	}
+	if f.Flag != "" && !strings.HasPrefix(f.Flag, "-") {
+		return fmt.Errorf("flag must be an option, got %q", f.Flag)
+	}
 	return nil
 }
 
@@ -125,6 +132,9 @@ func (a *ToolApp) followArgs(args []string, at int) []string {
 	f := a.Spec.Follow
 	if f == nil {
 		return args
+	}
+	if f.Flag != "" {
+		args, _ = forceFormat(args, at, []string{f.Flag}, []string{f.Flag}, nil)
 	}
 	args, _ = forceFormat(args, at, f.FollowArgs, f.FollowFlags, nil)
 	args, _ = forceFormat(args, at, f.FormatArgs, f.FormatFlags, f.ReadableFlags)

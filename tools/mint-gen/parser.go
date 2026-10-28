@@ -75,11 +75,13 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	name := filepath.Base(strings.TrimSpace(bin))
 	titleName := titleWords(strings.ReplaceAll(name, "-", " "))
 	spec := appkit.ToolSpec{
-		Name:              name,
-		Title:             "◈ " + titleName,
-		Desc:              titleName + " command-line interface",
-		TargetLabel:       "Target / arguments",
-		TargetPlaceholder: "arguments",
+		Name:  name,
+		Title: "◈ " + titleName,
+		Desc:  titleName + " command-line interface",
+		// TargetLabel stays empty until the synopsis or the archetype sets
+		// one. A generic label here would look explicit to ApplyTo, and a
+		// list / watch / generate / control tool would keep a target box
+		// it does not take.
 		// No extension yet: the archetype may give one, and chooseExtension
 		// decides at the end.
 	}
@@ -181,13 +183,10 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	choice := chooseArchetype(name, manText, helpText)
 	def, _ := appkit.LookupArchetype(string(choice.ID))
 	def.ApplyTo(&spec)
-	if spec.Archetype == appkit.ArchetypeSuite && len(spec.Subcommands) == 0 {
+	if spec.Archetype == appkit.LayoutSuite && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
 			spec.Subcommands = subs
 		}
-	}
-	if len(spec.Profiles) == 0 {
-		spec.Profiles = buildDefaultProfiles(flags)
 	}
 	archExt := spec.DefaultExt // the archetype's, if any
 	appkit.ApplySafetyDefaults(&spec)
@@ -206,6 +205,15 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	}
 	if f, ok := appkit.KnownFollowSpec(spec.BinaryName()); ok && spec.Follow == nil {
 		spec.Follow = &f
+	}
+	// Unlisted follow / serve / session tools get their interactive screen
+	// only when the help actually named the flag or the prompt.
+	attachParsedScreens(&spec, manText+"\n"+helpText)
+	if spec.TargetLabel == "" && !spec.HideTarget {
+		spec.TargetLabel = "Target / arguments"
+	}
+	if spec.TargetPlaceholder == "" && !spec.HideTarget {
+		spec.TargetPlaceholder = "arguments"
 	}
 	// Changing a rule order needs the user to review and apply it, and
 	// goes back by itself unless kept, so it is safe to offer.
@@ -1023,21 +1031,6 @@ func capitalizeFirst(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-func buildDefaultProfiles(flags []appkit.FlagSpec) []appkit.ProfileSpec {
-	if len(flags) == 0 {
-		return nil
-	}
-	defaultMap := map[string]string{}
-	for _, f := range flags {
-		if f.Kind == appkit.FlagBool {
-			defaultMap[f.Flag] = "false"
-		}
-	}
-	return []appkit.ProfileSpec{
-		{Name: "Default", Flags: defaultMap},
-	}
 }
 
 var reLiteralValue = regexp.MustCompile(`^=[a-z][a-z0-9-]*$`)

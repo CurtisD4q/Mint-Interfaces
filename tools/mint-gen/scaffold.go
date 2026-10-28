@@ -160,20 +160,20 @@ func main() {
 `
 }
 
-func archetypeIdent(a appkit.Archetype) string {
+func archetypeIdent(a appkit.Layout) string {
 	switch a {
-	case appkit.ArchetypeConfig:
-		return "ArchetypeConfig"
-	case appkit.ArchetypeScanner:
-		return "ArchetypeScanner"
-	case appkit.ArchetypeMonitor:
-		return "ArchetypeMonitor"
-	case appkit.ArchetypeExplorer:
-		return "ArchetypeExplorer"
-	case appkit.ArchetypeSuite:
-		return "ArchetypeSuite"
+	case appkit.LayoutConfig:
+		return "LayoutConfig"
+	case appkit.LayoutScanner:
+		return "LayoutScanner"
+	case appkit.LayoutMonitor:
+		return "LayoutMonitor"
+	case appkit.LayoutExplorer:
+		return "LayoutExplorer"
+	case appkit.LayoutSuite:
+		return "LayoutSuite"
 	default:
-		return "ArchetypeRunner"
+		return "LayoutRunner"
 	}
 }
 
@@ -197,6 +197,21 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)
 	if spec.TargetDefault != "" {
 		fmt.Fprintf(&buf, "\t\tTargetDefault:     %q,\n", spec.TargetDefault)
+	}
+	if spec.SecondTargetLabel != "" {
+		fmt.Fprintf(&buf, "\t\tSecondTargetLabel: %q,\n", spec.SecondTargetLabel)
+	}
+	if spec.SecondTargetPlaceholder != "" {
+		fmt.Fprintf(&buf, "\t\tSecondTargetPlaceholder: %q,\n", spec.SecondTargetPlaceholder)
+	}
+	if spec.WantTarget {
+		buf.WriteString("\t\tWantTarget:        true,\n")
+	}
+	if spec.HideTarget {
+		buf.WriteString("\t\tHideTarget:        true,\n")
+	}
+	if spec.TwoInputs {
+		buf.WriteString("\t\tTwoInputs:         true,\n")
 	}
 	if spec.OutputsFile {
 		buf.WriteString("\t\tOutputsFile:       true,\n")
@@ -296,6 +311,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	}
 	if f := spec.Follow; f != nil {
 		fmt.Fprintf(&buf, "\t\tFollow: &appkit.FollowSpec{Format: %q", f.Format)
+		if f.Flag != "" {
+			fmt.Fprintf(&buf, ", Flag: %q", f.Flag)
+		}
 		for _, x := range []struct {
 			name string
 			v    []string
@@ -344,7 +362,11 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		buf.WriteString("},\n")
 	}
 	if tr := spec.Transcript; tr != nil {
-		fmt.Fprintf(&buf, "\t\tTranscript: &appkit.TranscriptSpec{Adapter: %q},\n", tr.Adapter)
+		fmt.Fprintf(&buf, "\t\tTranscript: &appkit.TranscriptSpec{Adapter: %q", tr.Adapter)
+		if len(tr.QuitWords) > 0 {
+			fmt.Fprintf(&buf, ", QuitWords: %s", goStrings(tr.QuitWords))
+		}
+		buf.WriteString("},\n")
 	}
 	if spec.OperandSeparator {
 		buf.WriteString("\t\tOperandSeparator:  true,\n")

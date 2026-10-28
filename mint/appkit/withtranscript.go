@@ -27,6 +27,9 @@ type TranscriptSpec struct {
 	// transcript.Adapters ("psql", "sqlite3", "gdb", "redis-cli", "ftp",
 	// or "lines" for any other that reads one command per line).
 	Adapter string `json:"adapter"`
+	// QuitWords end the session when typed ("quit", "exit"). They are
+	// sent to the program and then the session is closed.
+	QuitWords []string `json:"quit_words,omitempty"`
 }
 
 var transcriptDefaults = map[string]string{
@@ -255,7 +258,11 @@ func (t *transcriptSource) rebuild() {
 	}
 	notesUpTo(len(entries))
 	if len(out) == 0 {
-		out = append(out, mint.StyledLine{Segs: []mint.Seg{{Text: "i types a command; s runs a file of commands.", Role: mint.RoleMuted}}})
+		hint := "i types a command; s runs a file of commands."
+		if t.a.Spec.Transcript != nil && len(t.a.Spec.Transcript.QuitWords) > 0 {
+			hint += " " + strings.Join(t.a.Spec.Transcript.QuitWords, " or ") + " ends the session."
+		}
+		out = append(out, mint.StyledLine{Segs: []mint.Seg{{Text: hint, Role: mint.RoleMuted}}})
 		if t.sess.Safe() {
 			out = append(out, mint.StyledLine{Segs: []mint.Seg{{Text: "Safe mode: commands that reach outside " + t.a.Spec.Name + " are refused.", Role: mint.RoleMuted}}})
 		}
@@ -263,11 +270,37 @@ func (t *transcriptSource) rebuild() {
 	t.lines = out
 }
 
+// isQuit reports whether cmd is one of the spec's quit words.
+func (t *transcriptSource) isQuit(cmd string) bool {
+	if t.a.Spec.Transcript == nil {
+		return false
+	}
+	q := strings.ToLower(strings.TrimSpace(cmd))
+	for _, w := range t.a.Spec.Transcript.QuitWords {
+		if q == strings.ToLower(strings.TrimSpace(w)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Submit sends a command typed by the user. A command the program would
 // answer from its input, or (in safe mode) one that would end the session,
-// isn't sent.
+// isn't sent. A quit word is sent, and then the session is closed.
 func (t *transcriptSource) Submit(cmd string) error {
 	if strings.TrimSpace(cmd) == "" {
+		return nil
+	}
+	if t.isQuit(cmd) {
+		if err := t.sess.Send(cmd); err != nil {
+			if errors.Is(err, transcript.ErrBusy) {
+				return errors.New("the last command is still running; wait, or cancel it (c)")
+			}
+			return err
+		}
+		t.remember(cmd)
+		t.sess.Close()
+		t.rebuild()
 		return nil
 	}
 	for _, l := range strings.Split(cmd, "\n") {
