@@ -315,14 +315,16 @@ type SecretOption struct {
 
 // SafetyReport summarises how an interface for the tool behaves: whether it
 // can run without being asked, how it confirms, which options are secrets
-// and how each is passed, and which options look destructive.
+// and how each is passed, which options look destructive, and which row
+// actions are attached.
 type SafetyReport struct {
 	Running     string         // when the tool runs, and how it is confirmed
 	Secrets     []SecretOption // FlagSecret options, in spec order
 	Destructive []FlagSpec     // options that delete, overwrite or force
 	Data        string         // DataNormal, DataSensitive or DataSecret
 	DataReason  string
-	Revealing   []FlagSpec // options that make the tool print secrets
+	Revealing   []FlagSpec      // options that make the tool print secrets
+	RowActions  []RowActionSpec // per-row actions copied from the spec
 }
 
 // SafetyReport describes s after ApplySafetyDefaults.
@@ -356,5 +358,8 @@ func (s ToolSpec) SafetyReport() SafetyReport {
 		}
 	}
 	r.Data, r.DataReason = s.Data, s.DataReason
+	if len(s.RowActions) > 0 {
+		r.RowActions = append([]RowActionSpec(nil), s.RowActions...)
+	}
 	return r
 }

@@ -376,6 +376,14 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("},\n")
 	}
+	if len(spec.RowActions) > 0 {
+		buf.WriteString("\t\tRowActions: []appkit.RowActionSpec{\n")
+		for _, a := range spec.RowActions {
+			fmt.Fprintf(&buf, "\t\t\t{Label: %q, Hint: %q, Subcommand: %s, Column: %d, Confirm: %t},\n",
+				a.Label, a.Hint, goStrings(a.Subcommand), a.Column, a.Confirm)
+		}
+		buf.WriteString("\t\t},\n")
+	}
 	if len(spec.Subcommands) > 0 {
 		buf.WriteString("\t\tSubcommands: []appkit.SubcommandSpec{\n")
 		for _, sub := range spec.Subcommands {

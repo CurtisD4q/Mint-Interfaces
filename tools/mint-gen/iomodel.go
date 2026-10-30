@@ -264,6 +264,9 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 			p("            the app switches the extension to match the format chosen in %s", strings.Join(fmts, ", "))
 		}
 	}
+	if line := rowActionsLine(spec.RowActions); line != "" {
+		p("  Actions:  %s", line)
+	}
 }
 
 // explainOptions lists every option's role and the evidence for it.

@@ -40,6 +40,9 @@ func printSafetyReport(w io.Writer, spec appkit.ToolSpec) {
 			fmt.Fprintf(w, "    %-20s %s\n", f.Flag, short(stripFlag(f.Label, f.Flag), 60))
 		}
 	}
+	if line := rowActionsLine(r.RowActions); line != "" {
+		fmt.Fprintf(w, "  Row actions: %s\n", line)
+	}
 }
 
 // stripFlag drops the " (-x)" suffix mint-gen adds to labels.
@@ -94,7 +97,26 @@ func safetyRows(spec appkit.ToolSpec) []mint.Row {
 		rows = append(rows, mint.Table(mint.TableOpts{ID: "safety-destructive",
 			Headers: []string{"DESTRUCTIVE", "WHAT IT DOES"}, Rows: tbl}))
 	}
+	if line := rowActionsLine(r.RowActions); line != "" {
+		rows = append(rows, mint.Label(mint.StyleBody, "Row actions: "+line))
+	}
 	return rows
+}
+
+// rowActionsLine lists attached row actions, marking the ones that ask
+// before they run.
+func rowActionsLine(actions []appkit.RowActionSpec) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	parts := make([]string, len(actions))
+	for i, a := range actions {
+		parts[i] = a.Label
+		if a.Confirm {
+			parts[i] += " (confirm)"
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // routeText is the route, naming the variable and where it was found.
