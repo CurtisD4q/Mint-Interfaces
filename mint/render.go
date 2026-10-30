@@ -12,7 +12,12 @@ import (
 // C is the active palette. It starts as the theme selected in
 // ~/.config/mint-interfaces/theme.conf (the default purple if none),
 // quantised to the terminal's probed colour depth when necessary.
-var C = rt.quantizePalette(loadPalette())
+//
+// The quantiser is not used here: at package initialisation rt.profile has
+// not been filled in yet, so quantising would read a colour depth of 0 and
+// strip the colour from every role. ScreenEnter re-quantises once the
+// profile is known.
+var C = loadPalette()
 
 // loadPalette picks the theme from ~/.config/mint-interfaces/theme.conf,
 // then applies any colours given in the MINT_PALETTE environment variable

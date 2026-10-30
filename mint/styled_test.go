@@ -60,3 +60,35 @@ func TestEveryRoleHasAStyle(t *testing.T) {
 		}
 	}
 }
+
+// The palette is built at package initialisation, before rt.profile is
+// known. It must not be quantised against that empty profile: a colour
+// depth of 0 there would empty Text and Muted, and ordinary text would be
+// drawn with no styling at all.
+func TestPaletteIsColouredBeforeTheScreenStarts(t *testing.T) {
+	if roleStyle(RoleText) == "" {
+		t.Error("RoleText has no style before ScreenEnter: C was quantised too early")
+	}
+	if roleStyle(RoleMuted) == "" {
+		t.Error("RoleMuted has no style before ScreenEnter: C was quantised too early")
+	}
+}
+
+// A monochrome terminal still has to give every role a style: bold,
+// reverse or nothing, but never the empty string by accident.
+func TestMonoPaletteStylesEveryRole(t *testing.T) {
+	saved := C
+	t.Cleanup(func() { C = saved })
+	C = monoPalette()
+	for r := RoleText; r <= RoleMark; r++ {
+		if r == RoleText || r == RoleMuted {
+			continue // mono: plain text is unstyled on purpose
+		}
+		if roleStyle(r) == "" {
+			t.Errorf("role %d has no style in the mono palette", r)
+		}
+	}
+	if C.Complete() {
+		t.Error("monoPalette claims to be complete: loadPalette would never replace it")
+	}
+}
