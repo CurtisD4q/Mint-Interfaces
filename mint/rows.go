@@ -80,6 +80,19 @@ type Row struct {
 	tableGet    func() [][]string
 	tableSelect func(*Ctx, int, []string)
 	separator   string
+
+	// viewer keeps a table's columns at their natural width and scrolls the
+	// whole table sideways, instead of shrinking the widest column to fit.
+	viewer     bool
+	hscroll    int         // columns scrolled off the left, in cells
+	scrollRows int         // rows scrolled off the top, when the body is taller
+	colWidths  map[int]int // column -> width, when the reader has resized it
+	// pin marks the header and its rule so the screen holds them in place
+	// while the body scrolls.
+	pin bool
+	// table is the table row a tablerow came from, so ← → can scroll it and
+	// H L resize its columns. Nil for everything else.
+	table *Row
 }
 
 func (r Row) normalized() Row {

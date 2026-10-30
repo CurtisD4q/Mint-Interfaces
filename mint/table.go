@@ -20,6 +20,12 @@ type TableOpts struct {
 	MaxHeight int    // maximum rows shown inline (0 = show all)
 	Empty     string // shown when there are no data rows (default "No entries")
 	Separator string // column separator (default "  ")
+
+	// Viewer keeps every column at its natural width and lets the whole
+	// table scroll sideways with ← →, instead of shrinking the widest column
+	// to fit the screen. The header stays visible while the body scrolls.
+	// Columns can be resized with H and L.
+	Viewer bool
 }
 
 // Table formats multi-column data into aligned, selectable Mint rows with a
@@ -44,6 +50,7 @@ func Table(o TableOpts) Row {
 		max:         o.MaxHeight,
 		placeholder: empty,
 		separator:   sep,
+		viewer:      o.Viewer,
 	}
 }
 
@@ -72,16 +79,28 @@ func expandTable(r Row, width int) []Row {
 		sep = "  "
 	}
 	avail := max(16, width-8)
-	colW := computeColumnWidths(headers, rows, numCols, avail, sep)
+	var colW []int
+	if r.viewer {
+		// Natural widths, resized where the reader asked, then scrolled.
+		colW = naturalColumnWidths(headers, rows, numCols, r.colWidths)
+	} else {
+		colW = computeColumnWidths(headers, rows, numCols, avail, sep)
+	}
+	// The cells a row may show: the table scrolls inside this, so a row is
+	// never wider than the screen.
+	window := max(16, width-8)
 
 	var out []Row
 	if len(headers) > 0 {
-		hdrLine := formatTableRow(headers, colW, sep)
-		ruleLine := formatTableRule(colW, sep)
+		hdrLine := tableWindow(formatTableRow(headers, colW, sep), r.hscroll, window)
+		ruleLine := tableWindow(formatTableRule(colW, sep), r.hscroll, window)
 		out = append(out,
-			Row{kind: "row", wtype: "label", style: StyleHeading, label: hdrLine, indent: 2},
-			Note("  " + ruleLine),
+			Row{kind: "row", wtype: "label", style: StyleHeading, label: hdrLine, indent: 2, pin: r.viewer},
+			Note("  "+ruleLine),
 		)
+		if r.viewer {
+			out[len(out)-1].pin = true
+		}
 	}
 	if len(rows) == 0 {
 		out = append(out, Note("  "+r.placeholder))
@@ -96,7 +115,7 @@ func expandTable(r Row, width int) []Row {
 	hdrCopy := append([]string(nil), headers...)
 	for i := 0; i < limit; i++ {
 		row := rows[i]
-		line := formatTableRow(row, colW, sep)
+		line := tableWindow(formatTableRow(row, colW, sep), r.hscroll, window)
 		idx := i
 		rowCopy := append([]string(nil), row...)
 		var act func(*Ctx)
@@ -121,6 +140,9 @@ func expandTable(r Row, width int) []Row {
 			wtype:      "tablerow",
 			label:      line,
 			onActivate: act,
+			// the row remembers the table it came from, so ← → can scroll
+			// it and H L resize its columns.
+			table: &r,
 		})
 	}
 
@@ -519,4 +541,94 @@ func looksLikeProseFooter(s string) bool {
 	return strings.HasPrefix(lower, "nmap done:") ||
 		strings.HasPrefix(lower, "service detection performed") ||
 		strings.HasPrefix(lower, "total ")
+}
+
+// naturalColumnWidths sizes every column to its widest cell, then applies
+// any width the reader has set. Nothing is shrunk to fit: the table scrolls
+// instead.
+func naturalColumnWidths(headers []string, rows [][]string, numCols int, set map[int]int) []int {
+	colW := make([]int, numCols)
+	for c := 0; c < numCols; c++ {
+		colW[c] = 1
+		if c < len(headers) {
+			if w := util.VLen(CleanLine(headers[c])); w > colW[c] {
+				colW[c] = w
+			}
+		}
+		for _, r := range rows {
+			if c < len(r) {
+				if w := util.VLen(CleanLine(r[c])); w > colW[c] {
+					colW[c] = w
+				}
+			}
+		}
+		colW[c] = min(colW[c], maxColumnWidth)
+	}
+	for c, w := range set {
+		if c >= 0 && c < len(colW) && w > 0 {
+			colW[c] = min(w, maxColumnWidth)
+		}
+	}
+	return colW
+}
+
+// maxColumnWidth is the widest a viewer column may be, so one long
+// description cannot make the table unreadable.
+const maxColumnWidth = 120
+
+// tableWindow returns the part of a formatted line that is visible after
+// scrolling off skip cells, cut to at most width cells.
+func tableWindow(line string, skip, width int) string {
+	if skip <= 0 {
+		return Truncate(line, width)
+	}
+	rest := line
+	for skip > 0 && rest != "" {
+		_, tail := wrapHead(rest, 1)
+		if tail == rest {
+			break
+		}
+		rest = tail
+		skip--
+	}
+	return Truncate(rest, width)
+}
+
+// tableScrollStep is how many cells ← → move a viewer table.
+const tableScrollStep = 4
+
+// scrollTable moves t sideways by delta cells, or vertically by rows.
+func scrollTable(t *Row, delta, rows int) {
+	if delta != 0 {
+		t.hscroll = max(0, t.hscroll+delta)
+	}
+	if rows != 0 {
+		t.scrollRows = max(0, t.scrollRows+rows)
+	}
+}
+
+// resizeTableColumn widens (d > 0) or narrows the column the reader is
+// looking at: the first column whose right edge is past hscroll.
+func resizeTableColumn(t *Row, hscroll, d int) {
+	if t.colWidths == nil {
+		t.colWidths = map[int]int{}
+	}
+	col := 0
+	seen := 0
+	for c := 0; c < len(t.headers); c++ {
+		w := t.colWidths[c]
+		if w <= 0 {
+			w = util.VLen(t.headers[c])
+		}
+		if seen+w > hscroll {
+			col = c
+			break
+		}
+		seen += w + util.VLen(t.separator)
+	}
+	w := t.colWidths[col]
+	if w <= 0 {
+		w = util.VLen(t.headers[col])
+	}
+	t.colWidths[col] = max(4, min(w+d*2, maxColumnWidth))
 }
