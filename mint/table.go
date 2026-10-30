@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 )
@@ -267,6 +268,12 @@ func ParseColumns(lines []string) (headers []string, rows [][]string) {
 			continue
 		}
 		cleaned = append(cleaned, c)
+	}
+
+	// 0. tree(1) output: a single indented column where │, ├── and └── are
+	// the tree's own drawing, not column separators.
+	if isTreeOutput(cleaned) {
+		return nil, treeRows(cleaned)
 	}
 
 	// 1. Check for pipe or Unicode vertical-bar tables (| or │).
@@ -631,4 +638,69 @@ func resizeTableColumn(t *Row, hscroll, d int) {
 		w = util.VLen(t.headers[col])
 	}
 	t.colWidths[col] = max(4, min(w+d*2, maxColumnWidth))
+}
+
+// treeGlyphs are the characters tree(1) draws its structure with. tree's
+// default output has no colour; when it is coloured the escape sequences are
+// already gone by the time these lines arrive (CleanLine).
+const treeGlyphs = "│├└─┌┐┬┴┼ "
+
+// isTreeOutput reports whether the lines look like tree(1): every line either
+// begins with the tree's drawing characters or is a plain name, and at least
+// one line is a ├──, └── or │ branch. A pipe table has a header row of plain
+// words and no branch glyphs, so it does not match.
+func isTreeOutput(lines []string) bool {
+	branches := 0
+	named := 0
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if strings.ContainsAny(l, "├└") {
+			branches++
+		}
+		if strings.ContainsAny(l, "│├└─") {
+			// The run before the first name must be drawing characters and
+			// spaces only: a column separator with two spaces after it means
+			// an aligned table, not a tree.
+			if gap := treeIndent(l); gap > 0 && strings.Contains(l[gap:], "  ") {
+				return false
+			}
+			continue
+		}
+		if strings.ContainsAny(l, "|┌┐┬┴┼") {
+			return false // a box or pipe table
+		}
+		named++
+	}
+	// At least two branch lines, or one branch and nothing table-like.
+	return branches >= 2 || (branches >= 1 && named > 0 && branches+named > 1)
+}
+
+// treeRows turns tree(1) output into one row per line, holding the line as it
+// is. The indentation and the branch glyphs are the information, so they are
+// kept, not split into columns.
+func treeRows(lines []string) [][]string {
+	var rows [][]string
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		rows = append(rows, []string{strings.TrimRight(l, " ")})
+	}
+	return rows
+}
+
+// treeIndent returns the number of bytes of drawing characters and spaces at
+// the start of a tree line: everything up to the name.
+func treeIndent(l string) int {
+	i := 0
+	for i < len(l) {
+		r, size := utf8.DecodeRuneInString(l[i:])
+		if !strings.ContainsRune(treeGlyphs, r) {
+			break
+		}
+		i += size
+	}
+	return i
 }
