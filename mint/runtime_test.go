@@ -187,3 +187,42 @@ func TestASCIIFallbackFollowsTheLocale(t *testing.T) {
 		}
 	}
 }
+
+// A glyph repeated to fill a span must fill columns, not count cells: in a
+// CJK locale the frame edge is two wide and half as many are needed.
+func TestRepeatToFillsColumns(t *testing.T) {
+	wide := termProfile{AmbiguousWide: true}
+	narrow := termProfile{}
+	for _, tc := range []struct {
+		p     termProfile
+		glyph string
+		n     int
+		want  string
+	}{
+		{narrow, "─", 8, "────────"},
+		{wide, "─", 8, "────"},
+		{wide, "━", 13, "━━━━━━"},
+		{narrow, " ", 5, "     "},
+		{wide, " ", 5, "     "}, // spaces are never ambiguous
+		{narrow, "─", 0, ""},
+		{wide, "─", 1, ""}, // no room for even one wide glyph
+	} {
+		if got := tc.p.repeatTo(tc.glyph, tc.n); got != tc.want {
+			t.Errorf("repeatTo(%q, %d) with AmbiguousWide=%v = %q, want %q",
+				tc.glyph, tc.n, tc.p.AmbiguousWide, got, tc.want)
+		}
+	}
+}
+
+// The top border must not overrun the frame in either locale.
+func TestFrameBorderFits(t *testing.T) {
+	for _, wide := range []bool{false, true} {
+		rt.profile.AmbiguousWide = wide
+		const w = 40
+		border := "╭" + rt.profile.repeatTo("─", w-2) + "╮"
+		if got := VLen(border); got > w {
+			t.Errorf("AmbiguousWide=%v: border is %d cells, frame is %d", wide, got, w)
+		}
+	}
+	rt.profile.AmbiguousWide = false
+}
