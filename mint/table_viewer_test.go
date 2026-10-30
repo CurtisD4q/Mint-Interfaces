@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -205,6 +206,168 @@ func TestTableViewerResizeWidensTheDrawnRow(t *testing.T) {
 	if !strings.HasPrefix(after, "1           ") {
 		t.Errorf("column 0 should be padded to 12 cells, got %q", after)
 	}
+}
+
+// A tall viewer table scrolled well past its first rows still draws the
+// header and the rule above the body that is left on screen. Rows that are
+// not pinned stay on the line scroll has always given them.
+func TestViewerHeaderStaysWhileTheBodyScrolls(t *testing.T) {
+	const (
+		contentTop = 4
+		avail      = 8
+		scroll     = 8
+	)
+	items := tallTable(true)
+	lines := layoutContent(items, scroll, contentTop, avail)
+	if len(lines) < 3 {
+		t.Fatalf("drawn lines: %d", len(lines))
+	}
+	header, rule := items[lines[0].index], items[lines[1].index]
+	if !header.pin || header.style != StyleHeading || !strings.Contains(header.label, "ID") {
+		t.Fatalf("first drawn line is not the pinned header: %q pin=%v", header.label, header.pin)
+	}
+	if !rule.pin || rule.style == StyleHeading || !strings.Contains(rule.label, "─") {
+		t.Fatalf("second drawn line is not the pinned rule: %q pin=%v", rule.label, rule.pin)
+	}
+	if lines[0].row != contentTop || lines[1].row != contentTop+1 || lines[1].row >= lines[2].row {
+		t.Fatalf("header and rule are not above the body: %+v", lines[:3])
+	}
+	var drawn strings.Builder
+	for _, ln := range lines[2:] {
+		it := items[ln.index]
+		if it.pin {
+			t.Fatalf("a pinned row was drawn among the body: %q", it.label)
+		}
+		if ln.row != ln.index-scroll+contentTop {
+			t.Fatalf("non-pin row %d drawn on line %d, want %d (%q)",
+				ln.index, ln.row, ln.index-scroll+contentTop, it.label)
+		}
+		drawn.WriteString(it.label)
+		drawn.WriteByte('\n')
+	}
+	body := drawn.String()
+	if strings.Contains(body, "id-00") || !strings.Contains(body, "id-") {
+		t.Fatalf("visible body should be past the first rows:\n%s", body)
+	}
+	if !strings.Contains(body, "after the table") {
+		t.Fatalf("the row after the table was moved:\n%s", body)
+	}
+
+	// Nothing is stuck once the table itself has left the viewport.
+	away := layoutContent(items, len(items)-1, contentTop, avail)
+	if len(away) != 1 || items[away[0].index].label != "after the table" {
+		got := make([]string, len(away))
+		for i, ln := range away {
+			got[i] = items[ln.index].label
+		}
+		t.Fatalf("header stuck after the table scrolled away: %q", got)
+	}
+
+	// The same scroll with the viewer off, and a screen with no pins, keep
+	// every row on the line it had before pins existed. At scroll 0 the
+	// viewer header is still on its own line, so it matches too.
+	for _, sc := range []int{0, 1, scroll} {
+		assertUnpinnedLayout(t, tallTable(false), sc, contentTop, avail)
+	}
+	assertUnpinnedLayout(t, tallTable(true), 0, contentTop, avail)
+	var notes []Row
+	for i := 0; i < 30; i++ {
+		notes = append(notes, Note(fmt.Sprintf("note %d", i)))
+	}
+	st := &uiState{collapsed: map[string]bool{}}
+	plain := st.flatten([]Section{{Name: "Log", Rows: notes}}, 80, 0)
+	for _, sc := range []int{0, 3, 12} {
+		assertUnpinnedLayout(t, plain, sc, contentTop, avail)
+	}
+}
+
+func tallTable(viewer bool) []Row {
+	rows := make([][]string, 12)
+	for i := range rows {
+		rows[i] = []string{fmt.Sprintf("id-%02d", i), "name", "detail"}
+	}
+	tv := Table(TableOpts{
+		Headers: []string{"ID", "NAME", "DETAIL"},
+		Rows:    rows,
+		Viewer:  viewer,
+	})
+	st := &uiState{collapsed: map[string]bool{}}
+	return st.flatten([]Section{{
+		Name: "Processes",
+		Rows: []Row{tv, Note("after the table")},
+	}}, 100, 0)
+}
+
+// assertUnpinnedLayout checks that every item still lands on the line the
+// screen used before pinned rows: index - scroll + contentTop.
+func assertUnpinnedLayout(t *testing.T, items []Row, scroll, top, avail int) {
+	t.Helper()
+	lines := layoutContent(items, scroll, top, avail)
+	bottom := top + avail - 1
+	var want []contentLine
+	for i := range items {
+		r := i - scroll + top
+		if r >= top && r <= bottom {
+			want = append(want, contentLine{index: i, row: r})
+		}
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("scroll %d: got %d lines, want %d\n got %+v\nwant %+v", scroll, len(lines), len(want), lines, want)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("scroll %d line %d: got %+v, want %+v", scroll, i, lines[i], want[i])
+		}
+	}
+}
+
+// The footer names ←→ and H/L only while the focused row is a viewer table.
+func TestViewerFooterHints(t *testing.T) {
+	saved := ScreenHints
+	t.Cleanup(func() { ScreenHints = saved })
+	base := " ↑↓ move   ←→/Space change   b home   q quit "
+	ScreenHints = base
+	custom := " b back "
+	focused := viewerRow(t, true)
+	plain := viewerRow(t, false)
+
+	got := footerHints(false, "", focused)
+	if got != strings.TrimRight(base, " ")+"   ←→ scroll sideways   H/L narrow or widen " {
+		t.Fatalf("viewer hints: %q", got)
+	}
+	if !strings.Contains(got, "←→ scroll sideways") || !strings.Contains(got, "H/L narrow or widen") {
+		t.Fatalf("missing viewer keys: %q", got)
+	}
+	if footerHints(false, "", plain) != base {
+		t.Fatalf("non-viewer hints changed: %q", footerHints(false, "", plain))
+	}
+	if footerHints(false, "", nil) != base {
+		t.Fatalf("no row changed hints: %q", footerHints(false, "", nil))
+	}
+	if footerHints(false, custom, plain) != custom {
+		t.Fatalf("custom hints changed for a fitted table: %q", footerHints(false, custom, plain))
+	}
+	with := footerHints(false, custom, focused)
+	if !strings.HasPrefix(with, strings.TrimRight(custom, " ")) || !strings.Contains(with, "H/L narrow or widen") {
+		t.Fatalf("custom viewer hints: %q", with)
+	}
+	if footerHints(true, "", focused) != EditHints {
+		t.Fatalf("editing shows %q", footerHints(true, "", focused))
+	}
+}
+
+func viewerRow(t *testing.T, viewer bool) *Row {
+	t.Helper()
+	tv := wideTable()
+	tv.viewer = viewer
+	rows := expandTable(tv, 80)
+	for i := range rows {
+		if rows[i].wtype == "tablerow" {
+			return &rows[i]
+		}
+	}
+	t.Fatal("no table row")
+	return nil
 }
 
 // tree(1) output is one indented column: its │, ├── and └── are the tree's

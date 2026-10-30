@@ -134,6 +134,32 @@ func footerSig(status []Badge) string {
 	return b.String()
 }
 
+// footerHints is the key line the footer draws. While a text field is being
+// edited, that line replaces everything else. Otherwise a screen's own hints
+// win, and a focused viewer table adds ←→ (scroll sideways) and H/L (narrow
+// or widen the column). Any other row adds nothing.
+func footerHints(editing bool, custom string, focused *Row) string {
+	if editing {
+		return EditHints
+	}
+	hints := ScreenHints
+	if custom != "" {
+		hints = custom
+	}
+	if focused == nil || focused.table == nil || !focused.table.viewer {
+		return hints
+	}
+	const extra = "←→ scroll sideways   H/L narrow or widen"
+	hints = strings.TrimRight(hints, " ")
+	if hints == "" {
+		return " " + extra + " "
+	}
+	if !strings.HasPrefix(hints, " ") {
+		hints = " " + hints
+	}
+	return hints + "   " + extra + " "
+}
+
 // footer draws the key hints on the right and, on the left, a toast if one
 // is showing, otherwise the status badges. With neither, it is exactly the
 // original footer.

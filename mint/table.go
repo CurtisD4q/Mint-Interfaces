@@ -174,6 +174,20 @@ func expandTable(r Row, width int) []Row {
 	return out
 }
 
+// TableLines returns the lines row draws at width. hscroll moves a viewer
+// table sideways, in cells; a table fitted to the width ignores it.
+func TableLines(row Row, width, hscroll int) []string {
+	if row.viewer {
+		row.hscroll = hscroll
+	}
+	expanded := expandTable(row, width)
+	lines := make([]string, len(expanded))
+	for i, r := range expanded {
+		lines[i] = r.label
+	}
+	return lines
+}
+
 func computeColumnWidths(headers []string, rows [][]string, numCols, avail int, sep string) []int {
 	if numCols <= 0 {
 		return nil
