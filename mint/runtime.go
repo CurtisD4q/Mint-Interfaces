@@ -467,20 +467,29 @@ type level1Runtime struct {
 	baseRuntime
 }
 
+// monoPalette is the palette for a terminal with no colour. Emphasis that
+// would have been colour becomes bold or reverse. Text and Muted stay empty
+// on purpose: they are the roles such a terminal shows plainly, and empty is
+// how a role is left unstyled. Complete() is false for it by design, so
+// loadPalette's fallback never mistakes it for a loaded theme.
+func monoPalette() theme.Palette {
+	return theme.Palette{
+		Accent: "",
+		Bright: "\x1b[1m",
+		Text:   "",
+		Muted:  "",
+		On:     "\x1b[1m",
+		Amber:  "\x1b[1m",
+		SelBg:  "\x1b[7m",
+		Bold:   "\x1b[1m",
+		Dim:    "",
+		Err:    "\x1b[1m",
+	}
+}
+
 func (l1 *level1Runtime) quantizePalette(p theme.Palette) theme.Palette {
 	if l1.profile.ColorDepth == 0 {
-		return theme.Palette{
-			Accent: "",
-			Bright: "\x1b[1m",
-			Text:   "",
-			Muted:  "",
-			On:     "\x1b[1m",
-			Amber:  "\x1b[1m",
-			SelBg:  "\x1b[7m",
-			Bold:   "\x1b[1m",
-			Dim:    "",
-			Err:    "\x1b[1m",
-		}
+		return monoPalette()
 	}
 	if l1.profile.ColorDepth > 16 {
 		return p
