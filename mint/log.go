@@ -27,6 +27,11 @@ var ansiEsc = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:
 // tabs to 8-column stops, and resolves backspace overstrikes (\b / 0x08, as
 // produced by man pages like N\bNA\bAM\bME\bE or _\bX).
 //
+// A non-breaking space (U+00A0) becomes an ordinary space. Programs use it
+// as padding that must not break - tree(1) indents with it - but Mint
+// measures and splits text by cells and spaces, so the two must be the same
+// character downstream. It is a plain blank either way on screen.
+//
 // Text from a program is untrusted, so CleanLine also:
 //   - drops C1 control characters (U+0080–U+009F). Some terminals treat
 //     U+009B as an escape sequence introducer, the same as ESC [;
@@ -94,6 +99,11 @@ func cleanLine(raw string, visible bool) string {
 				out = append(out, ' ')
 			}
 			col += spaces
+		case r == '\u00a0':
+			// Padding that must not break, which Mint cannot tell from a
+			// space once it is measuring cells.
+			out = append(out, ' ')
+			col++
 		case r == '\r' || r == '\n':
 			// dropped
 		case r < 32 || r == 0x7f:
