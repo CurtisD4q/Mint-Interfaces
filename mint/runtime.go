@@ -209,9 +209,6 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 	if term == "dumb" || term == "vt100" {
 		p.ASCIIOnly = true
 	}
-	// A Japanese, Chinese or Korean locale draws East Asian Ambiguous runes
-	// two columns wide, which is what the frame and the symbols are.
-	util.SetWidth(util.Width{AmbiguousWide: cjkLocale(os.Getenv("LC_ALL"), os.Getenv("LC_CTYPE"), os.Getenv("LANG"))})
 
 	// Determine baseline colour depth from terminfo + environment.
 	depth := 16
@@ -396,24 +393,6 @@ func utf8Locale(vars ...string) bool {
 		}
 		u := strings.ToUpper(v)
 		return strings.Contains(u, "UTF-8") || strings.Contains(u, "UTF8")
-	}
-	return false
-}
-
-// cjkLocale reports whether the locale is one that draws East Asian
-// Ambiguous runes two columns wide. It reads LC_ALL, then LC_CTYPE, then
-// LANG, as utf8Locale does.
-func cjkLocale(vars ...string) bool {
-	for _, v := range vars {
-		if v = strings.TrimSpace(v); v == "" {
-			continue
-		}
-		for _, tag := range []string{"JA", "ZH", "KO"} {
-			if strings.HasPrefix(strings.ToUpper(v), tag) {
-				return true
-			}
-		}
-		return false
 	}
 	return false
 }
