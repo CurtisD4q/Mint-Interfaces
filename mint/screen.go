@@ -785,6 +785,9 @@ func (screen *Screen) run() screenResult {
 			if dir == 0 {
 				startEdit(it, idx)
 			}
+		case it.wtype == "tablerow" && it.table != nil && it.table.viewer && dir != 0:
+			// A viewer scrolls sideways: ← → move through the columns.
+			scrollTable(it.table, dir*tableScrollStep, 0)
 		case dir == 0 && it.onActivate != nil:
 			protect(func() { it.onActivate(ctx) })
 		}
@@ -1134,6 +1137,16 @@ func (screen *Screen) run() screenResult {
 		case k.Name == "left":
 			change(-1)
 			dirty = true
+		case k.Name == "H" || k.Name == "L":
+			// Resize the table column under the selection, if there is one.
+			if it, _ := current(); it != nil && it.table != nil && it.table.viewer {
+				d := 1
+				if k.Name == "H" {
+					d = -1
+				}
+				resizeTableColumn(it.table, it.table.hscroll, d)
+				dirty = true
+			}
 		case k.Name == " " || k.Name == "\r" || k.Name == "\n":
 			change(0)
 			dirty = true
