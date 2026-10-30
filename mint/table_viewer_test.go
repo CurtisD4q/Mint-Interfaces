@@ -206,3 +206,57 @@ func TestTableViewerResizeWidensTheDrawnRow(t *testing.T) {
 		t.Errorf("column 0 should be padded to 12 cells, got %q", after)
 	}
 }
+
+// tree(1) output is one indented column: its │, ├── and └── are the tree's
+// drawing, not column separators, so it must not be split into columns and
+// lose its left edge.
+func TestParseTreeOutput(t *testing.T) {
+	out := `.├── bot-home
+│   ├── file1
+│   └── file2
+├── docs
+│   └── a.md
+└── README`
+	headers, rows := ParseTable(strings.Split(out, "\n"))
+	if len(headers) != 0 {
+		t.Errorf("tree output should have no header row, got %q", headers)
+	}
+	if len(rows) != 6 {
+		t.Fatalf("got %d rows, want 6: %v", len(rows), rows)
+	}
+	for i, want := range []string{
+		".├── bot-home",
+		"│   ├── file1",
+		"│   └── file2",
+		"├── docs",
+		"│   └── a.md",
+		"└── README",
+	} {
+		if len(rows[i]) != 1 || rows[i][0] != want {
+			t.Errorf("row %d = %q, want %q", i, rows[i], want)
+		}
+	}
+}
+
+// Ordinary aligned and pipe tables must still parse into columns.
+func TestParseTableStillSplitsColumns(t *testing.T) {
+	for _, tc := range []struct {
+		lines   []string
+		headers []string
+	}{
+		{[]string{"NAME   READY   STATUS", "a      1/1     Running"}, []string{"NAME", "READY", "STATUS"}},
+		{[]string{"PORT     STATE  SERVICE", "22/tcp   open   ssh"}, []string{"PORT", "STATE", "SERVICE"}},
+		{[]string{"| a | b |", "|---|---|", "| 1 | 2 |"}, []string{"a", "b"}},
+	} {
+		h, rows := ParseTable(tc.lines)
+		if len(h) != len(tc.headers) || len(rows) != 1 {
+			t.Errorf("%q: headers=%q rows=%v", tc.lines[0], h, rows)
+			continue
+		}
+		for i := range tc.headers {
+			if h[i] != tc.headers[i] {
+				t.Errorf("%q: header %d = %q, want %q", tc.lines[0], i, h[i], tc.headers[i])
+			}
+		}
+	}
+}
