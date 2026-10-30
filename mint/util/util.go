@@ -356,8 +356,12 @@ func JSONEncode(v any) (string, error) {
 // ── width ────────────────────────────────────────────────────────────────────
 
 // RuneWidth returns the terminal column width (0, 1, or 2) of a Unicode
-// code point following East Asian Width / WCWidth rules.
-func RuneWidth(r rune) int {
+// code point following East Asian Width / WCWidth rules, as the active Width
+// measures it.
+func RuneWidth(r rune) int { return activeWidth().RuneWidth(r) }
+
+// RuneWidth returns the column width of r under w.
+func (w Width) RuneWidth(r rune) int {
 	if r < 32 || (r >= 0x7f && r < 0xa0) {
 		return 0
 	}
@@ -371,6 +375,9 @@ func RuneWidth(r rune) int {
 		(r >= 0x1dc0 && r <= 0x1dff) || (r >= 0x20d0 && r <= 0x20ff) ||
 		(r >= 0xfe20 && r <= 0xfe2f) {
 		return 0
+	}
+	if w.AmbiguousWide && isAmbiguous(r) {
+		return 2
 	}
 	if (r >= 0x1100 && r <= 0x115f) ||
 		r == 0x2329 || r == 0x232a ||
@@ -395,8 +402,11 @@ func RuneWidth(r rune) int {
 
 // VLen counts visual terminal columns, accounting for 0-width combining marks
 // and 2-column CJK/emoji runes while matching 1-cell per UTF-8 character on
-// standard Latin/box-drawing strings.
-func VLen(s string) int {
+// standard Latin/box-drawing strings, as the active Width measures it.
+func VLen(s string) int { return activeWidth().VLen(s) }
+
+// VLen counts the columns of s under w.
+func (w Width) VLen(s string) int {
 	n := 0
 	i := 0
 	for i < len(s) {
@@ -410,13 +420,13 @@ func VLen(s string) int {
 			i++
 			continue
 		}
-		r, w := decodeValidUTF8(s[i:])
-		if w == 0 {
+		r, size := decodeValidUTF8(s[i:])
+		if size == 0 {
 			i++
 			continue
 		}
-		n += RuneWidth(r)
-		i += w
+		n += w.RuneWidth(r)
+		i += size
 	}
 	return n
 }
@@ -474,7 +484,7 @@ func Chars(s string) []string {
 			// Also attach any immediately following 0-width combining mark or variation selector.
 			for j < len(s) && s[j] >= 0xC2 && s[j] <= 0xF4 {
 				nr, nw := decodeValidUTF8(s[j:])
-				if nw > 1 && RuneWidth(nr) == 0 {
+				if nw > 1 && activeWidth().RuneWidth(nr) == 0 {
 					j += nw
 					if nr == 0x200d && j < len(s) && s[j] >= 0xC2 && s[j] <= 0xF4 {
 						_, nw2 := decodeValidUTF8(s[j:])
@@ -496,11 +506,15 @@ func Chars(s string) []string {
 }
 
 // Truncate shortens s to n visual cells, ending in "…" when it had to cut.
-func Truncate(s string, n int) string {
+func Truncate(s string, n int) string { return activeWidth().Truncate(s, n) }
+
+// Truncate cuts s to at most n columns under w, ending it with an ellipsis
+// when anything was cut.
+func (w Width) Truncate(s string, n int) string {
 	if n < 1 {
 		return ""
 	}
-	if VLen(s) <= n {
+	if w.VLen(s) <= n {
 		return s
 	}
 	if n == 1 {
@@ -510,15 +524,15 @@ func Truncate(s string, n int) string {
 	used := 0
 	budget := n - 1
 	for _, ch := range Chars(s) {
-		w := VLen(ch)
-		if w < 1 {
-			w = 1
+		cw := w.VLen(ch)
+		if cw < 1 {
+			cw = 1
 		}
-		if used+w > budget {
+		if used+cw > budget {
 			break
 		}
 		b.WriteString(ch)
-		used += w
+		used += cw
 	}
 	return b.String() + "…"
 }
@@ -535,4 +549,177 @@ func ExpandUser(path string) string {
 		return os.Getenv("HOME") + path[1:]
 	}
 	return path
+}
+
+// Width is how the terminal measures characters. The zero value measures
+// East Asian Ambiguous runes (─ ╭ ● … ↑) as one column, which is right in a
+// Western locale.
+type Width struct {
+	// AmbiguousWide measures East Asian Ambiguous runes as two columns, as
+	// a terminal in a Japanese, Chinese or Korean locale draws them.
+	AmbiguousWide bool
+}
+
+var (
+	widthMu sync.RWMutex
+	width   Width
+)
+
+// activeWidth is the Width in force. It is read on every glyph, so it takes
+// a read lock; SetWidth runs once, before any screen exists.
+func activeWidth() Width {
+	widthMu.RLock()
+	defer widthMu.RUnlock()
+	return width
+}
+
+// SetWidth sets the Width the package-level VLen, Truncate and RuneWidth use.
+// Call it before a screen starts: nothing re-measures text already laid out.
+func SetWidth(w Width) {
+	widthMu.Lock()
+	defer widthMu.Unlock()
+	width = w
+}
+
+// isAmbiguous reports whether r is East Asian Ambiguous (Unicode's EAW
+// property A): one column in a Western terminal, two in a CJK one. It covers
+// the ranges Mint draws from; the rest of the property is not measured.
+func isAmbiguous(r rune) bool {
+	switch {
+	case r >= 0x00a1 && r <= 0x00a1, // ¡
+		r >= 0x00a4 && r <= 0x00a4, // ¤
+		r >= 0x00a7 && r <= 0x00a8, // § ¨
+		r >= 0x00aa && r <= 0x00aa, // ª
+		r >= 0x00ad && r <= 0x00ae, // soft hyphen ®
+		r >= 0x00b0 && r <= 0x00b4, // ° ± ² ³ ´
+		r >= 0x00b6 && r <= 0x00ba, // ¶ · ¸ ¹ º
+		r >= 0x00bc && r <= 0x00bf, // ¼ ½ ¾ ¿
+		r >= 0x00c6 && r <= 0x00c6, // Æ
+		r >= 0x00d0 && r <= 0x00d0, // Ð
+		r >= 0x00d7 && r <= 0x00d8, // × Ø
+		r >= 0x00de && r <= 0x00e1, // Þ ß à á
+		r >= 0x00e6 && r <= 0x00e6, // æ
+		r >= 0x00e8 && r <= 0x00ea, // è é ê
+		r >= 0x00ec && r <= 0x00ed, // ì í
+		r >= 0x00f0 && r <= 0x00f0, // ð
+		r >= 0x00f2 && r <= 0x00f3, // ò ó
+		r >= 0x00f7 && r <= 0x00fa, // ÷ ø ù ú
+		r >= 0x00fc && r <= 0x00fc, // ü
+		r >= 0x00fe && r <= 0x00fe: // þ
+		return true
+	case r >= 0x0391 && r <= 0x03a9, // Greek capitals
+		r >= 0x03b1 && r <= 0x03c9, // Greek small
+		r >= 0x0401 && r <= 0x0401, // Cyrillic
+		r >= 0x0410 && r <= 0x044f,
+		r >= 0x0451 && r <= 0x0451:
+		return true
+	case r >= 0x2010 && r <= 0x2010, // hyphen
+		r >= 0x2013 && r <= 0x2016, // – — ― ‖
+		r >= 0x2018 && r <= 0x2019, // ‘ ’
+		r >= 0x201c && r <= 0x201d, // “ ”
+		r >= 0x2020 && r <= 0x2022, // † ‡ •
+		r >= 0x2024 && r <= 0x2027, // ․ ‥ … ‧
+		r >= 0x2030 && r <= 0x2030, // ‰
+		r >= 0x2032 && r <= 0x2033, // ′ ″
+		r >= 0x2035 && r <= 0x2035, // ‵
+		r >= 0x203b && r <= 0x203b, // ※
+		r >= 0x203e && r <= 0x203e, // ‾
+		r >= 0x2074 && r <= 0x2074, // ⁴
+		r >= 0x207f && r <= 0x207f, // ⁿ
+		r >= 0x2081 && r <= 0x2084, // ₁ ₂ ₃ ₄
+		r >= 0x20ac && r <= 0x20ac, // €
+		r >= 0x2103 && r <= 0x2103, // ℃
+		r >= 0x2105 && r <= 0x2105, // ℅
+		r >= 0x2109 && r <= 0x2109, // ℉
+		r >= 0x2113 && r <= 0x2113, // ℓ
+		r >= 0x2116 && r <= 0x2116, // №
+		r >= 0x2121 && r <= 0x2122, // ℡ ™
+		r >= 0x2126 && r <= 0x2126, // Ω
+		r >= 0x212b && r <= 0x212b, // Å
+		r >= 0x2153 && r <= 0x2154, // ⅓ ⅔
+		r >= 0x215b && r <= 0x215e, // ⅛ … ⅞
+		r >= 0x2160 && r <= 0x216b, // Roman numerals
+		r >= 0x2170 && r <= 0x2179,
+		r >= 0x2189 && r <= 0x2189, // ↉
+		r >= 0x2190 && r <= 0x2199, // arrows ← ↑ → ↓ …
+		r >= 0x21b8 && r <= 0x21b9,
+		r >= 0x21d2 && r <= 0x21d2, // ⇒
+		r >= 0x21d4 && r <= 0x21d4, // ⇔
+		r >= 0x21e7 && r <= 0x21e7, // ⇧
+		r >= 0x2200 && r <= 0x2200, // ∀
+		r >= 0x2202 && r <= 0x2203, // ∂ ∃
+		r >= 0x2207 && r <= 0x2208, // ∇ ∈
+		r >= 0x220b && r <= 0x220b, // ∋
+		r >= 0x220f && r <= 0x220f, // ∏
+		r >= 0x2211 && r <= 0x2211, // ∑
+		r >= 0x2215 && r <= 0x2215, // ∕
+		r >= 0x221a && r <= 0x221a, // √
+		r >= 0x221d && r <= 0x2220, // ∝ ∞ ∟ ∠
+		r >= 0x2223 && r <= 0x2223, // ∣
+		r >= 0x2225 && r <= 0x2225, // ∥
+		r >= 0x2227 && r <= 0x222c, // ∧ ∨ ∩ ∪ ∫ ∬
+		r >= 0x222e && r <= 0x222e, // ∮
+		r >= 0x2234 && r <= 0x2237, // ∴ ∵ ∶ ∷
+		r >= 0x223c && r <= 0x223d, // ∼ ∽
+		r >= 0x2248 && r <= 0x2248, // ≈
+		r >= 0x224c && r <= 0x224c, // ≌
+		r >= 0x2252 && r <= 0x2252, // ≒
+		r >= 0x2260 && r <= 0x2261, // ≠ ≡
+		r >= 0x2264 && r <= 0x2267, // ≤ ≥ ≦ ≧
+		r >= 0x226a && r <= 0x226b, // ≪ ≫
+		r >= 0x226e && r <= 0x226f, // ≮ ≯
+		r >= 0x2282 && r <= 0x2283, // ⊂ ⊃
+		r >= 0x2286 && r <= 0x2287, // ⊆ ⊇
+		r >= 0x2295 && r <= 0x2295, // ⊕
+		r >= 0x2299 && r <= 0x2299, // ⊙
+		r >= 0x22a5 && r <= 0x22a5, // ⊥
+		r >= 0x22bf && r <= 0x22bf, // ⊿
+		r >= 0x2312 && r <= 0x2312, // ⌒
+		r >= 0x2460 && r <= 0x24e9, // circled numbers and letters
+		r >= 0x24eb && r <= 0x254b, // boxed and block elements
+		r >= 0x2550 && r <= 0x2573, // box drawing (double, mixed)
+		r >= 0x2580 && r <= 0x258f, // block elements
+		r >= 0x2592 && r <= 0x2595, // ▒ ▓ ▔ ▕
+		r >= 0x25b8 && r <= 0x25bb, // ▸ ▹ ► ▻
+		r >= 0x25e2 && r <= 0x25e5, // ◢ ◣ ◤ ◥
+		r >= 0x25a0 && r <= 0x25a1, // ■ □
+		r >= 0x25a3 && r <= 0x25a9, // ▣ … ▩
+		r >= 0x25b2 && r <= 0x25b3, // ▲ △
+		r >= 0x25b6 && r <= 0x25b7, // ▶ ▷
+		r >= 0x25bc && r <= 0x25bd, // ▼ ▽
+		r >= 0x25c0 && r <= 0x25c1, // ◀ ◁
+		r >= 0x25c6 && r <= 0x25c8, // ◆ ◇ ◈
+		r >= 0x25cb && r <= 0x25cb, // ○
+		r >= 0x25ce && r <= 0x25d1, // ◎ ● ◐ ◑
+		r >= 0x25ef && r <= 0x25ef, // ◯
+		r >= 0x2605 && r <= 0x2606, // ★ ☆
+		r >= 0x2609 && r <= 0x2609, // ☉
+		r >= 0x260e && r <= 0x260f, // ☎ ☏
+		r >= 0x2614 && r <= 0x2615, // ☔ ☕
+		r >= 0x261c && r <= 0x261c, // ☜
+		r >= 0x261e && r <= 0x261e, // ☞
+		r >= 0x2640 && r <= 0x2640, // ♀
+		r >= 0x2642 && r <= 0x2642, // ♂
+		r >= 0x2660 && r <= 0x2661, // ♠ ♡
+		r >= 0x2663 && r <= 0x2665, // ♣ ♤ ♥
+		r >= 0x2667 && r <= 0x266a, // ♧ ♨ ♩ ♪
+		r >= 0x266c && r <= 0x266d, // ♬ ♭
+		r >= 0x266f && r <= 0x266f, // ♯
+		r >= 0x269e && r <= 0x269f, // ⚞ ⚟
+		r >= 0x26be && r <= 0x26bf, // ⚾ ⚿
+		r >= 0x26c4 && r <= 0x26cd, // ⛄ … ⛍
+		r >= 0x26cf && r <= 0x26e1, // ⛏ … ⛡
+		r >= 0x26e3 && r <= 0x26e3, // ⛣
+		r >= 0x26e8 && r <= 0x26ff, // ⛨ … ⛿
+		r >= 0x273d && r <= 0x273d, // ✽
+		r >= 0x2757 && r <= 0x2757, // ❗
+		r >= 0x2776 && r <= 0x277f, // ❶ … ❿
+		r >= 0x2b55 && r <= 0x2b59, // ⭕ …
+		r >= 0x3248 && r <= 0x324f, // ㉈ …
+		r >= 0xe000 && r <= 0xf8ff, // private use
+		r >= 0xfe00 && r <= 0xfe0f, // variation selectors
+		r >= 0xfffd && r <= 0xfffd: // replacement character
+		return true
+	}
+	return false
 }

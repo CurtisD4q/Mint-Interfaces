@@ -187,3 +187,34 @@ func TestASCIIFallbackFollowsTheLocale(t *testing.T) {
 		}
 	}
 }
+
+// A CJK locale draws the frame and symbol glyphs two columns wide, and the
+// probe has to say so before any screen lays text out.
+func TestAmbiguousWidthFollowsTheLocale(t *testing.T) {
+	t.Cleanup(func() { util.SetWidth(util.Width{}) })
+
+	for _, tc := range []struct {
+		lcAll, lcCtype, lang string
+		want                 bool
+	}{
+		{"", "", "en_GB.UTF-8", false},
+		{"", "", "ja_JP.UTF-8", true},
+		{"", "", "zh_CN.UTF-8", true},
+		{"", "", "ko_KR.UTF-8", true},
+		{"", "", "JA_JP.eucJP", true},
+		{"C", "", "ja_JP.UTF-8", false}, // LC_ALL wins, and C is not CJK
+		{"", "ja_JP.UTF-8", "en_GB.UTF-8", true},
+		{"", "", "", false},
+	} {
+		t.Setenv("TERM", "xterm-256color")
+		t.Setenv("LC_ALL", tc.lcAll)
+		t.Setenv("LC_CTYPE", tc.lcCtype)
+		t.Setenv("LANG", tc.lang)
+		t.Setenv("MINT_TERMCAPS", filepath.Join(t.TempDir(), "termcaps.json"))
+		probeTerminalFeatures(false)
+		if got := util.VLen("─") == 2; got != tc.want {
+			t.Errorf("LC_ALL=%q LC_CTYPE=%q LANG=%q: ambiguous wide = %v, want %v",
+				tc.lcAll, tc.lcCtype, tc.lang, got, tc.want)
+		}
+	}
+}
