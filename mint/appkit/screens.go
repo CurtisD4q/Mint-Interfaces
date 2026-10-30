@@ -278,6 +278,22 @@ func (a *ToolApp) ActiveLines() []string {
 	return snap
 }
 
+// wideViewerArchetypes are the archetypes whose tables run wider than a
+// terminal (ps, df, query results, search hits). They scroll sideways
+// instead of squeezing columns. Every other archetype keeps the fitted table.
+var wideViewerArchetypes = map[string]struct{}{
+	"list":    {},
+	"inspect": {},
+	"records": {},
+	"query":   {},
+	"search":  {},
+}
+
+func wideTableViewer(archetypeID string) bool {
+	_, ok := wideViewerArchetypes[archetypeID]
+	return ok
+}
+
 func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 	lines := a.ActiveLines()
 	var rows []mint.Row
@@ -293,6 +309,7 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 				Headers:   headers,
 				Rows:      tblRows,
 				MaxHeight: 20,
+				Viewer:    wideTableViewer(a.Spec.ArchetypeID),
 				OnSelect: func(c *mint.Ctx, rowIdx int, row []string) {
 					a.handleTableRowSelect(c, rowIdx, headers, row)
 				},

@@ -365,6 +365,100 @@ func labelStyle(s Style) string {
 	return C.Text
 }
 
+// contentLine is one row of the content viewport, in the order it is drawn.
+type contentLine struct {
+	index int // 0-based index into the flattened items
+	row   int // terminal row
+}
+
+// layoutContent places items into the content viewport. scroll is how many
+// items are above it. A row's line is index - scroll + contentTop, the place
+// the screen has always used, except a row marked pin is left out of that
+// scroll: while its table is still on screen the pin stays at the top of the
+// table's visible area and the body keeps its own line underneath.
+func layoutContent(items []Row, scroll, contentTop, avail int) []contentLine {
+	if avail < 1 {
+		return nil
+	}
+	contentBottom := contentTop + avail - 1
+	natural := func(index int) int { return index - scroll + contentTop }
+	inView := func(r int) bool { return r >= contentTop && r <= contentBottom }
+
+	at := make([]int, contentBottom+1)
+	for i := range at {
+		at[i] = -1
+	}
+	// Pins drawn at the sticky line, not at the line scroll would give them.
+	held := map[int]bool{}
+
+	for i := 0; i < len(items); {
+		if !items[i].pin {
+			i++
+			continue
+		}
+		start := i
+		for i < len(items) && items[i].pin {
+			i++
+		}
+		end := i
+		if natural(start) >= contentTop {
+			continue // still on its own line; the pass below draws it
+		}
+		// What scrolls under the pin: the body, or the empty-table note.
+		body := end
+		for body < len(items) && items[body].wtype == "tablerow" {
+			body++
+		}
+		if body == end && body < len(items) && items[body].wtype == "note" {
+			body++
+		}
+		first, last := -1, -1
+		for j := start; j < body; j++ {
+			if r := natural(j); inView(r) {
+				if first < 0 {
+					first = r
+				}
+				last = r
+			}
+		}
+		if first < 0 {
+			continue // the table has scrolled off; the pin goes with it
+		}
+		for k := start; k < end; k++ {
+			r := first + (k - start)
+			if !inView(r) || r > last {
+				break
+			}
+			at[r] = k
+			held[k] = true
+		}
+	}
+
+	for i := range items {
+		if held[i] {
+			continue
+		}
+		r := natural(i)
+		if !inView(r) {
+			continue
+		}
+		if at[r] >= 0 {
+			// A pin already occupies this line. The row stays on the line
+			// scroll gave it, underneath the pin, so it is not drawn.
+			continue
+		}
+		at[r] = i
+	}
+
+	var out []contentLine
+	for r := contentTop; r <= contentBottom; r++ {
+		if at[r] >= 0 {
+			out = append(out, contentLine{index: at[r], row: r})
+		}
+	}
+	return out
+}
+
 func (screen *Screen) run() screenResult {
 	if screen.customRun != nil {
 		return screen.customRun()
@@ -869,12 +963,10 @@ func (screen *Screen) run() screenResult {
 		}
 		st.hit = map[int]hitEntry{}
 		const left = 3
-		for i := 1; i <= len(items); i++ {
-			it := &items[i-1]
-			r := i - st.scroll + contentTop - 1
-			if r < contentTop || r > contentBottom {
-				continue
-			}
+		for _, pl := range layoutContent(items, st.scroll, contentTop, avail) {
+			i := pl.index + 1
+			it := &items[pl.index]
+			r := pl.row
 			selected := i == selItem
 			switch {
 			case it.kind == "section" && it.collapsible:
@@ -986,12 +1078,8 @@ func (screen *Screen) run() screenResult {
 			st.sb = &scrollInfo{col: sbx, top: contentTop, rows: avail, maxoff: maxoff}
 			cv.scrollbar(sbx, contentTop, avail, thumb, tpos)
 		}
-		hints := ScreenHints
-		if st.editing != nil {
-			hints = EditHints
-		} else if screen.Hints != "" {
-			hints = screen.Hints
-		}
+		it, _ := current()
+		hints := footerHints(st.editing != nil, screen.Hints, it)
 		badges := status()
 		cv.footer(h, w, hints, badges)
 		st.footSig = footerSig(badges)
