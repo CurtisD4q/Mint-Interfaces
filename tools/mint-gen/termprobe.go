@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
 type termProfile struct {
@@ -60,6 +62,11 @@ func currentTermSignature() (sig, term, prog, wrapper string) {
 		term = "xterm-256color"
 	}
 	prog = os.Getenv("TERM_PROGRAM")
+	// The same detection mint uses, so both sides of the cache agree on the
+	// key.
+	if prog == "" {
+		prog = mint.DetectProgram()
+	}
 	switch {
 	case os.Getenv("TMUX") != "":
 		wrapper = "tmux"

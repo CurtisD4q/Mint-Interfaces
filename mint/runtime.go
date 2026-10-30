@@ -73,28 +73,115 @@ func currentTermSignature() string {
 	if term == "" {
 		term = "dumb"
 	}
-	prog := strings.TrimSpace(os.Getenv("TERM_PROGRAM"))
-	if prog == "" {
-		switch {
-		case os.Getenv("KITTY_WINDOW_ID") != "":
-			prog = "kitty"
-		case os.Getenv("WEZTERM_PANE") != "":
-			prog = "WezTerm"
-		case os.Getenv("ALACRITTY_WINDOW_ID") != "" || os.Getenv("ALACRITTY_LOG") != "":
-			prog = "Alacritty"
-		case os.Getenv("GHOSTTY_RESOURCES_DIR") != "":
-			prog = "ghostty"
-		case os.Getenv("KONSOLE_VERSION") != "":
-			prog = "Konsole"
-		case os.Getenv("VTE_VERSION") != "":
-			prog = "VTE"
-		case os.Getenv("WT_SESSION") != "":
-			prog = "WindowsTerminal"
-		}
-	}
+	prog := detectProgram()
 	wrap := detectWrapper()
 	ct := strings.ToLower(strings.TrimSpace(os.Getenv("COLORTERM")))
 	return term + "|" + prog + "|" + wrap + "|" + ct
+}
+
+// detectProgram names the terminal the program is running in. There is no
+// standard for this, so it is the environment variables each terminal
+// happens to set: TERM_PROGRAM first, then the one private variable the
+// terminal publishes. "VTE" is the shared library behind GNOME Terminal,
+// Terminator, Tilix, Xfce Terminal and the rest, and is the last resort
+// before the name.
+func detectProgram() string {
+	if prog := strings.TrimSpace(os.Getenv("TERM_PROGRAM")); prog != "" {
+		return prog
+	}
+	for _, t := range terminalProbes {
+		if t.match() {
+			return t.name
+		}
+	}
+	return ""
+}
+
+// terminalProbe is one terminal's private environment variable.
+type terminalProbe struct {
+	name  string
+	match func() bool
+}
+
+// set reports whether any of the variables is set and not empty.
+func set(vars ...string) func() bool {
+	return func() bool {
+		for _, v := range vars {
+			if strings.TrimSpace(os.Getenv(v)) != "" {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// terminalProbes are the terminals Mint can name, in order: the most
+// specific first, and VTE (the library, not a terminal) last.
+var terminalProbes = []terminalProbe{
+	{"kitty", set("KITTY_WINDOW_ID", "KITTY_PID")},
+	{"WezTerm", set("WEZTERM_PANE", "WEZTERM_EXECUTABLE")},
+	{"Alacritty", set("ALACRITTY_WINDOW_ID", "ALACRITTY_LOG", "ALACRITTY_SOCKET")},
+	{"ghostty", set("GHOSTTY_RESOURCES_DIR", "GHOSTTY_BIN_DIR")},
+	{"Warp", set("WARP_IS_LOCAL_SHELL_SESSION", "WARP_HONOR_PS1", "WARP_CLIENT_VERSION")},
+	{"Rio", set("RIO_LOG_LEVEL", "RIO_CONFIG")},
+	{"Contour", set("CONTOUR_PROFILE", "CONTOUR_LOG_FILE", "CONTOUR_LOG_LEVEL")},
+	{"cmux", set("CMUX_SESSION", "CMUX_PANE")},
+	{"Tabby", set("TABBY_CONFIG_DIRECTORY")},
+	{"Hyper", set("HYPER_VERSION")},
+	{"WaveTerm", set("WAVETERM", "WAVETERM_BLOCKID", "WAVETERM_VERSION")},
+	{"DomTerm", set("DOMTERM")},
+	{"Terminology", set("TERMINOLOGY", "TERMINOLOGY_VERSION")},
+	{"CoolRetroTerm", set("COOL_RETRO_TERM", "COOLRETROTERM")},
+	{"BlackBox", set("BLACKBOX_TERMINAL")},
+	{"Foot", set("FOOT_VERSION")},
+	{"DeepinTerminal", set("DEEPIN_TERMINAL")},
+	{"Ptyxis", set("PTYXIS_VERSION", "PTYXIS_PROFILE")},
+	{"Konsole", set("KONSOLE_VERSION")},
+	{"xterm", set("XTERM_VERSION", "XTERM_SHELL")},
+	{"Eterm", set("ETERM_VERSION")},
+	{"rxvt", set("RXVT_VERSION")},
+	{"SecureCRT", set("SECURECRT_VER")},
+	{"PuTTY", set("PUTTY_SESSION", "PUTTY_SESSION_NAME")},
+	{"Mosh", set("MOSH_IP", "MOSH_PID")},
+	{"VTE", set("VTE_VERSION")},
+}
+
+// DetectProgram names the terminal from the environment: TERM_PROGRAM, then
+// each terminal's private variable. It is what the capability cache is keyed
+// on, and mint-gen uses it so both sides agree on the key.
+func DetectProgram() string { return detectProgram() }
+
+// termNames are the terminal names that come from $TERM when no private
+// variable names the terminal: st, urxvt and the rest publish nothing.
+var termNames = []struct{ prefix, name string }{
+	{"alacritty", "Alacritty"},
+	{"kitty", "kitty"},
+	{"wezterm", "WezTerm"},
+	{"ghostty", "ghostty"},
+	{"foot", "Foot"},
+	{"xterm-kitty", "kitty"},
+	{"xterm-ghostty", "ghostty"},
+	{"xterm", "xterm"},
+	{"rxvt-unicode", "urxvt"},
+	{"rxvt", "rxvt"},
+	{"urxvt", "urxvt"},
+	{"st-", "st"},
+	{"screen", "screen"},
+	{"tmux", "tmux"},
+	{"linux", "linux"},
+	{"vt100", "vt100"},
+}
+
+// programFromTerm names the terminal from $TERM alone, for the terminals
+// that publish no private variable: st, urxvt, rxvt and xterm.
+func programFromTerm(term string) string {
+	t := strings.ToLower(term)
+	for _, n := range termNames {
+		if strings.HasPrefix(t, n.prefix) {
+			return n.name
+		}
+	}
+	return ""
 }
 
 func hasTrueColorEnv() bool {
@@ -189,7 +276,10 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 	if term == "" {
 		term = "dumb"
 	}
-	prog := strings.TrimSpace(os.Getenv("TERM_PROGRAM"))
+	prog := detectProgram()
+	if prog == "" {
+		prog = programFromTerm(term)
+	}
 	wrap := detectWrapper()
 	sig := currentTermSignature()
 
