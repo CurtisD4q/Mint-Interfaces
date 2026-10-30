@@ -152,3 +152,38 @@ func TestColorTermGateFallbackTo256(t *testing.T) {
 		t.Fatalf("expected 256-colour SGR sequences, got Accent=%q SelBg=%q", pal.Accent, pal.SelBg)
 	}
 }
+
+// A locale that cannot render UTF-8 gets the ASCII fallback whatever the
+// terminal calls itself: the glyphs Mint draws are UTF-8 either way.
+func TestASCIIFallbackFollowsTheLocale(t *testing.T) {
+	for _, tc := range []struct {
+		term, lcAll, lcCtype, lang string
+		want                       bool
+	}{
+		{"xterm-256color", "", "", "en_GB.UTF-8", false},
+		{"xterm-256color", "", "", "C.UTF-8", false},
+		{"xterm-256color", "", "", "en_US.utf8", false},
+		{"xterm-256color", "", "", "en_GB.ISO-8859-15", true},
+		{"xterm-256color", "", "", "POSIX", true},
+		{"xterm-256color", "", "", "C", true},
+		{"xterm-256color", "", "", "", true},
+		// LC_ALL beats LC_CTYPE beats LANG, as in the C library.
+		{"xterm-256color", "C", "", "en_GB.UTF-8", true},
+		{"xterm-256color", "", "C", "en_GB.UTF-8", true},
+		{"xterm-256color", "", "en_GB.ISO-8859-15", "C.UTF-8", true},
+		// The terminal itself can force it.
+		{"dumb", "", "", "en_GB.UTF-8", true},
+		{"vt100", "", "", "en_GB.UTF-8", true},
+	} {
+		t.Setenv("TERM", tc.term)
+		t.Setenv("LC_ALL", tc.lcAll)
+		t.Setenv("LC_CTYPE", tc.lcCtype)
+		t.Setenv("LANG", tc.lang)
+		t.Setenv("MINT_TERMCAPS", filepath.Join(t.TempDir(), "termcaps.json"))
+		p := probeTerminalFeatures(false)
+		if p.ASCIIOnly != tc.want {
+			t.Errorf("TERM=%s LC_ALL=%q LC_CTYPE=%q LANG=%q: ASCIIOnly = %v, want %v",
+				tc.term, tc.lcAll, tc.lcCtype, tc.lang, p.ASCIIOnly, tc.want)
+		}
+	}
+}

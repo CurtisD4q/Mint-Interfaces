@@ -203,11 +203,11 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 	}
 
 	// Check locale for UTF-8 vs ASCII fallback.
-	lang := strings.ToUpper(os.Getenv("LC_ALL") + " " + os.Getenv("LC_CTYPE") + " " + os.Getenv("LANG"))
-	if term == "dumb" || term == "vt100" || strings.Contains(lang, "ASCII") || (lang == "  " && term == "linux") {
-		if !strings.Contains(lang, "UTF-8") && !strings.Contains(lang, "UTF8") {
-			p.ASCIIOnly = term == "dumb" || term == "vt100"
-		}
+	if !utf8Locale(os.Getenv("LC_ALL"), os.Getenv("LC_CTYPE"), os.Getenv("LANG")) {
+		p.ASCIIOnly = true
+	}
+	if term == "dumb" || term == "vt100" {
+		p.ASCIIOnly = true
 	}
 
 	// Determine baseline colour depth from terminfo + environment.
@@ -380,6 +380,21 @@ func queryTerminalWire(timeout time.Duration) string {
 		}
 	}
 	return buf.String()
+}
+
+// utf8Locale reports whether the locale the program is running in can
+// render UTF-8, reading LC_ALL, then LC_CTYPE, then LANG: the first one set
+// wins, as in the C library. A locale that names no codeset ("C", "POSIX",
+// a bare "en_GB") is not taken to be UTF-8, so the ASCII fallback is used.
+func utf8Locale(vars ...string) bool {
+	for _, v := range vars {
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
+		u := strings.ToUpper(v)
+		return strings.Contains(u, "UTF-8") || strings.Contains(u, "UTF8")
+	}
+	return false
 }
 
 func computeRuntimeLevel(p termProfile) int {
