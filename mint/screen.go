@@ -512,8 +512,8 @@ func (screen *Screen) run() screenResult {
 			default:
 				num = " " + strconv.Itoa(floorf(v))
 			}
-			return C.Accent + strings.Repeat("━", fill) + "●" +
-				C.Dim + strings.Repeat("─", bar-fill) + Reset +
+			return C.Accent + rt.profile.repeatTo("━", fill) + "●" +
+				C.Dim + rt.profile.repeatTo("─", bar-fill) + Reset +
 				C.Muted + num + Reset
 		case "progress":
 			v := math.Max(0, math.Min(100, toNumber(val)))
@@ -523,8 +523,8 @@ func (screen *Screen) run() screenResult {
 			if it.format != nil {
 				num = " " + it.numberText(floorf(v))
 			}
-			return C.Accent + strings.Repeat("━", fill) +
-				C.Dim + strings.Repeat("─", bar-fill) + Reset +
+			return C.Accent + rt.profile.repeatTo("━", fill) +
+				C.Dim + rt.profile.repeatTo("─", bar-fill) + Reset +
 				C.Muted + num + Reset
 		case "stepper":
 			v := int(toNumber(val))

@@ -219,7 +219,7 @@ func formatTableRow(cells []string, colW []int, sep string) string {
 func formatTableRule(colW []int, sep string) string {
 	var parts []string
 	for _, w := range colW {
-		parts = append(parts, strings.Repeat("─", max(1, w)))
+		parts = append(parts, rt.profile.repeatTo("─", max(1, w)))
 	}
 	return strings.Join(parts, strings.Repeat(" ", util.VLen(sep)))
 }
