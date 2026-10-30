@@ -495,6 +495,82 @@ func Chars(s string) []string {
 	return out
 }
 
+// SliceCols returns a horizontal window of s starting at cell offset and
+// spanning at most width cells. A "‹" marks content hidden to the left and
+// "…" content hidden to the right; each marker costs one cell.
+//
+// It measures in cells and cuts on grapheme-cluster boundaries, so a wide
+// rune is never split and the result is never wider than width.
+func SliceCols(s string, offset, width int) string {
+	if width <= 0 || s == "" {
+		return ""
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	clusters := Chars(s)
+	widths := make([]int, len(clusters))
+	for i, c := range clusters {
+		w := VLen(c)
+		if w <= 0 {
+			w = 1
+		}
+		widths[i] = w
+	}
+
+	// Skip offset cells, and say whether anything is hidden to the left. A
+	// cluster straddling the edge is skipped whole, so the window starts on
+	// a boundary.
+	start, skipped := 0, 0
+	for start < len(clusters) && skipped < offset {
+		skipped += widths[start]
+		start++
+	}
+	left := start > 0
+
+	// Walk the clusters from start and lay them out as far as they fit,
+	// reserving a cell for each marker still to come. A wide cluster that
+	// would cross the edge ends the window.
+	avail := width
+	if left {
+		avail--
+	}
+	used, end := 0, start
+	for end < len(clusters) && used+widths[end] <= avail {
+		used += widths[end]
+		end++
+	}
+	// If content is hidden to the right, "…" needs a cell too; drop clusters
+	// from the tail until it fits. A window of one cell can only be a marker.
+	more := end < len(clusters)
+	if more && width > 1 {
+		for end > start && used+1 > avail {
+			end--
+			used -= widths[end]
+		}
+	}
+	if width == 1 {
+		switch {
+		case left:
+			return "‹"
+		case end < len(clusters):
+			return "…"
+		default:
+			return strings.Join(clusters[start:end], "")
+		}
+	}
+
+	var b strings.Builder
+	if left {
+		b.WriteString("‹")
+	}
+	b.WriteString(strings.Join(clusters[start:end], ""))
+	if end < len(clusters) {
+		b.WriteString("…")
+	}
+	return b.String()
+}
+
 // Truncate shortens s to n visual cells, ending in "…" when it had to cut.
 func Truncate(s string, n int) string {
 	if n < 1 {

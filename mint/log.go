@@ -117,35 +117,10 @@ func cleanLine(raw string, visible bool) string {
 }
 
 // sliceCols returns a horizontal window of s starting at cell offset and
-// spanning at most width cells. When offset > 0 and s has content to the left,
-// the first cell becomes "‹". When content remains to the right, the last cell
-// becomes "…".
+// spanning at most width cells, with "‹" and "…" marking what is hidden.
+// The measuring lives in util.SliceCols so every viewer agrees on it.
 func sliceCols(s string, offset, width int) string {
-	if width <= 0 || s == "" {
-		return ""
-	}
-	if offset <= 0 {
-		return util.Truncate(s, width)
-	}
-	chars := util.Chars(s)
-	n := len(chars)
-	if offset >= n {
-		if width >= 1 {
-			return "‹"
-		}
-		return ""
-	}
-	if width == 1 {
-		return "‹"
-	}
-	rem := chars[offset:]
-	if len(rem) <= width-1 {
-		return "‹" + strings.Join(rem, "")
-	}
-	if width == 2 {
-		return "‹…"
-	}
-	return "‹" + strings.Join(rem[:width-2], "") + "…"
+	return util.SliceCols(s, offset, width)
 }
 
 // LogOpts configures an inline Log box inside a Section.
