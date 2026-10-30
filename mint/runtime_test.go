@@ -226,3 +226,96 @@ func TestFrameBorderFits(t *testing.T) {
 	}
 	rt.profile.AmbiguousWide = false
 }
+
+// Every terminal Mint can name, from the variable it publishes.
+func TestDetectProgram(t *testing.T) {
+	clearEnv := func() {
+		for _, v := range []string{"TERM_PROGRAM"} {
+			t.Setenv(v, "")
+		}
+		for _, p := range terminalProbes {
+			for _, v := range []string{"KITTY_WINDOW_ID", "KITTY_PID", "WEZTERM_PANE", "WEZTERM_EXECUTABLE",
+				"ALACRITTY_WINDOW_ID", "ALACRITTY_LOG", "ALACRITTY_SOCKET", "GHOSTTY_RESOURCES_DIR", "GHOSTTY_BIN_DIR",
+				"WARP_IS_LOCAL_SHELL_SESSION", "WARP_HONOR_PS1", "WARP_CLIENT_VERSION", "RIO_LOG_LEVEL", "RIO_CONFIG",
+				"CONTOUR_PROFILE", "CONTOUR_LOG_FILE", "CONTOUR_LOG_LEVEL", "CMUX_SESSION", "CMUX_PANE",
+				"TABBY_CONFIG_DIRECTORY", "HYPER_VERSION", "WAVETERM", "WAVETERM_BLOCKID", "WAVETERM_VERSION",
+				"DOMTERM", "TERMINOLOGY", "TERMINOLOGY_VERSION", "COOL_RETRO_TERM", "COOLRETROTERM",
+				"BLACKBOX_TERMINAL", "FOOT_VERSION", "DEEPIN_TERMINAL", "PTYXIS_VERSION", "PTYXIS_PROFILE",
+				"KONSOLE_VERSION", "XTERM_VERSION", "XTERM_SHELL", "ETERM_VERSION", "RXVT_VERSION",
+				"SECURECRT_VER", "PUTTY_SESSION", "PUTTY_SESSION_NAME", "MOSH_IP", "MOSH_PID", "VTE_VERSION"} {
+				t.Setenv(v, "")
+			}
+			_ = p
+		}
+	}
+
+	for _, tc := range []struct{ variable, want string }{
+		{"KITTY_WINDOW_ID", "kitty"},
+		{"WEZTERM_PANE", "WezTerm"},
+		{"ALACRITTY_WINDOW_ID", "Alacritty"},
+		{"GHOSTTY_RESOURCES_DIR", "ghostty"},
+		{"WARP_CLIENT_VERSION", "Warp"},
+		{"RIO_CONFIG", "Rio"},
+		{"CONTOUR_PROFILE", "Contour"},
+		{"CMUX_SESSION", "cmux"},
+		{"TABBY_CONFIG_DIRECTORY", "Tabby"},
+		{"HYPER_VERSION", "Hyper"},
+		{"WAVETERM_VERSION", "WaveTerm"},
+		{"DOMTERM", "DomTerm"},
+		{"TERMINOLOGY", "Terminology"},
+		{"COOL_RETRO_TERM", "CoolRetroTerm"},
+		{"BLACKBOX_TERMINAL", "BlackBox"},
+		{"FOOT_VERSION", "Foot"},
+		{"DEEPIN_TERMINAL", "DeepinTerminal"},
+		{"PTYXIS_VERSION", "Ptyxis"},
+		{"KONSOLE_VERSION", "Konsole"},
+		{"XTERM_VERSION", "xterm"},
+		{"ETERM_VERSION", "Eterm"},
+		{"RXVT_VERSION", "rxvt"},
+		{"SECURECRT_VER", "SecureCRT"},
+		{"PUTTY_SESSION_NAME", "PuTTY"},
+		{"MOSH_IP", "Mosh"},
+		{"VTE_VERSION", "VTE"},
+	} {
+		clearEnv()
+		t.Setenv(tc.variable, "1")
+		if got := DetectProgram(); got != tc.want {
+			t.Errorf("%s set: DetectProgram = %q, want %q", tc.variable, got, tc.want)
+		}
+	}
+
+	// TERM_PROGRAM wins over any private variable.
+	clearEnv()
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
+	if got := DetectProgram(); got != "Apple_Terminal" {
+		t.Errorf("TERM_PROGRAM set: DetectProgram = %q, want Apple_Terminal", got)
+	}
+
+	// Nothing set: no name, and the caller falls back to $TERM.
+	clearEnv()
+	if got := DetectProgram(); got != "" {
+		t.Errorf("nothing set: DetectProgram = %q, want \"\"", got)
+	}
+}
+
+// The terminals that publish no private variable are named from $TERM.
+func TestProgramFromTerm(t *testing.T) {
+	for term, want := range map[string]string{
+		"xterm-256color":        "xterm",
+		"xterm":                 "xterm",
+		"st-256color":           "st",
+		"rxvt-unicode-256color": "urxvt",
+		"urxvt":                 "urxvt",
+		"rxvt":                  "rxvt",
+		"alacritty":             "Alacritty",
+		"tmux-256color":         "tmux",
+		"screen-256color":       "screen",
+		"linux":                 "linux",
+		"dumb":                  "",
+	} {
+		if got := programFromTerm(term); got != want {
+			t.Errorf("programFromTerm(%q) = %q, want %q", term, got, want)
+		}
+	}
+}
