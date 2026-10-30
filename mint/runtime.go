@@ -32,6 +32,7 @@ type termProfile struct {
 	Level           int    `json:"level"`
 	ColorDepth      int    `json:"color_depth"` // 0=mono, 16, 256, 16777216
 	ASCIIOnly       bool   `json:"ascii_only"`
+	AmbiguousWide   bool   `json:"ambiguous_wide"` // EA-A runes are 2 cells (CJK locale)
 	AltScreen       bool   `json:"alt_screen"`
 	SGRMouse        bool   `json:"sgr_mouse"`
 	BracketedPaste  bool   `json:"bracketed_paste"`
@@ -209,6 +210,9 @@ func probeTerminalFeatures(interactiveWireProbe bool) termProfile {
 	if term == "dumb" || term == "vt100" {
 		p.ASCIIOnly = true
 	}
+	// A Japanese, Chinese or Korean locale draws East Asian Ambiguous runes
+	// (- | and the corners) two columns wide.
+	p.AmbiguousWide = cjkLocale(os.Getenv("LC_ALL"), os.Getenv("LC_CTYPE"), os.Getenv("LANG"))
 
 	// Determine baseline colour depth from terminfo + environment.
 	depth := 16
@@ -395,6 +399,58 @@ func utf8Locale(vars ...string) bool {
 		return strings.Contains(u, "UTF-8") || strings.Contains(u, "UTF8")
 	}
 	return false
+}
+
+// cjkLocale reports whether the locale draws East Asian Ambiguous runes two
+// columns wide. It reads LC_ALL, then LC_CTYPE, then LANG, as utf8Locale does.
+func cjkLocale(vars ...string) bool {
+	for _, v := range vars {
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
+		u := strings.ToUpper(v)
+		return strings.HasPrefix(u, "JA") || strings.HasPrefix(u, "ZH") || strings.HasPrefix(u, "KO")
+	}
+	return false
+}
+
+// cellWidth is the width of one instance of a glyph Mint repeats to fill a
+// span: a frame edge, a rule, a badge. Repeating a glyph w times only fills
+// w columns if the glyph is one cell wide, and in a CJK locale these are two.
+func (p termProfile) cellWidth(glyph string) int {
+	if p.AmbiguousWide && ambiguousRune(glyph) {
+		return 2
+	}
+	return 1
+}
+
+// ambiguousRune reports whether glyph is a single East Asian Ambiguous rune:
+// one column in a Western locale, two in a CJK one. It covers the glyphs
+// Mint repeats to fill a span.
+func ambiguousRune(glyph string) bool {
+	rs := []rune(glyph)
+	if len(rs) != 1 {
+		return false
+	}
+	switch r := rs[0]; {
+	case r >= 0x2500 && r <= 0x257f, // box drawing
+		r >= 0x2580 && r <= 0x259f, // block elements
+		r >= 0x25a0 && r <= 0x25ff, // geometric shapes
+		r >= 0x2190 && r <= 0x21ff, // arrows
+		r >= 0x2013 && r <= 0x2014, // – —
+		r >= 0x2026 && r <= 0x2026, // …
+		r >= 0x203e && r <= 0x203e: // ‾
+		return true
+	}
+	return false
+}
+
+// repeatTo returns glyph repeated to fill at most n columns.
+func (p termProfile) repeatTo(glyph string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat(glyph, n/p.cellWidth(glyph))
 }
 
 func computeRuntimeLevel(p termProfile) int {

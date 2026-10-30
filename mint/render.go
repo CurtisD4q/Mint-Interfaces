@@ -92,7 +92,7 @@ func (c *canvas) frame(h, w int) {
 	if w < 4 || h < 4 {
 		return
 	}
-	horiz := strings.Repeat("─", w-2)
+	horiz := rt.profile.repeatTo("─", w-2)
 	c.put(1, 1, C.Accent+"╭"+horiz+"╮"+Reset)
 	for row := 2; row <= h-1; row++ {
 		c.put(row, 1, C.Accent+"│"+Reset)
