@@ -79,6 +79,8 @@ Once installed, the steps from any directory are:
    mint-gen --explain ffmpeg
    ```
 
+`mint-gen --help` is the one guide for Mint-Interfaces. It covers scaffolding and running an app (`mint-gen ps`, `mint-gen --build ps`, `mint-gen --run ps`, and the other flags), then how to use the app: the home menu, setting options and running a command, pane keys (Tab, Shift-Tab, `[`, `]`, `|`, and a click to focus), table keys (left and right to scroll sideways, H and L to narrow or widen a column), Presets, Run History, and Manual / `--man` for the program's full manual. The flag list follows the guide. A generated app's own `--help` stays a short usage list; `--man` still opens that app's Manual screen.
+
 ## Prerequisites
 
 **To run a Mint app:** nothing to install. Apps are single static binaries.
@@ -524,8 +526,8 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 `mint.App` handles a few things at startup, before taking over the terminal:
 
 - **Flags.** The first argument may be one of Mint's flags:
-  - `--help` (`-h`) lists the app's screens and usage.
-  - `--man` opens the Manual screen (the full manual viewer). `--help` still prints usage.
+  - `--help` (`-h`) lists the app's screens and usage, and points at `mint-gen --help` for the guide. It does not repeat that guide.
+  - `--man` opens the Manual screen, the program's full manual. `--help` still prints usage. The same screen is the Manual item on the home menu.
   - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 0.1.0)`, using `App.Version`.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.

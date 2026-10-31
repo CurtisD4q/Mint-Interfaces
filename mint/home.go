@@ -448,6 +448,7 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 		}
 		fmt.Println()
 		fmt.Println("Keys: set MINT_KEYS to default, emacs or vim (now: " + keyProfile + ").")
+		fmt.Println("See `mint-gen --help` for a guide.")
 		return true, 0
 	case arg == "--man":
 		if i := a.findItem("Manual"); i > 0 {
