@@ -187,16 +187,18 @@ func (s *Session) sendLocked(e *Entry) error {
 	s.outMark, s.errMark, s.outCmd, s.errCmd = "", "", "", ""
 	s.gotOut, s.gotErr = time.Time{}, false
 	s.lastOut = s.now()
-	payload := cmd + "\n"
+	var payload string
 	if s.a.Markers != nil {
 		t := token()
+		payload = sessionPayload(s.a, cmd, t)
 		s.outCmd, s.errCmd = s.a.Markers(t)
 		s.outMark = t
-		payload += s.outCmd + "\n"
+		s.errMark = ""
 		if s.errCmd != "" {
 			s.errMark = t
-			payload += s.errCmd + "\n"
 		}
+	} else {
+		payload = sessionPayload(s.a, cmd, "")
 	}
 	if err := s.job.SendLine(strings.TrimSuffix(payload, "\n")); err != nil {
 		s.cur = nil
@@ -204,6 +206,27 @@ func (s *Session) sendLocked(e *Entry) error {
 		return err
 	}
 	return nil
+}
+
+// sessionPayload is what the program is sent for one command: the command,
+// a semicolon if the command ends inside a "--" comment, and then the
+// closing marker. A comment runs to the end of the text, and sqlite3 reads
+// its input a chunk at a time, so a marker on the next line would become
+// part of the comment and never print. A semicolon closes it, and an empty
+// statement between two semicolons is not an error.
+func sessionPayload(a Adapter, cmd, token string) string {
+	payload := cmd + "\n"
+	if a.Complete != nil && EndsInLineComment(cmd, a.Dollar) {
+		payload += ";\n"
+	}
+	if a.Markers != nil && token != "" {
+		out, errCmd := a.Markers(token)
+		payload += out + "\n"
+		if errCmd != "" {
+			payload += errCmd + "\n"
+		}
+	}
+	return payload
 }
 
 // endsWithMark reports whether line ends with mark, and returns what came
