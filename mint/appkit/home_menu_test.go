@@ -2,8 +2,10 @@ package appkit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,7 +32,7 @@ func TestHomeMenuLabels(t *testing.T) {
 		{
 			name: "ps/list",
 			spec: ToolSpec{Name: "ps", Bin: "ps", ArchetypeID: "list"},
-			want: []string{"List", "Status", "Presets", "Help", "Live Run & Output", "Run History"},
+			want: []string{"List", "Status", "Presets", "Manual", "Live Run & Output", "Run History"},
 		},
 		{
 			name: "systemctl/control",
@@ -39,27 +41,27 @@ func TestHomeMenuLabels(t *testing.T) {
 				RowActions: []RowActionSpec{{Label: "Restart", Subcommand: []string{"restart"}, Confirm: true}},
 				StatusArgs: []string{"list-units"},
 			},
-			want: []string{"Control", "Actions", "Presets", "Help", "Live Run & Output", "Run History"},
+			want: []string{"Control", "Actions", "Presets", "Manual", "Live Run & Output", "Run History"},
 		},
 		{
 			name: "apt/records",
 			spec: ToolSpec{Name: "apt", Bin: "apt", ArchetypeID: "records", Subcommands: subs},
-			want: []string{"Records", "Install", "Remove", "Update", "Upgrade", "Search", "Show", "Presets", "Help", "Live Run & Output", "Run History"},
+			want: []string{"Records", "Install", "Remove", "Update", "Upgrade", "Search", "Show", "Presets", "Manual", "Live Run & Output", "Run History"},
 		},
 		{
 			name: "nmap/probe",
 			spec: ToolSpec{Name: "nmap", Bin: "nmap", ArchetypeID: "probe"},
-			want: []string{"Probe", "Presets", "Help", "Live Run & Output", "Output Directory", "Run History"},
+			want: []string{"Probe", "Presets", "Manual", "Live Run & Output", "Output Directory", "Run History"},
 		},
 		{
 			name: "audit",
 			spec: ToolSpec{Name: "shellcheck", Bin: "shellcheck", ArchetypeID: "audit", Findings: findings},
-			want: []string{"Audit", "Presets", "Help", "Findings", "Live Run & Output", "Output Directory", "Run History"},
+			want: []string{"Audit", "Presets", "Manual", "Findings", "Live Run & Output", "Output Directory", "Run History"},
 		},
 		{
 			name: "compare",
 			spec: ToolSpec{Name: "cmp", Bin: "diff", ArchetypeID: "compare", Diff: diffSpec},
-			want: []string{"Compare", "Presets", "Help", "Compare", "Live Run & Output", "Run History"},
+			want: []string{"Compare", "Presets", "Manual", "Compare", "Live Run & Output", "Run History"},
 		},
 	}
 	for _, tc := range cases {
@@ -208,23 +210,241 @@ func TestActionsUseConfirm(t *testing.T) {
 
 func TestHelpFallsBackToShortFlag(t *testing.T) {
 	dir := t.TempDir()
+	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\necho 'no manual entry'\n")
+	prependPath(t, dir)
 	bin := filepath.Join(dir, "zzminthelpfix")
-	script := "#!/bin/sh\ncase \"$1\" in\n--help) exit 0 ;;\n-h) echo 'fallback help text'; exit 0 ;;\nesac\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	argsLog := filepath.Join(dir, "args")
+	script := "#!/bin/sh\necho \"$*\" >> " + argsLog + "\ncase \"$1\" in\n--help) exit 0 ;;\n-h) echo 'fallback help text'; exit 0 ;;\nesac\n"
+	writeExe(t, bin, script)
 	text, how := captureToolHelp(bin)
 	if how != "-h" || !strings.Contains(text, "fallback help text") {
 		t.Fatalf("how %q text %q", how, text)
 	}
+	logged, _ := os.ReadFile(argsLog)
+	if strings.Contains(string(logged), "--man") {
+		t.Fatalf("manual was fetched with --man:\n%s", logged)
+	}
+	if !strings.Contains(string(logged), "--help") || !strings.Contains(string(logged), "-h") {
+		t.Fatalf("expected --help then -h, got:\n%s", logged)
+	}
 	a := newTestApp(t, ToolSpec{Name: "zzminthelpfix", Bin: bin, ArchetypeID: "list"})
-	scr := a.HelpScreen()
-	if scr == nil || !strings.Contains(scr.Title, "-h") {
-		t.Fatalf("help screen title %q", scr.Title)
+	scr := a.ManualScreen()
+	if scr == nil || !strings.Contains(scr.Title, "Manual") || strings.Contains(scr.Title, "--help") || strings.Contains(scr.Title, "-h") {
+		t.Fatalf("manual screen title %q", scr.Title)
 	}
-	if scr.Title == "" {
-		t.Fatal("empty help screen")
+	if got := viewerText(t, scr); !strings.Contains(got, "fallback help text") {
+		t.Fatalf("viewer %q", got)
 	}
+}
+
+func TestEveryToolHomeHasManual(t *testing.T) {
+	for _, def := range AllArchetypeDefs() {
+		app := newTestApp(t, ToolSpec{Name: string(def.ID), Bin: "echo", ArchetypeID: string(def.ID)}).BuildApp()
+		var saw bool
+		for _, it := range app.Items {
+			if it.Label == "Help" {
+				t.Fatalf("%s home still has Help: %v", def.ID, homeLabels(app))
+			}
+			if it.Label != "Manual" {
+				continue
+			}
+			saw = true
+			if it.Desc != "Read the full manual (--man)" || strings.Contains(it.Desc, "--help") {
+				t.Fatalf("%s manual desc %q", def.ID, it.Desc)
+			}
+			if it.Open == nil {
+				t.Fatalf("%s Manual does not open", def.ID)
+			}
+		}
+		if !saw {
+			t.Fatalf("%s home has no Manual: %v", def.ID, homeLabels(app))
+		}
+	}
+}
+
+func TestManualWidthFollowsTerminal(t *testing.T) {
+	dir := t.TempDir()
+	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\nprintf '%s\\n' NAME '    wide - manual' \"WIDTH=$MANWIDTH\"\n")
+	prependPath(t, dir)
+	bin := filepath.Join(dir, "wide")
+	writeExe(t, bin, "#!/bin/sh\necho 'not the manual'\n")
+	text, how := captureToolHelpArgs(bin, nil, 64)
+	if how != "man" || !strings.Contains(text, "WIDTH=64") {
+		t.Fatalf("how %q text %q", how, text)
+	}
+	if strings.Contains(text, "WIDTH=100") {
+		t.Fatal("MANWIDTH is still the old hardcoded 100")
+	}
+}
+
+func TestManualOpensViewLogWithFullText(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SECRET", "hunter2")
+	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
+printf '%s\n' 'NAME' '    longman - a long manual' "WIDTH=$MANWIDTH" "SECRET=${SECRET-unset}" "TTY=$(test -t 0 && echo yes || echo no)"
+st=$(dd bs=1 count=1 2>/dev/null | wc -c | tr -d ' ')
+printf '%s\n' "STDIN=$st"
+dd if=/dev/zero bs=1024 count=2500 2>/dev/null | tr '\0' 'x' | fold -w 80
+printf '%s\n' 'ENDMARKER-PR85'
+`)
+	prependPath(t, dir)
+	bin := filepath.Join(dir, "longman")
+	writeExe(t, bin, "#!/bin/sh\necho 'short help that must not replace the manual'\n")
+	a := newTestApp(t, ToolSpec{Name: "longman", Bin: bin, ArchetypeID: "list"})
+	scr := a.ManualScreen()
+	if _, ok := scr.ViewerLines(); !ok {
+		t.Fatal("Manual did not open ViewLog")
+	}
+	if strings.Contains(scr.Title, "--help") || !strings.Contains(scr.Title, "Manual") {
+		t.Fatalf("title %q", scr.Title)
+	}
+	text := viewerText(t, scr)
+	if !strings.Contains(text, "ENDMARKER-PR85") {
+		t.Fatalf("manual truncated, len %d, tail %q", len(text), textTail(text))
+	}
+	if len(text) <= 2<<20 {
+		t.Fatalf("manual len %d is still within the old 2MB cap", len(text))
+	}
+	_, cols := mint.TermSize()
+	if !strings.Contains(text, "WIDTH="+strconv.Itoa(cols)) {
+		t.Fatalf("MANWIDTH is not the terminal width %d:\n%s", cols, textHead(text))
+	}
+	if strings.Contains(text, "hunter2") || !strings.Contains(text, "SECRET=unset") {
+		t.Fatalf("environment leaked into the manual:\n%s", textHead(text))
+	}
+	if !strings.Contains(text, "TTY=no") || !strings.Contains(text, "STDIN=0") {
+		t.Fatalf("manual capture is not sandboxed:\n%s", textHead(text))
+	}
+	if strings.Contains(text, "short help") {
+		t.Fatalf("fell through to --help:\n%s", textHead(text))
+	}
+}
+
+func TestToolkitManualUsesSelectedSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
+printf '%s\n' "$*" >> `+fmt.Sprintf("%q", log)+`
+page=
+for a in "$@"; do page=$a; done
+case "$page" in
+  docker-run) printf '%s\n' NAME '    docker-run - run a container' SUB-MANUAL ;;
+  docker) printf '%s\n' NAME '    docker - the tool' TOOL-MANUAL ;;
+  *) printf '%s\n' "no manual for $page" ;;
+esac
+`)
+	writeExe(t, filepath.Join(dir, "docker"), `#!/bin/sh
+printf '%s\n' "$*" >> `+fmt.Sprintf("%q", log)+`
+case "$1:$2" in
+  run:--help) echo 'run long help' ;;
+  run:-h) echo 'run short help' ;;
+  --help) echo 'tool long help' ;;
+  -h) echo 'tool short help' ;;
+  *) echo "unexpected $*" ;;
+esac
+`)
+	prependPath(t, dir)
+	bin := filepath.Join(dir, "docker")
+	spec := ToolSpec{
+		Name: "docker", Bin: bin, ArchetypeID: "toolkit",
+		Subcommands: []SubcommandSpec{{Name: "run", Label: "Run", Desc: "Run a container"}},
+	}
+	a := newTestApp(t, spec)
+	if a.ActiveSubcommand != "run" {
+		t.Fatalf("toolkit starts on %q", a.ActiveSubcommand)
+	}
+	scr := a.ManualScreen()
+	text := viewerText(t, scr)
+	if !strings.Contains(text, "SUB-MANUAL") || strings.Contains(text, "TOOL-MANUAL") {
+		t.Fatalf("selected subcommand manual:\n%s", text)
+	}
+	if !strings.Contains(scr.Title, "docker run") || !strings.Contains(scr.Title, "Manual") {
+		t.Fatalf("title %q", scr.Title)
+	}
+
+	b := newTestApp(t, spec)
+	b.ActiveSubcommand = ""
+	if got := viewerText(t, b.ManualScreen()); !strings.Contains(got, "TOOL-MANUAL") || strings.Contains(got, "SUB-MANUAL") {
+		t.Fatalf("tool manual with no subcommand:\n%s", got)
+	}
+
+	// No subcommand page: ask the tool with --help, never --man.
+	_ = os.Remove(log)
+	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+fmt.Sprintf("%q", log)+"\necho 'no manual entry'\n")
+	c := newTestApp(t, spec)
+	c.ActiveSubcommand = "run"
+	got := viewerText(t, c.ManualScreen())
+	if !strings.Contains(got, "run long help") {
+		t.Fatalf("subcommand --help fallback:\n%s", got)
+	}
+	logged, _ := os.ReadFile(log)
+	if strings.Contains(string(logged), "--man") {
+		t.Fatalf("fetched the subcommand manual with --man:\n%s", logged)
+	}
+	if !strings.Contains(string(logged), "run --help") {
+		t.Fatalf("subcommand was not asked with --help:\n%s", logged)
+	}
+
+	// A records tool keeps the tool manual even when a subcommand is selected.
+	_ = os.Remove(log)
+	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
+printf '%s\n' "$*" >> `+fmt.Sprintf("%q", log)+`
+page=
+for a in "$@"; do page=$a; done
+case "$page" in
+  docker-run) printf '%s\n' NAME '    docker-run - run a container' SUB-MANUAL ;;
+  docker) printf '%s\n' NAME '    docker - the tool' TOOL-MANUAL ;;
+  *) printf '%s\n' "no manual for $page" ;;
+esac
+`)
+	rec := newTestApp(t, ToolSpec{
+		Name: "docker", Bin: bin, ArchetypeID: "records",
+		Subcommands: []SubcommandSpec{{Name: "run", Label: "Run"}},
+	})
+	rec.ActiveSubcommand = "run"
+	if got := viewerText(t, rec.ManualScreen()); !strings.Contains(got, "TOOL-MANUAL") || strings.Contains(got, "SUB-MANUAL") {
+		t.Fatalf("records used the subcommand manual:\n%s", got)
+	}
+}
+
+func writeExe(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prependPath(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func viewerText(t *testing.T, scr *mint.Screen) string {
+	t.Helper()
+	lines, ok := scr.ViewerLines()
+	if !ok {
+		t.Fatalf("screen %q is not ViewLog", scr.Title)
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l.Text)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func textHead(s string) string {
+	if len(s) > 400 {
+		return s[:400]
+	}
+	return s
+}
+
+func textTail(s string) string {
+	if len(s) > 200 {
+		return s[len(s)-200:]
+	}
+	return s
 }
 
 func TestSplitScreensForArchetypes(t *testing.T) {

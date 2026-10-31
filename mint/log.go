@@ -252,6 +252,15 @@ func SaveLogLines(path string, lines []LogLine) error {
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
+// ViewerLines returns the text a full-screen log viewer is showing.
+// ok is false for every other screen.
+func (s *Screen) ViewerLines() ([]LogLine, bool) {
+	if s == nil || s.viewerLines == nil {
+		return nil, false
+	}
+	return s.viewerLines(), true
+}
+
 // ViewLog returns a full-screen log viewer Screen with vertical scrolling,
 // horizontal panning (←/→/0), case-insensitive search (/, n, N), and
 // save-to-file (s).
@@ -269,9 +278,10 @@ func ViewLogWith(opts ViewLogOpts) *Screen {
 		title = "Output"
 	}
 	scr := &Screen{
-		Title:      title,
-		Breadcrumb: opts.Breadcrumb,
-		Status:     opts.Status,
+		Title:       title,
+		Breadcrumb:  opts.Breadcrumb,
+		Status:      opts.Status,
+		viewerLines: opts.Lines,
 	}
 	scr.customRun = func() screenResult {
 		s := scr

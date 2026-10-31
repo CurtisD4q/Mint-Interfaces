@@ -36,10 +36,9 @@ func (s *Screen) splitSpacing() int {
 // assignPaneRows decides how many content rows each open pane gets.
 // short terminals keep the old rule: unfocused panes are already collapsed
 // and the focused pane takes the rows that remain. Otherwise the top pane
-// takes half, a pane titled Help takes a tenth, and the other panes share
-// the rest. A pane shorter than its share shrinks to its content and the
-// spare rows go to panes that still have something to scroll, or stay
-// blank under the last pane.
+// takes half and the other panes share the rest. A pane shorter than its
+// share shrinks to its content and the spare rows go to panes that still
+// have something to scroll, or stay blank under the last pane.
 func (s *Screen) assignPaneRows(plans []panePlan, short bool, avail int) (rows []int, content []bool, leads []int) {
 	n := len(plans)
 	divCount := 0
@@ -201,24 +200,17 @@ func (s *Screen) shareNums(plans []panePlan) (nums []int, den int) {
 		return nums, den
 	}
 
-	var help, others []int
+	var others []int
 	top := false
 	for _, i := range idx {
 		if plans[i].index == 0 {
 			top = true
 			continue
 		}
-		if s.paneTitle(plans[i].index) == "Help" {
-			help = append(help, i)
-		} else {
-			others = append(others, i)
-		}
+		others = append(others, i)
 	}
 	if top {
 		nums[0] = 50
-	}
-	for _, i := range help {
-		nums[i] = 10
 	}
 	used := 0
 	for _, n := range nums {

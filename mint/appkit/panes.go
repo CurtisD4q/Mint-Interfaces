@@ -269,7 +269,6 @@ func (a *ToolApp) layoutInspect(scr *mint.Screen, mode execMode, canPoll bool, i
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Report", a.outputBlocks())...)
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	panes = append(panes,
 		&mint.Pane{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(scr) }},
 		&mint.Pane{Title: "Actions", Refresh: func(p *mint.Pane) { p.Sections = a.actionPane(scr) }},
@@ -298,7 +297,6 @@ func (a *ToolApp) layoutProbe(scr *mint.Screen, mode execMode, canPoll bool, int
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, &mint.Pane{Title: "Discovered targets", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	scr.Sections = top
 	scr.SetPanes(panes)
 }
@@ -308,16 +306,14 @@ func (a *ToolApp) layoutAudit(scr *mint.Screen, mode execMode, canPoll bool, int
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Findings", a.findingsSections())...)
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	scr.Sections = top
 	scr.SetPanes(panes)
 }
 
 func (a *ToolApp) layoutConvert(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
 	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	panes := append(options, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	scr.Sections = top
-	scr.SetPanes(panes)
+	scr.SetPanes(options)
 }
 
 func (a *ToolApp) layoutToolkit(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
@@ -326,7 +322,6 @@ func (a *ToolApp) layoutToolkit(scr *mint.Screen, mode execMode, canPoll bool, i
 	panes = append(panes, options...)
 	title := a.outputSectionName("Output")
 	panes = append(panes, &mint.Pane{Title: "Output", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(a.helpPrefix()))...)
 	scr.Sections = top
 	scr.SetPanes(panes)
 }
@@ -337,7 +332,6 @@ func (a *ToolApp) layoutTransfer(scr *mint.Screen, mode execMode, canPoll bool, 
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, &mint.Pane{Title: "Progress", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	scr.Sections = top
 	scr.SetPanes(panes)
 }
@@ -347,7 +341,6 @@ func (a *ToolApp) layoutMirror(scr *mint.Screen, mode execMode, canPoll bool, in
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("What will change", a.mirrorChangeSections())...)
-	panes = append(panes, chunkedPanes("Help", a.helpPaneSections(nil))...)
 	scr.Sections = top
 	scr.SetPanes(panes)
 }
