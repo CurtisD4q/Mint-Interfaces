@@ -35,7 +35,9 @@ type Screen struct {
 	Sections   []Section
 
 	// Weight is the top pane's share of the content height when Panes is
-	// set. Zero shares equally with every pane that also left Weight unset.
+	// set and any pane sets a weight above zero. With every weight left at
+	// zero, the top pane takes half the content rows, a pane titled Help
+	// takes a tenth, and the other panes split what remains.
 	Weight float64
 
 	// Panes are stacked under Sections, top to bottom. A screen with none
@@ -75,6 +77,7 @@ type Screen struct {
 	bands     []paneBand
 	viewTop   int
 	viewAvail int
+	viewWidth int
 	selRow    Row
 	selOK     bool
 
@@ -85,7 +88,9 @@ type Screen struct {
 
 // Pane is one band stacked under a screen's own sections. Each pane has its
 // own sections, cursor, scroll and collapsed state, and a weight for how
-// much of the height it takes (zero shares equally).
+// much of the height it takes when any pane sets a weight above zero.
+// With every weight left at zero, a pane titled Help takes a tenth of the
+// content rows and the other panes share what the top pane did not take.
 type Pane struct {
 	Title    string
 	Sections []Section
@@ -1007,7 +1012,7 @@ func (screen *Screen) bind() {
 			finish(cv)
 			return
 		}
-		screen.viewTop, screen.viewAvail = contentTop, avail
+		screen.viewTop, screen.viewAvail, screen.viewWidth = contentTop, avail, w
 		if len(screen.Panes) > 0 {
 			screen.paintSplit(cv, w, contentTop, avail, func(u *uiState) { st = u }, widget, marked)
 			st = screen.uiAt(screen.focus)

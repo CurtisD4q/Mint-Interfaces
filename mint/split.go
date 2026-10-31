@@ -2,7 +2,6 @@ package mint
 
 import (
 	"fmt"
-	"math"
 	"strings"
 )
 
@@ -192,8 +191,9 @@ func (s *Screen) toggleFocused() {
 }
 
 // nudgeFocus grows (dir > 0) or shrinks (dir < 0) the focused pane by one
-// row, taking or giving that row to a neighbour. Every pane that is
-// actually showing content keeps at least 3 rows. A collapsed or hidden
+// row. The row comes from a neighbour when that neighbour has one to spare,
+// and otherwise from the blank rows under the last pane. Every pane that
+// is actually showing content keeps at least 3 rows. A collapsed or hidden
 // pane is not resized.
 func (s *Screen) nudgeFocus(dir int) {
 	if dir == 0 || s.paneCount() <= 1 || s.viewAvail < 1 {
@@ -224,16 +224,25 @@ func (s *Screen) nudgeFocus(dir int) {
 		nb = pos - 1
 	}
 	focused, neighbour := content[pos], content[nb]
-	if dir < 0 && focused.rows-1 < 3 {
+	slack := bandSlack(bands, s.viewTop, s.viewAvail)
+	if dir < 0 && focused.rows-1 < paneMinRows {
 		return
 	}
-	if dir > 0 && neighbour.rows-1 < 3 {
+	if dir > 0 && neighbour.rows-1 < paneMinRows && slack < 1 {
 		return
 	}
 	if s.bias == nil {
 		s.bias = map[int]int{}
 	}
 	s.bias[focused.index] += dir
+	// A neighbour already at the minimum cannot give or take a row. The
+	// blank space under the last pane absorbs it instead.
+	if dir > 0 && neighbour.rows-1 < paneMinRows {
+		return
+	}
+	if dir < 0 && neighbour.rows <= paneMinRows {
+		return
+	}
 	s.bias[neighbour.index] -= dir
 }
 
@@ -267,24 +276,19 @@ func (s *Screen) bandIndex(row int) (int, bool) {
 }
 
 // layoutBands splits the content rows [contentTop, contentTop+avail) across
-// the top pane and Panes. Extra panes each take a one-line divider. When
-// the area is too short for every visible pane to keep 3 rows, unfocused
-// panes collapse to that divider and the focused pane takes what is left.
+// the top pane and Panes. Extra panes each take a one-line divider, with
+// blank lines before it so the gap above the title stays at two lines.
+// When the area is too short for every visible pane to keep 3 rows,
+// unfocused panes collapse to that divider and the focused pane takes
+// what is left.
 func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 	n := s.paneCount()
 	if s.focus < 0 || s.focus >= n {
 		s.focus = 0
 	}
-	type plan struct {
-		index   int
-		weight  float64
-		hidden  bool
-		div     bool
-		content bool
-	}
-	plans := make([]plan, n)
+	plans := make([]panePlan, n)
 	for i := 0; i < n; i++ {
-		plans[i] = plan{index: i, weight: s.paneWeight(i), hidden: s.paneHidden(i)}
+		plans[i] = panePlan{index: i, weight: s.paneWeight(i), hidden: s.paneHidden(i)}
 	}
 	shown := 0
 	for i := range plans {
@@ -301,7 +305,7 @@ func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 			plans[i].div = true
 		}
 	}
-	need := shown*3 + dividers
+	need := shown*paneMinRows + dividers
 	// A hidden top still needs a divider of its own, which was not counted.
 	if plans[0].hidden {
 		need++
@@ -321,149 +325,8 @@ func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 			plans[i].content = true
 		}
 	}
-	divCount := 0
-	contentCount := 0
-	for _, p := range plans {
-		if p.div {
-			divCount++
-		}
-		if p.content {
-			contentCount++
-		}
-	}
-	budget := avail - divCount
-	if budget < 0 {
-		// Not enough rows for every divider. Keep the focused pane's
-		// divider (if it has one) and as many others as fit, from the top.
-		budget = 0
-		keep := avail
-		if keep < 0 {
-			keep = 0
-		}
-		seen := 0
-		for i := range plans {
-			if !plans[i].div {
-				continue
-			}
-			if seen < keep {
-				seen++
-				continue
-			}
-			plans[i].div = false
-		}
-		divCount = seen
-		// Give any leftover row to the focused content, if it is showing.
-		budget = avail - divCount
-	}
-	rows := make([]int, n)
-	content := make([]bool, n)
-	if contentCount > 0 && budget > 0 {
-		sum := 0.0
-		weights := make([]float64, n)
-		for i, p := range plans {
-			if !p.content {
-				continue
-			}
-			w := p.weight
-			if w <= 0 {
-				w = 1
-			}
-			weights[i] = w
-			sum += w
-		}
-		used := 0
-		last := -1
-		for i, p := range plans {
-			if !p.content {
-				continue
-			}
-			last = i
-			rows[i] = int(math.Floor(float64(budget)*weights[i]/sum + 1e-9))
-			used += rows[i]
-		}
-		if last >= 0 {
-			rows[last] += budget - used
-		}
-		for i := range plans {
-			if !plans[i].content {
-				continue
-			}
-			rows[i] += s.bias[plans[i].index]
-			content[i] = true
-		}
-		if !short {
-			clampContentRows(rows, content, 3, budget)
-		}
-	}
-
-	out := make([]paneBand, 0, n)
-	row := contentTop
-	limit := contentTop + avail
-	for i, p := range plans {
-		b := paneBand{index: p.index, hidden: s.paneHidden(p.index)}
-		if p.div && row < limit {
-			b.divRow = row
-			row++
-		}
-		if content[i] && rows[i] > 0 && row < limit {
-			b.top = row
-			b.rows = rows[i]
-			if b.top+b.rows > limit {
-				b.rows = limit - b.top
-			}
-			row += b.rows
-		}
-		if !p.content && p.div && !s.paneHidden(p.index) && p.index != s.focus {
-			b.collapsed = true
-		}
-		if p.div || b.rows > 0 {
-			out = append(out, b)
-		}
-	}
-	return out
-}
-
-// clampContentRows keeps every content pane at min rows or more, without
-// changing the total, by moving rows from panes that have some to spare.
-func clampContentRows(rows []int, content []bool, min, total int) {
-	for guard := 0; guard < 64; guard++ {
-		need := 0
-		for i := range rows {
-			if content[i] && rows[i] < min {
-				need += min - rows[i]
-				rows[i] = min
-			}
-		}
-		if need == 0 {
-			break
-		}
-		for need > 0 {
-			best, bestV := -1, min
-			for i := range rows {
-				if content[i] && rows[i] > bestV {
-					best, bestV = i, rows[i]
-				}
-			}
-			if best < 0 {
-				break
-			}
-			rows[best]--
-			need--
-		}
-	}
-	sum, last := 0, -1
-	for i := range rows {
-		if content[i] {
-			sum += rows[i]
-			last = i
-		}
-	}
-	if last >= 0 && sum != total {
-		rows[last] += total - sum
-		if rows[last] < 1 {
-			rows[last] = 1
-		}
-	}
+	rows, content, leads := s.assignPaneRows(plans, short, avail)
+	return placeBands(s, plans, rows, content, leads, contentTop, avail)
 }
 
 const splitKeyHints = "Tab/S-Tab pane   [ ] size   | hide"
@@ -646,19 +509,48 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 // paintSplit draws the top pane and every extra pane into the content area.
 // use points the screen's widget closures at the pane being drawn.
 func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiState), widget func(*Row, int) string, marked func(*Row, int) bool) {
+	sp := s.splitSpacing()
+	// Lay the top pane out before the lower panes refresh, so a detail
+	// pane sees the row the cursor is on. Refresh can change how tall a
+	// lower pane needs to be, so the bands are measured again afterwards.
 	bands := s.layoutBands(contentTop, avail)
-	s.bands = bands
-	// Lay the top pane out at its real height before the lower panes
-	// refresh, so a detail pane sees the row the cursor is on.
-	for _, b := range bands {
-		if b.index != 0 || b.rows <= 0 {
-			continue
-		}
+	if rows := bandRows(bands, 0); rows > 0 {
 		top := s.uiAt(0)
 		use(top)
-		preparePane(top, s.Sections, w, s.SectionSpacing, b.rows)
+		preparePane(top, s.Sections, w, sp, rows)
 		s.noteSelection(top)
 	}
+	s.refreshSplitPanes()
+	next := s.layoutBands(contentTop, avail)
+	if bandRows(bands, 0) != bandRows(next, 0) {
+		if rows := bandRows(next, 0); rows > 0 {
+			top := s.uiAt(0)
+			use(top)
+			preparePane(top, s.Sections, w, sp, rows)
+			before := s.selSig()
+			s.noteSelection(top)
+			if s.selSig() != before {
+				s.refreshSplitPanes()
+				next = s.layoutBands(contentTop, avail)
+			}
+		}
+	}
+	s.bands = next
+	for _, b := range s.bands {
+		if b.divRow > 0 {
+			paintDivider(cv, b.divRow, w, s.paneTitle(b.index), b.index == s.focus)
+		}
+		if b.rows <= 0 {
+			continue
+		}
+		pst := s.uiAt(b.index)
+		use(pst)
+		items := preparePane(pst, s.sectionsAt(b.index), w, sp, b.rows)
+		paintRows(cv, pst, items, b.top, b.rows, w, b.index == s.focus, widget, marked)
+	}
+}
+
+func (s *Screen) refreshSplitPanes() {
 	for _, p := range s.Panes {
 		if p == nil || p.Refresh == nil {
 			continue
@@ -672,26 +564,17 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 			p.Refresh(p)
 		}()
 	}
-	for _, b := range bands {
-		if b.divRow > 0 {
-			paintDivider(cv, b.divRow, w, s.paneTitle(b.index), b.index == s.focus)
-		}
-		if b.rows <= 0 {
-			continue
-		}
-		pst := s.uiAt(b.index)
-		use(pst)
-		var items []Row
-		if b.index == 0 {
-			items = pst.items
-			if len(items) == 0 {
-				items = preparePane(pst, s.Sections, w, s.SectionSpacing, b.rows)
-			}
-		} else {
-			items = preparePane(pst, s.sectionsAt(b.index), w, s.SectionSpacing, b.rows)
-		}
-		paintRows(cv, pst, items, b.top, b.rows, w, b.index == s.focus, widget, marked)
+}
+
+func (s *Screen) selSig() string {
+	if s == nil || !s.selOK {
+		return ""
 	}
+	_, cells, idx, ok := s.selRow.TableCells()
+	if !ok {
+		return s.selRow.label
+	}
+	return fmt.Sprintf("%d\x00%s", idx, strings.Join(cells, "\x00"))
 }
 
 func paintDivider(cv *canvas, row, w int, title string, focused bool) {

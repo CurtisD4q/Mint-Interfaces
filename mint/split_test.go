@@ -1,6 +1,7 @@
 package mint
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -499,4 +500,347 @@ func decodeRune(s string) (rune, int) {
 		return r, len(string(r))
 	}
 	return 0, 1
+}
+
+func manyNotes(prefix string, n int) []Row {
+	rows := make([]Row, n)
+	for i := range rows {
+		rows[i] = Note(prefix)
+	}
+	if n > 0 {
+		rows[0] = Note(prefix + "-first")
+		rows[n-1] = Note(prefix + "-last")
+	}
+	return rows
+}
+
+func contentLines(frame string, h, w, top, avail int) []string {
+	grid := frameGrid(frame, h, w)
+	if top < 1 {
+		top = 1
+	}
+	end := top - 1 + avail
+	if end > len(grid) {
+		end = len(grid)
+	}
+	if top-1 > len(grid) {
+		return nil
+	}
+	return grid[top-1 : end]
+}
+
+func contentBlank(line string) bool {
+	line = strings.TrimSpace(line)
+	line = strings.Trim(line, "│╭╮╰╯─ ")
+	return strings.TrimSpace(line) == ""
+}
+
+func maxInternalBlanks(lines []string) int {
+	maxRun, run, seen := 0, 0, false
+	for _, ln := range lines {
+		if contentBlank(ln) {
+			if seen {
+				run++
+			}
+			continue
+		}
+		if seen && run > maxRun {
+			maxRun = run
+		}
+		seen = true
+		run = 0
+	}
+	return maxRun
+}
+
+func blanksBetween(lines []string, from, to string) (int, bool) {
+	a, b := -1, -1
+	for i, ln := range lines {
+		if a < 0 && strings.Contains(ln, from) {
+			a = i
+			continue
+		}
+		if a >= 0 && strings.Contains(ln, to) {
+			b = i
+			break
+		}
+	}
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	n := 0
+	for _, ln := range lines[a+1 : b] {
+		if !contentBlank(ln) {
+			return -1, false
+		}
+		n++
+	}
+	return n, true
+}
+
+func blanksAbove(grid []string, row, stop int) int {
+	n := 0
+	for r := row - 1; r >= stop; r-- {
+		if r < 1 || r > len(grid) {
+			break
+		}
+		if !contentBlank(grid[r-1]) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+func bandByTitle(s *Screen, title string) (paneBand, bool) {
+	for _, b := range s.bands {
+		if s.paneTitle(b.index) == title {
+			return b, true
+		}
+	}
+	return paneBand{}, false
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// longSplitScreen is a top pane, one other pane, and Help, each with more
+// rows than any of them is given, so the 50/10/40 split is not shrunk.
+func longSplitScreen() *Screen {
+	return &Screen{
+		Title:    "Main",
+		Sections: []Section{{Name: "Options", Rows: manyNotes("opt", 40)}},
+		Panes: []*Pane{
+			{Title: "Targets", Sections: []Section{{Name: "Targets", Rows: manyNotes("tgt", 40)}}},
+			{Title: "Help", Sections: []Section{{Name: "Manual", Rows: manyNotes("hlp", 40)}}},
+		},
+	}
+}
+
+func TestPaneSplitAtHeights(t *testing.T) {
+	const w = 80
+	for _, h := range []int{24, 30, 40, 60} {
+		t.Run(fmt.Sprintf("%d", h), func(t *testing.T) {
+			s := longSplitScreen()
+			frame := s.renderFrame(h, w)
+			main, ok := bandByTitle(s, "Main")
+			targets, okT := bandByTitle(s, "Targets")
+			help, okH := bandByTitle(s, "Help")
+			if !ok || !okT || !okH || main.rows < 1 || targets.rows < 1 || help.rows < 1 {
+				t.Fatalf("bands %+v", s.bands)
+			}
+			total := main.rows + targets.rows + help.rows
+			if absInt(main.rows-total*50/100) > 1 {
+				t.Fatalf("h=%d top %d, want ~50%% of %d", h, main.rows, total)
+			}
+			if absInt(targets.rows-total*40/100) > 1 {
+				t.Fatalf("h=%d targets %d, want ~40%% of %d", h, targets.rows, total)
+			}
+			helpShare := total * 10 / 100
+			if helpShare < paneMinRows {
+				helpShare = paneMinRows
+			}
+			if absInt(help.rows-helpShare) > 1 {
+				t.Fatalf("h=%d help %d, want ~%d", h, help.rows, helpShare)
+			}
+			for _, b := range s.bands {
+				if b.rows > 0 && b.rows < paneMinRows {
+					t.Fatalf("h=%d pane %d has %d rows", h, b.index, b.rows)
+				}
+			}
+			if slack := bandSlack(s.bands, s.viewTop, s.viewAvail); slack != 0 {
+				t.Fatalf("h=%d long panes left %d unused rows", h, slack)
+			}
+			grid := frameGrid(frame, h, w)
+			lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
+			if n := maxInternalBlanks(lines); n > paneGapLines {
+				t.Fatalf("h=%d gap of %d blank lines\n%s", h, n, strings.Join(lines, "\n"))
+			}
+			for _, b := range s.bands {
+				if b.index == 0 || b.divRow == 0 {
+					continue
+				}
+				if n := blanksAbove(grid, b.divRow, s.viewTop); n != paneGapLines {
+					t.Fatalf("h=%d %s divider has %d blank lines above it\n%s", h, s.paneTitle(b.index), n, strings.Join(lines, "\n"))
+				}
+			}
+		})
+	}
+}
+
+func TestPaneSplitWithoutHelp(t *testing.T) {
+	const w = 80
+	for _, h := range []int{24, 30, 40, 60} {
+		s := &Screen{
+			Title:    "Main",
+			Sections: []Section{{Name: "Options", Rows: manyNotes("opt", 40)}},
+			Panes: []*Pane{
+				{Title: "Details", Sections: []Section{{Name: "Details", Rows: manyNotes("det", 40)}}},
+				{Title: "Actions", Sections: []Section{{Name: "Actions", Rows: manyNotes("act", 40)}}},
+			},
+		}
+		frame := s.renderFrame(h, w)
+		main, _ := bandByTitle(s, "Main")
+		details, _ := bandByTitle(s, "Details")
+		actions, _ := bandByTitle(s, "Actions")
+		total := main.rows + details.rows + actions.rows
+		if absInt(main.rows-total*50/100) > 1 {
+			t.Fatalf("h=%d top %d, want ~50%% of %d", h, main.rows, total)
+		}
+		// The other half is split evenly. The two panes differ by at most one row.
+		if absInt(details.rows-actions.rows) > 1 {
+			t.Fatalf("h=%d others %d and %d", h, details.rows, actions.rows)
+		}
+		half := total - main.rows
+		if absInt(details.rows-half/2) > 1 || absInt(actions.rows-half/2) > 1 {
+			t.Fatalf("h=%d others %d+%d, half is %d", h, details.rows, actions.rows, half)
+		}
+		lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
+		if n := maxInternalBlanks(lines); n > paneGapLines {
+			t.Fatalf("h=%d gap of %d\n%s", h, n, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestShortPaneGivesRowsBack(t *testing.T) {
+	const w = 80
+	for _, h := range []int{24, 30, 40, 60} {
+		s := &Screen{
+			Title:    "Main",
+			Sections: []Section{{Name: "Options", Rows: manyNotes("opt", 40)}},
+			Panes: []*Pane{
+				{Title: "Targets", Sections: []Section{{Name: "Targets", Rows: []Row{Note("none")}}}},
+				{Title: "Help", Sections: []Section{{Name: "Manual", Rows: manyNotes("hlp", 40)}}},
+			},
+		}
+		frame := s.renderFrame(h, w)
+		main, _ := bandByTitle(s, "Main")
+		targets, _ := bandByTitle(s, "Targets")
+		help, _ := bandByTitle(s, "Help")
+		total := main.rows + targets.rows + help.rows
+		if targets.rows != paneMinRows {
+			t.Fatalf("h=%d short pane kept %d rows", h, targets.rows)
+		}
+		share := total * 40 / 100
+		if share > paneMinRows && targets.rows >= share {
+			t.Fatalf("h=%d short pane kept a %d-row share of %d", h, targets.rows, total)
+		}
+		// The long panes together hold more than the short pane's old share.
+		if main.rows+help.rows <= total/2 {
+			t.Fatalf("h=%d long panes only have %d of %d", h, main.rows+help.rows, total)
+		}
+		lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
+		if n := maxInternalBlanks(lines); n > paneGapLines {
+			t.Fatalf("h=%d gap of %d\n%s", h, n, strings.Join(lines, "\n"))
+		}
+		grid := frameGrid(frame, h, w)
+		if n := blanksAbove(grid, targets.divRow, s.viewTop); n != paneGapLines {
+			t.Fatalf("h=%d gap above targets is %d\n%s", h, n, strings.Join(lines, "\n"))
+		}
+		if help.divRow > 0 {
+			if n := blanksAbove(grid, help.divRow, s.viewTop); n != paneGapLines {
+				t.Fatalf("h=%d gap above help is %d\n%s", h, n, strings.Join(lines, "\n"))
+			}
+		}
+	}
+}
+
+// TestHelpGapSitsAtTheBottom is the probe screen: a short results pane and
+// a short Help pane used to be padded out, so Help sat at the bottom of
+// the terminal with a tall blank band above it.
+func TestHelpGapSitsAtTheBottom(t *testing.T) {
+	const w = 80
+	for _, h := range []int{40, 60} {
+		s := &Screen{
+			Title: "nmap",
+			Sections: []Section{
+				{Name: "Target", Rows: []Row{Note("host"), Note("ports")}},
+				{Name: "Run", Rows: []Row{Note("once"), Note("go")}},
+			},
+			Panes: []*Pane{
+				{Title: "Discovered targets", Sections: []Section{{Name: "Discovered targets", Rows: []Row{Note("none")}}}},
+				{Title: "Help", Sections: []Section{{Name: "Manual", Rows: []Row{
+					Note("line-a"), Note("line-b"), Note("line-c"), Note("line-d"),
+				}}}},
+			},
+		}
+		frame := s.renderFrame(h, w)
+		help, ok := bandByTitle(s, "Help")
+		targets, okT := bandByTitle(s, "Discovered targets")
+		if !ok || !okT || help.top == 0 || targets.divRow == 0 || help.divRow == 0 {
+			t.Fatalf("h=%d bands %+v", h, s.bands)
+		}
+		if targets.rows != paneMinRows {
+			t.Fatalf("h=%d discovered targets is %d rows", h, targets.rows)
+		}
+		grid := frameGrid(frame, h, w)
+		lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
+		if n := blanksAbove(grid, help.divRow, s.viewTop); n != paneGapLines {
+			t.Fatalf("h=%d %d blank lines above Help\n%s", h, n, strings.Join(lines, "\n"))
+		}
+		if n := maxInternalBlanks(lines); n > paneGapLines {
+			t.Fatalf("h=%d internal gap %d\n%s", h, n, strings.Join(lines, "\n"))
+		}
+		slack := s.viewTop + s.viewAvail - (help.top + help.rows)
+		if slack <= paneGapLines {
+			t.Fatalf("h=%d unused rows are not under Help (slack %d)\n%s", h, slack, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestSectionGapIsTwoOnPaneScreens(t *testing.T) {
+	const h, w = 40, 80
+	s := &Screen{
+		Title:          "Main",
+		SectionSpacing: 1, // the app default; pane screens still use two
+		Sections: []Section{
+			{Name: "Target", Rows: []Row{Note("host")}},
+			{Name: "Run", Rows: []Row{Note("once")}},
+		},
+		Panes: []*Pane{{
+			Title:    "Help",
+			Sections: []Section{{Name: "Manual", Rows: manyNotes("hlp", 30)}},
+		}},
+	}
+	frame := s.renderFrame(h, w)
+	lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
+	n, ok := blanksBetween(lines, "host", "Run")
+	if !ok || n != paneGapLines {
+		t.Fatalf("section gap %d ok=%v\n%s", n, ok, strings.Join(lines, "\n"))
+	}
+	if gap := maxInternalBlanks(lines); gap > paneGapLines {
+		t.Fatalf("gap %d\n%s", gap, strings.Join(lines, "\n"))
+	}
+}
+
+func TestNoPanesKeepTheirOwnSpacing(t *testing.T) {
+	const h, w = 24, 80
+	for _, spacing := range []int{0, 1} {
+		s := &Screen{
+			Title:          "Tools",
+			SectionSpacing: spacing,
+			Sections: []Section{
+				{Name: "List", Rows: []Row{Note("alpha"), Note("beta")}},
+				{Name: "More", Rows: []Row{Note("gamma")}},
+			},
+		}
+		first := s.renderFrame(h, w)
+		second := s.renderFrame(h, w)
+		if first != second {
+			t.Fatalf("spacing %d: drawing twice changed the frame", spacing)
+		}
+		plain := stripFrame(first)
+		if strings.Contains(plain, "Tab/S-Tab") || strings.Contains(plain, "| hide") {
+			t.Fatalf("spacing %d: split keys on a screen with no panes\n%s", spacing, plain)
+		}
+		lines := contentLines(first, h, w, s.viewTop, s.viewAvail)
+		n, ok := blanksBetween(lines, "beta", "More")
+		if !ok || n != spacing {
+			t.Fatalf("spacing %d: gap %d ok=%v\n%s", spacing, n, ok, strings.Join(lines, "\n"))
+		}
+	}
 }
