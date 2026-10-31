@@ -34,6 +34,16 @@ type Screen struct {
 	Hints      string // footer override
 	Sections   []Section
 
+	// Weight is the top pane's share of the content height when Panes is
+	// set. Zero shares equally with every pane that also left Weight unset.
+	Weight float64
+
+	// Panes are stacked under Sections, top to bottom. A screen with none
+	// is one column and draws exactly as before. There is no side-by-side
+	// layout: every extra pane sits under the one above it, with a one-line
+	// divider that shows its title.
+	Panes []*Pane
+
 	// SectionSpacing puts that many blank lines before every named section
 	// except the first. 0 uses the app's setting; negative means none.
 	SectionSpacing int
@@ -56,6 +66,34 @@ type Screen struct {
 	appStatus func() []Badge
 	ui        *uiState
 	customRun func() screenResult
+
+	// Split-view state. Zero values keep a screen with no Panes on the
+	// single-column path.
+	focus     int
+	bias      map[int]int
+	topHidden bool
+	bands     []paneBand
+	viewTop   int
+	viewAvail int
+	selRow    Row
+	selOK     bool
+
+	redraw   func(int, int)
+	onKey    func(*Key, *int, *int, *int) (*screenResult, bool)
+	frameBuf *strings.Builder
+}
+
+// Pane is one band stacked under a screen's own sections. Each pane has its
+// own sections, cursor, scroll and collapsed state, and a weight for how
+// much of the height it takes (zero shares equally).
+type Pane struct {
+	Title    string
+	Sections []Section
+	Weight   float64
+	Refresh  func(*Pane)
+
+	ui     *uiState
+	hidden bool
 }
 
 type editState struct {
@@ -462,6 +500,30 @@ func layoutContent(items []Row, scroll, contentTop, avail int) []contentLine {
 func (screen *Screen) run() screenResult {
 	if screen.customRun != nil {
 		return screen.customRun()
+	}
+	screen.bind()
+	h, w := TermSize()
+	screen.redraw(h, w)
+	sc := 0
+	for {
+		editing := false
+		if u := screen.uiAt(screen.focus); u != nil {
+			editing = u.editing != nil
+		}
+		k := navKey(ReadKey(), editing)
+		res, dirty := screen.onKey(k, &h, &w, &sc)
+		if res != nil {
+			return *res
+		}
+		if dirty {
+			screen.redraw(h, w)
+		}
+	}
+}
+
+func (screen *Screen) bind() {
+	if screen.redraw != nil {
+		return
 	}
 	if screen.ui == nil {
 		screen.ui = &uiState{row: 1, lastGood: map[string]any{}}
@@ -899,6 +961,13 @@ func (screen *Screen) run() screenResult {
 
 	lastClickIdx, lastClickTime := 0, time.Time{}
 
+	finish := func(cv *canvas) {
+		if screen.frameBuf != nil {
+			screen.frameBuf.WriteString(cv.b.String())
+			return
+		}
+		cv.paint()
+	}
 	draw := func(h, w int) {
 		if screen.Refresh != nil {
 			func() {
@@ -915,7 +984,7 @@ func (screen *Screen) run() screenResult {
 			cv.frame(h, w)
 			cv.put(2, 3, C.Amber+"Terminal too small"+Reset)
 			cv.put(3, 3, C.Muted+fmt.Sprintf("need 48x12, have %dx%d", w, h)+Reset)
-			cv.paint()
+			finish(cv)
 			return
 		}
 		cv.frame(h, w)
@@ -935,9 +1004,22 @@ func (screen *Screen) run() screenResult {
 		contentBottom := h - 2
 		avail := contentBottom - contentTop + 1
 		if avail < 1 {
-			cv.paint()
+			finish(cv)
 			return
 		}
+		screen.viewTop, screen.viewAvail = contentTop, avail
+		if len(screen.Panes) > 0 {
+			screen.paintSplit(cv, w, contentTop, avail, func(u *uiState) { st = u }, widget, marked)
+			st = screen.uiAt(screen.focus)
+			it, _ := current()
+			hints := withSplitHints(footerHints(st.editing != nil, screen.Hints, it))
+			badges := status()
+			cv.footer(h, w, hints, badges)
+			st.footSig = footerSig(badges)
+			finish(cv)
+			return
+		}
+		screen.bands = nil
 		st.page = avail
 		items := st.flatten(screen.Sections, w, screen.SectionSpacing)
 		st.items = items
@@ -1083,27 +1165,46 @@ func (screen *Screen) run() screenResult {
 		badges := status()
 		cv.footer(h, w, hints, badges)
 		st.footSig = footerSig(badges)
-		cv.paint()
+		finish(cv)
 	}
 
-	h, w := TermSize()
-	draw(h, w)
-	sc := 0
-	for {
-		k := navKey(ReadKey(), st.editing != nil)
+	screen.redraw = draw
+	screen.onKey = func(k *Key, h, w, sc *int) (*screenResult, bool) {
 		dirty := false
 		consumed := false
+		if len(screen.Panes) > 0 {
+			st = screen.uiAt(screen.focus)
+		}
+		if len(screen.Panes) > 0 && k != nil && k.Mouse != nil {
+			if idx, ok := screen.bandIndex(k.Mouse.Row); ok {
+				screen.focus = idx
+				st = screen.uiAt(idx)
+				dirty = true
+			}
+		}
+		if len(screen.Panes) > 0 && k != nil && (k.Name == "\t" || k.Name == "btab") {
+			if st.editing != nil {
+				commitEdit()
+			}
+			dir := 1
+			if k.Name == "btab" {
+				dir = -1
+			}
+			screen.cycleFocus(dir)
+			st = screen.uiAt(screen.focus)
+			return nil, true
+		}
 		if st.editing != nil && k != nil {
 			dirty = true
 			consumed = editKey(k)
 		}
 		switch {
 		case k == nil:
-			sc++
-			if rt.consumeResize() || sc >= 2 {
-				sc = 0
-				if nh, nw := TermSize(); nh != h || nw != w {
-					h, w = nh, nw
+			*sc = *sc + 1
+			if rt.consumeResize() || *sc >= 2 {
+				*sc = 0
+				if nh, nw := TermSize(); nh != *h || nw != *w {
+					*h, *w = nh, nw
 					dirty = true
 				}
 			}
@@ -1239,15 +1340,49 @@ func (screen *Screen) run() screenResult {
 			change(0)
 			dirty = true
 		case k.Name == "b" || k.Name == "esc":
-			return screenResult{op: "back"}
+			return &screenResult{op: "back"}, false
 		case k.Name == "q" || k.Name == "\x03":
-			return screenResult{op: "quit"}
+			return &screenResult{op: "quit"}, false
+		case len(screen.Panes) > 0 && st.editing == nil && (k.Name == "[" || k.Name == "]" || k.Name == "|"):
+			switch k.Name {
+			case "[":
+				screen.nudgeFocus(-1)
+			case "]":
+				screen.nudgeFocus(1)
+			default:
+				screen.toggleFocused()
+			}
+			dirty = true
 		}
 		if res := takeNav(); res != nil {
-			return *res
+			return res, false
 		}
-		if dirty {
-			draw(h, w)
-		}
+		return nil, dirty
+	}
+}
+
+func (screen *Screen) renderFrame(h, w int) string {
+	screen.bind()
+	var b strings.Builder
+	screen.frameBuf = &b
+	screen.redraw(h, w)
+	screen.frameBuf = nil
+	return b.String()
+}
+
+func (screen *Screen) pressKey(k *Key, h, w int) {
+	screen.bind()
+	if screen.viewAvail == 0 {
+		screen.renderFrame(h, w)
+	}
+	editing := false
+	if u := screen.uiAt(screen.focus); u != nil {
+		editing = u.editing != nil
+	}
+	k = navKey(k, editing)
+	sc := 0
+	_, dirty := screen.onKey(k, &h, &w, &sc)
+	if dirty {
+		screen.renderFrame(h, w)
 	}
 }

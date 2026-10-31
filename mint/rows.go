@@ -93,6 +93,22 @@ type Row struct {
 	// table is the table row a tablerow came from, so ← → can scroll it and
 	// H L resize its columns. Nil for everything else.
 	table *Row
+
+	// cells is the raw column values of a tablerow, with cellHead the
+	// headers and cellIdx the row index in the table. A split detail pane
+	// reads them as the cursor moves.
+	cells    []string
+	cellHead []string
+	cellIdx  int
+}
+
+// TableCells returns the column values of a table row. ok is false for
+// every other kind of row.
+func (r Row) TableCells() (headers, cells []string, index int, ok bool) {
+	if r.wtype != "tablerow" {
+		return nil, nil, 0, false
+	}
+	return append([]string(nil), r.cellHead...), append([]string(nil), r.cells...), r.cellIdx, true
 }
 
 func (r Row) normalized() Row {
