@@ -88,3 +88,29 @@ func TestRunRecordWithoutLinesLoads(t *testing.T) {
 		t.Errorf("loaded %+v", r)
 	}
 }
+
+// The run screen exists to run the same command again and read what it
+// produced, so it carries no input zone: the target and extra arguments
+// were settled on the screen that opened it.
+func TestRunScreenHasNoInputSection(t *testing.T) {
+	// The output section is named "Items" for a list tool, so identify the
+	// input zone by what it used to be: the "Filter" heading the input box
+	// carried, and the Extra arguments box itself.
+	a := newTestApp(t, ToolSpec{Name: "tree", Bin: "echo", ArchetypeID: "list"})
+	scr := a.RunScreen()
+	for _, sec := range scr.Sections {
+		if sec.Name == "Filter" {
+			t.Errorf("run screen has an input section %q", sec.Name)
+		}
+	}
+	// The flags are still there: the screen runs the tool.
+	found := false
+	for _, sec := range scr.Sections {
+		if sec.Name == "Run" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("run screen lost its Run section")
+	}
+}
