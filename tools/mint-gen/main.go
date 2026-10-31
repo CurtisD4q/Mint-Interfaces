@@ -53,7 +53,12 @@ func runCLI(args []string) int {
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
 
-	if err := fs.Parse(flagsFirst(fs, args)); err != nil {
+	ordered := flagsFirst(fs, args)
+	if helpRequested(ordered) {
+		writeMintGuide(os.Stdout, fs)
+		return 0
+	}
+	if err := fs.Parse(ordered); err != nil {
 		return 2
 	}
 
