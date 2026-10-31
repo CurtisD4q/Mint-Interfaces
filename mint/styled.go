@@ -245,6 +245,7 @@ func runViewStyled(screen *Screen, opts ViewStyledOpts) screenResult {
 			}
 		}
 		cv.chromeTitle(w, screen.Title, crumb)
+		cv.titleRule(w)
 
 		if total == 0 {
 			cv.put(top, 3, C.Dim+"(nothing to show)"+Reset)

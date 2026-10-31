@@ -328,6 +328,8 @@ func (st *uiState) flatten(sections []Section, width, spacing int) []Row {
 		}
 		if sec.Name != "" {
 			if spacing > 0 && len(items) > 0 {
+				// Gaps between sections stay blank. The dim rule is only
+				// drawn between stacked panes, not inside one.
 				for i := 0; i < spacing; i++ {
 					items = append(items, Spacer())
 				}
@@ -1022,9 +1024,13 @@ func (screen *Screen) bind() {
 			title = screen.Icon + " " + title
 		}
 		cv.chromeTitle(w, title, screen.Breadcrumb)
+		cv.titleRule(w)
+		// The rule occupies the blank row under the title. A banner moves
+		// to the next row, and content starts after that, so the body
+		// height is the rows that remain.
 		contentTop := 4
 		if screen.Banner != "" {
-			cv.put(3, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
+			cv.put(4, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
 			contentTop = 5
 		}
 		contentBottom := h - 2

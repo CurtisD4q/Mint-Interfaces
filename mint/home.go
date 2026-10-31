@@ -87,6 +87,7 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 		}
 		cv.frame(h, w)
 		cv.chromeTitle(w, title, breadcrumb)
+		cv.titleRule(w)
 		var noteLines []string
 		if note != "" {
 			nl := wrap2(note, max(8, w-6))
@@ -95,12 +96,14 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 				noteLines = append(noteLines, nl[1])
 			}
 		}
+		// Row 3 is the rule. Notes move down onto the blank row that
+		// used to sit under them, so the list still starts where it did.
 		contentTop := 4
 		if len(noteLines) > 0 && noteLines[0] != "" {
-			cv.put(3, 3, C.Amber+noteLines[0]+Reset)
+			cv.put(4, 3, C.Amber+noteLines[0]+Reset)
 			contentTop = 5
 			if len(noteLines) > 1 {
-				cv.put(4, 3, C.Amber+noteLines[1]+Reset)
+				cv.put(5, 3, C.Amber+noteLines[1]+Reset)
 				contentTop = 6
 			}
 		}

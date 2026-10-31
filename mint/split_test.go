@@ -530,9 +530,36 @@ func contentLines(frame string, h, w, top, avail int) []string {
 }
 
 func contentBlank(line string) bool {
+	if isGapRule(line) {
+		return false
+	}
 	line = strings.TrimSpace(line)
 	line = strings.Trim(line, "│╭╮╰╯─ ")
 	return strings.TrimSpace(line) == ""
+}
+
+// isGapRule reports a content row that is only a full-width ─ rule.
+// The frame's own border is not a content row.
+func isGapRule(line string) bool {
+	inner := strings.Trim(line, "│ ")
+	if len(inner) < 8 {
+		return false
+	}
+	for _, r := range inner {
+		if r != '─' {
+			return false
+		}
+	}
+	return true
+}
+
+// gapIsRuleThenBlank reports the two-line gap above a 1-based row:
+// a ─ rule, then a blank line.
+func gapIsRuleThenBlank(grid []string, row int) bool {
+	if row < 3 || row-1 > len(grid) {
+		return false
+	}
+	return isGapRule(grid[row-3]) && contentBlank(grid[row-2])
 }
 
 func maxInternalBlanks(lines []string) int {
@@ -661,8 +688,8 @@ func TestPaneSplitAtHeights(t *testing.T) {
 				if b.index == 0 || b.divRow == 0 {
 					continue
 				}
-				if n := blanksAbove(grid, b.divRow, s.viewTop); n != paneGapLines {
-					t.Fatalf("h=%d %s divider has %d blank lines above it\n%s", h, s.paneTitle(b.index), n, strings.Join(lines, "\n"))
+				if !gapIsRuleThenBlank(grid, b.divRow) {
+					t.Fatalf("h=%d %s gap is not a rule then a blank\n%s", h, s.paneTitle(b.index), strings.Join(lines, "\n"))
 				}
 			}
 		})
@@ -735,13 +762,11 @@ func TestShortPaneGivesRowsBack(t *testing.T) {
 			t.Fatalf("h=%d gap of %d\n%s", h, n, strings.Join(lines, "\n"))
 		}
 		grid := frameGrid(frame, h, w)
-		if n := blanksAbove(grid, targets.divRow, s.viewTop); n != paneGapLines {
-			t.Fatalf("h=%d gap above targets is %d\n%s", h, n, strings.Join(lines, "\n"))
+		if !gapIsRuleThenBlank(grid, targets.divRow) {
+			t.Fatalf("h=%d gap above targets\n%s", h, strings.Join(lines, "\n"))
 		}
-		if help.divRow > 0 {
-			if n := blanksAbove(grid, help.divRow, s.viewTop); n != paneGapLines {
-				t.Fatalf("h=%d gap above help is %d\n%s", h, n, strings.Join(lines, "\n"))
-			}
+		if help.divRow > 0 && !gapIsRuleThenBlank(grid, help.divRow) {
+			t.Fatalf("h=%d gap above help\n%s", h, strings.Join(lines, "\n"))
 		}
 	}
 }
@@ -776,8 +801,8 @@ func TestHelpGapSitsAtTheBottom(t *testing.T) {
 		}
 		grid := frameGrid(frame, h, w)
 		lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
-		if n := blanksAbove(grid, help.divRow, s.viewTop); n != paneGapLines {
-			t.Fatalf("h=%d %d blank lines above Help\n%s", h, n, strings.Join(lines, "\n"))
+		if !gapIsRuleThenBlank(grid, help.divRow) {
+			t.Fatalf("h=%d gap above Help\n%s", h, strings.Join(lines, "\n"))
 		}
 		if n := maxInternalBlanks(lines); n > paneGapLines {
 			t.Fatalf("h=%d internal gap %d\n%s", h, n, strings.Join(lines, "\n"))
@@ -807,7 +832,7 @@ func TestSectionGapIsTwoOnPaneScreens(t *testing.T) {
 	lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
 	n, ok := blanksBetween(lines, "host", "Run")
 	if !ok || n != paneGapLines {
-		t.Fatalf("section gap %d ok=%v\n%s", n, ok, strings.Join(lines, "\n"))
+		t.Fatalf("section gap %d ok=%v; inside a pane it stays blank\n%s", n, ok, strings.Join(lines, "\n"))
 	}
 	if gap := maxInternalBlanks(lines); gap > paneGapLines {
 		t.Fatalf("gap %d\n%s", gap, strings.Join(lines, "\n"))
@@ -838,6 +863,107 @@ func TestNoPanesKeepTheirOwnSpacing(t *testing.T) {
 		n, ok := blanksBetween(lines, "beta", "More")
 		if !ok || n != spacing {
 			t.Fatalf("spacing %d: gap %d ok=%v\n%s", spacing, n, ok, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestTitleRuleSitsUnderTheTitle(t *testing.T) {
+	const h, w = 24, 80
+	s := longSplitScreen()
+	frame := s.renderFrame(h, w)
+	if s.viewTop != 4 {
+		t.Fatalf("body starts at row %d; the rule should replace the blank under the title", s.viewTop)
+	}
+	grid := frameGrid(frame, h, w)
+	if !isGapRule(grid[2]) {
+		t.Fatalf("row under the title: %q", grid[2])
+	}
+	for _, b := range s.bands {
+		if b.rows > 0 && b.rows < paneMinRows {
+			t.Fatalf("pane %d has %d rows", b.index, b.rows)
+		}
+	}
+}
+
+func TestDividersStayPlainWhenColorIsOff(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("TERM", "xterm-256color")
+	p := probeTerminalFeatures(false)
+	if p.ColorDepth != 0 {
+		t.Fatalf("NO_COLOR color depth %d", p.ColorDepth)
+	}
+	saved := C
+	t.Cleanup(func() { C = saved })
+	C = (&level1Runtime{baseRuntime: baseRuntime{profile: p}}).quantizePalette(loadPalette())
+
+	plainScreen := &Screen{
+		Title:          "Tools",
+		SectionSpacing: paneGapLines,
+		Sections: []Section{
+			{Name: "List", Rows: []Row{Note("alpha")}},
+			{Name: "More", Rows: []Row{Note("gamma")}},
+		},
+	}
+	frame := plainScreen.renderFrame(24, 80)
+	grid := frameGrid(frame, 24, 80)
+	if !isGapRule(grid[2]) || !strings.Contains(grid[2], "─") {
+		t.Fatalf("NO_COLOR title rule: %q", grid[2])
+	}
+	lines := contentLines(frame, 24, 80, plainScreen.viewTop, plainScreen.viewAvail)
+	n, ok := blanksBetween(lines, "alpha", "More")
+	if !ok || n != paneGapLines {
+		t.Fatalf("NO_COLOR section gap %d ok=%v; sections stay blank\n%s", n, ok, strings.Join(lines, "\n"))
+	}
+	if strings.Contains(styleBefore(frame, "────────"), "\x1b[38;") {
+		t.Fatal("NO_COLOR title rule still carries a colour")
+	}
+
+	panes := longSplitScreen()
+	pframe := panes.renderFrame(40, 80)
+	pgrid := frameGrid(pframe, 40, 80)
+	targets, okT := bandByTitle(panes, "Targets")
+	if !okT || !gapIsRuleThenBlank(pgrid, targets.divRow) {
+		t.Fatalf("NO_COLOR pane gap is not a plain rule\n%s", strings.Join(contentLines(pframe, 40, 80, panes.viewTop, panes.viewAvail), "\n"))
+	}
+	if strings.Contains(styleBefore(pframe, "────────"), "\x1b[38;") {
+		t.Fatal("NO_COLOR pane rule still carries a colour")
+	}
+}
+
+func TestGapRuleDoesNotStackOnAPaneTitle(t *testing.T) {
+	const h, w = 40, 80
+	s := longSplitScreen()
+	s.renderFrame(h, w)
+	s.focus = 1
+	s.pressKey(&Key{Name: "|"}, h, w)
+	frame := s.renderFrame(h, w)
+	grid := frameGrid(frame, h, w)
+	hidden := false
+	for _, b := range s.bands {
+		if b.hidden || b.collapsed {
+			hidden = true
+		}
+	}
+	if !hidden {
+		t.Fatalf("middle pane did not collapse: %+v", s.bands)
+	}
+	var divs []int
+	for _, b := range s.bands {
+		if b.divRow > 0 {
+			divs = append(divs, b.divRow)
+		}
+	}
+	if len(divs) < 2 {
+		t.Fatalf("expected two titles, bands %+v", s.bands)
+	}
+	for i := 1; i < len(divs); i++ {
+		for r := divs[i-1] + 1; r < divs[i]; r++ {
+			if r-1 >= len(grid) || !isGapRule(grid[r-1]) {
+				continue
+			}
+			if r == divs[i-1]+1 || r == divs[i]-1 {
+				t.Fatalf("rule on row %d sits against a pane title\n%s", r, strings.Join(contentLines(frame, h, w, s.viewTop, s.viewAvail), "\n"))
+			}
 		}
 	}
 }
