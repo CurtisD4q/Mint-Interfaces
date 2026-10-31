@@ -2245,9 +2245,9 @@ func (a *ToolApp) BuildApp() *mint.App {
 		},
 		mint.HomeItem{
 			Icon:  "?",
-			Label: "Help",
-			Desc:  "Read the manual or --help",
-			Open:  a.HelpScreen,
+			Label: "Manual",
+			Desc:  "Read the full manual (--man)",
+			Open:  a.ManualScreen,
 		},
 	)
 	if a.Spec.Findings != nil {

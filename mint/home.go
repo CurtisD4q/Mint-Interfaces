@@ -53,9 +53,9 @@ type App struct {
 	// The MINT_KEYS environment variable overrides it.
 	Keys string
 
-	// NoFlags turns off Mint's own command-line flags (--help, --version,
-	// --mint-info, --screen), for apps that parse their arguments
-	// themselves.
+	// NoFlags turns off Mint's own command-line flags (--help, --man,
+	// --version, --mint-info, --screen), for apps that parse their
+	// arguments themselves.
 	NoFlags bool
 }
 
@@ -270,8 +270,9 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 // app restores the terminal, prints the error and exits with status 1.
 //
 // Unless NoFlags is set, the first command-line argument may be one of
-// Mint's flags: --help (-h), --version (-v), --mint-info, or
-// --screen NAME, which opens that home item straight away.
+// Mint's flags: --help (-h), --man, --version (-v), --mint-info, or
+// --screen NAME, which opens that home item straight away. --help prints
+// usage. --man opens the Manual screen, which is the full manual viewer.
 func (a *App) Run() {
 	title := a.Title
 	if title == "" {
@@ -437,6 +438,7 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 		fmt.Printf("  %-28s print the version\n", prog+" --version")
 		fmt.Printf("  %-28s print a description as JSON, for launchers\n", prog+" --mint-info")
 		fmt.Printf("  %-28s show this help\n", prog+" --help")
+		fmt.Printf("  %-28s open the manual\n", prog+" --man")
 		if len(a.Items) > 0 {
 			fmt.Println()
 			fmt.Println("Screens:")
@@ -447,6 +449,16 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 		fmt.Println()
 		fmt.Println("Keys: set MINT_KEYS to default, emacs or vim (now: " + keyProfile + ").")
 		return true, 0
+	case arg == "--man":
+		if i := a.findItem("Manual"); i > 0 {
+			return false, i
+		}
+		fmt.Fprintf(os.Stderr, "%s: no Manual screen. Screens:", prog)
+		for _, it := range a.Items {
+			fmt.Fprintf(os.Stderr, " %q", it.Label)
+		}
+		fmt.Fprintln(os.Stderr)
+		os.Exit(2)
 	case arg == "--mint-info":
 		type itemInfo struct {
 			Icon  string `json:"icon,omitempty"`

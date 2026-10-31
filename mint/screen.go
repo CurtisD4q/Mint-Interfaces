@@ -36,8 +36,8 @@ type Screen struct {
 
 	// Weight is the top pane's share of the content height when Panes is
 	// set and any pane sets a weight above zero. With every weight left at
-	// zero, the top pane takes half the content rows, a pane titled Help
-	// takes a tenth, and the other panes split what remains.
+	// zero, the top pane takes half the content rows and the other panes
+	// split what remains.
 	Weight float64
 
 	// Panes are stacked under Sections, top to bottom. A screen with none
@@ -84,13 +84,17 @@ type Screen struct {
 	redraw   func(int, int)
 	onKey    func(*Key, *int, *int, *int) (*screenResult, bool)
 	frameBuf *strings.Builder
+
+	// viewerLines is the text a full-screen log viewer shows. ViewLog sets
+	// it; every other screen leaves it nil.
+	viewerLines func() []LogLine
 }
 
 // Pane is one band stacked under a screen's own sections. Each pane has its
 // own sections, cursor, scroll and collapsed state, and a weight for how
 // much of the height it takes when any pane sets a weight above zero.
-// With every weight left at zero, a pane titled Help takes a tenth of the
-// content rows and the other panes share what the top pane did not take.
+// With every weight left at zero, the top pane takes half the content
+// rows and the other panes share what remains.
 type Pane struct {
 	Title    string
 	Sections []Section

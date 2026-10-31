@@ -608,8 +608,9 @@ func absInt(n int) int {
 	return n
 }
 
-// longSplitScreen is a top pane, one other pane, and Help, each with more
-// rows than any of them is given, so the 50/10/40 split is not shrunk.
+// longSplitScreen is a top pane and two others, each with more rows than
+// any of them is given, so the 50/25/25 split is not shrunk. One pane is
+// still titled Help: that title no longer takes a tenth on its own.
 func longSplitScreen() *Screen {
 	return &Screen{
 		Title:    "Main",
@@ -637,15 +638,11 @@ func TestPaneSplitAtHeights(t *testing.T) {
 			if absInt(main.rows-total*50/100) > 1 {
 				t.Fatalf("h=%d top %d, want ~50%% of %d", h, main.rows, total)
 			}
-			if absInt(targets.rows-total*40/100) > 1 {
-				t.Fatalf("h=%d targets %d, want ~40%% of %d", h, targets.rows, total)
+			if absInt(targets.rows-total*25/100) > 1 {
+				t.Fatalf("h=%d targets %d, want ~25%% of %d", h, targets.rows, total)
 			}
-			helpShare := total * 10 / 100
-			if helpShare < paneMinRows {
-				helpShare = paneMinRows
-			}
-			if absInt(help.rows-helpShare) > 1 {
-				t.Fatalf("h=%d help %d, want ~%d", h, help.rows, helpShare)
+			if absInt(help.rows-total*25/100) > 1 {
+				t.Fatalf("h=%d help %d, want ~25%% of %d (not a tenth)", h, help.rows, total)
 			}
 			for _, b := range s.bands {
 				if b.rows > 0 && b.rows < paneMinRows {
@@ -725,7 +722,7 @@ func TestShortPaneGivesRowsBack(t *testing.T) {
 		if targets.rows != paneMinRows {
 			t.Fatalf("h=%d short pane kept %d rows", h, targets.rows)
 		}
-		share := total * 40 / 100
+		share := total * 25 / 100
 		if share > paneMinRows && targets.rows >= share {
 			t.Fatalf("h=%d short pane kept a %d-row share of %d", h, targets.rows, total)
 		}
@@ -802,7 +799,7 @@ func TestSectionGapIsTwoOnPaneScreens(t *testing.T) {
 			{Name: "Run", Rows: []Row{Note("once")}},
 		},
 		Panes: []*Pane{{
-			Title:    "Help",
+			Title:    "Notes",
 			Sections: []Section{{Name: "Manual", Rows: manyNotes("hlp", 30)}},
 		}},
 	}

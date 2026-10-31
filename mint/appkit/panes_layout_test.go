@@ -53,14 +53,14 @@ func TestArchetypePaneLayouts(t *testing.T) {
 		spec ToolSpec
 		want []string
 	}{
-		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{"Report", "Help", "Details", "Actions"}},
+		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{"Report", "Details", "Actions"}},
 		{"read", ToolSpec{Name: "man", Bin: "echo", ArchetypeID: "read"}, []string{"Page"}},
-		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{"Discovered targets", "Help"}},
-		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{"Findings", "Help"}},
-		{"convert", ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert"}, []string{"Help"}},
-		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{"Output", "Help"}},
-		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{"Progress", "Help"}},
-		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{"What will change", "Help"}},
+		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{"Discovered targets"}},
+		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{"Findings"}},
+		{"convert", ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert"}, nil},
+		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{"Output"}},
+		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{"Progress"}},
+		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{"What will change"}},
 		{"measure", ToolSpec{Name: "fio", Bin: "echo", ArchetypeID: "measure"}, []string{"Options"}},
 		{"control", ToolSpec{Name: "systemctl", Bin: "echo", ArchetypeID: "control"}, []string{"Details"}},
 		{"history", ToolSpec{Name: "git", Bin: "echo", ArchetypeID: "history"}, []string{"Details"}},
@@ -79,12 +79,27 @@ func TestOptionHeadingsChunkAtTen(t *testing.T) {
 	assertPaneCap(t, s)
 	got := paneTitles(s)
 	// 25 headings do not fit with the chrome, so Options panes precede the results.
-	if len(got) < 3 || got[0] != "Options" || got[len(got)-2] != "Discovered targets" || got[len(got)-1] != "Help" {
+	if len(got) < 2 || got[0] != "Options" || got[len(got)-1] != "Discovered targets" {
 		t.Fatalf("chunked panes %v", got)
 	}
-	for _, title := range got[:len(got)-2] {
+	for _, title := range got[:len(got)-1] {
 		if title != "Options" {
 			t.Fatalf("unexpected pane %q in %v", title, got)
+		}
+	}
+}
+
+func TestNoOptionsScreenHasAHelpPane(t *testing.T) {
+	for _, def := range AllArchetypeDefs() {
+		spec := ToolSpec{Name: string(def.ID), Bin: "echo", ArchetypeID: string(def.ID)}
+		if def.ID == "toolkit" || def.ID == "records" {
+			spec.Subcommands = []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}
+		}
+		s := newTestApp(t, spec).MainScreen()
+		for _, title := range append(paneTitles(s), sectionNames(s)...) {
+			if title == "Help" {
+				t.Fatalf("%s still has a Help pane or section (%v / %v)", def.ID, paneTitles(s), sectionNames(s))
+			}
 		}
 	}
 }

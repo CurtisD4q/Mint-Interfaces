@@ -525,6 +525,7 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 
 - **Flags.** The first argument may be one of Mint's flags:
   - `--help` (`-h`) lists the app's screens and usage.
+  - `--man` opens the Manual screen (the full manual viewer). `--help` still prints usage.
   - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 0.1.0)`, using `App.Version`.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
