@@ -527,57 +527,6 @@ func (a *ToolApp) invokeRowAction(c *mint.Ctx, act RowActionSpec, target, summar
 	}
 }
 
-func (a *ToolApp) detailPane(s *mint.Screen) []mint.Section {
-	headers, cells, _, ok := s.SelectedTableRow()
-	if !ok || len(cells) == 0 {
-		return []mint.Section{{Name: "Details", Rows: []mint.Row{mint.Note("  Select a row.")}}}
-	}
-	var rows []mint.Row
-	for i, cell := range cells {
-		label := fmt.Sprintf("Column %d", i+1)
-		if i < len(headers) && headers[i] != "" {
-			label = headers[i]
-		}
-		val := cell
-		rows = append(rows, mint.Value(mint.ValueOpts{
-			Label: label,
-			Get:   func() string { return val },
-		}))
-	}
-	return []mint.Section{{Name: "Details", Rows: rows}}
-}
-
-func (a *ToolApp) actionPane(s *mint.Screen) []mint.Section {
-	_, cells, _, ok := s.SelectedTableRow()
-	if len(a.Spec.RowActions) == 0 {
-		return []mint.Section{{Name: "Actions", Rows: []mint.Row{mint.Note("  No row actions.")}}}
-	}
-	if !ok {
-		return []mint.Section{{Name: "Actions", Rows: []mint.Row{mint.Note("  Select a row.")}}}
-	}
-	summary := strings.Join(cells, " · ")
-	var rows []mint.Row
-	for _, act := range a.Spec.RowActions {
-		act := act
-		rows = append(rows, mint.Action(mint.ActionOpts{
-			Label: act.Label,
-			Hint:  act.Hint,
-			OnActivate: func(c *mint.Ctx) {
-				col := act.Column
-				if col < 0 || col >= len(cells) {
-					col = 0
-				}
-				target := ""
-				if col < len(cells) {
-					target = cells[col]
-				}
-				a.invokeRowAction(c, act, target, summary, false)
-			},
-		}))
-	}
-	return []mint.Section{{Name: "Actions", Rows: rows}}
-}
-
 func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []string) {
 	summary := strings.Join(row, " · ")
 	if len(a.Spec.RowActions) == 0 {
