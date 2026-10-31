@@ -200,31 +200,7 @@ const maxShownPerKind = 500
 func (a *ToolApp) PreviewScreen(plan fileplan.Plan, run func(c *mint.Ctx, plan fileplan.Plan)) *mint.Screen {
 	s := &mint.Screen{Icon: "◩", Title: a.Spec.Name + " — what will change", Status: a.statusBadges}
 	s.Refresh = func(scr *mint.Screen) {
-		var head []mint.Row
-		head = append(head,
-			mint.Value(mint.ValueOpts{Label: "Command", Get: func() string { return a.CommandPreview() }}),
-			mint.Label(mint.StyleHeading, "Will "+planSummary(plan)),
-		)
-		if a.Spec.Preview.Adapter == PreviewCoreutils {
-			head = append(head, mint.Label(mint.StyleCaption, "Mint's estimate, from how "+plan.Tool+" works: it is not "+plan.Tool+"'s own output. Files can change before it runs; Mint checks again just before."))
-		}
-		if len(plan.Unknown) > 0 {
-			head = append(head, mint.Label(mint.StyleCaption, "Options this preview doesn't understand: "+mint.CleanLineVisible(strings.Join(plan.Unknown, " "))+". The result may differ."))
-		}
-		sections := []mint.Section{{Name: "Preview", Rows: head}}
-
-		if len(plan.Warnings) > 0 {
-			var rows []mint.Row
-			for _, w := range plan.Warnings {
-				prefix := "Note: "
-				if w.Blocking {
-					prefix = "⚠ "
-				}
-				rows = append(rows, mint.Label(mint.StyleBody, prefix+mint.CleanLineVisible(w.Text)))
-			}
-			sections = append(sections, mint.Section{Name: "Check before running", Rows: rows})
-		}
-
+		summary, files := a.previewParts(plan)
 		var acts []mint.Row
 		if words := splitShellWords(a.Target); hasPattern(words) {
 			acts = append(acts, mint.Action(mint.ActionOpts{
@@ -283,32 +259,68 @@ func (a *ToolApp) PreviewScreen(plan fileplan.Plan, run func(c *mint.Ctx, plan f
 				run(c, plan)
 			},
 		}))
-		sections = append(sections, mint.Section{Name: "Actions", Rows: acts})
-
-		groups := map[fileplan.Kind][]fileplan.Effect{}
-		for _, e := range plan.Effects {
-			groups[e.Kind] = append(groups[e.Kind], e)
-		}
-		wd, _ := os.Getwd()
-		for _, k := range []fileplan.Kind{fileplan.Fail, fileplan.Delete, fileplan.Overwrite, fileplan.Move, fileplan.Create, fileplan.Keep} {
-			es := groups[k]
-			if len(es) == 0 {
-				continue
+		summary = append(summary, mint.Section{Name: "Actions", Rows: acts})
+		if a.Spec.ArchetypeID == "edit-files" {
+			if len(files) == 0 {
+				files = []mint.Section{{Name: "Files", Rows: []mint.Row{mint.Note("  Nothing will change.")}}}
 			}
-			var rows []mint.Row
-			for i, e := range es {
-				if i == maxShownPerKind {
-					rows = append(rows, mint.Note(fmt.Sprintf("… and %s more", commas(len(es)-i))))
-					break
-				}
-				rows = append(rows, mint.Label(mint.StyleBody, effectLine(e, wd)))
-			}
-			sections = append(sections, mint.CollapsibleSection(fmt.Sprintf("%s (%s)", kindHeading(k), commas(len(es))), k == fileplan.Keep || k == fileplan.Create && len(es) > 50, rows...))
+			scr.Sections = summary
+			scr.SetPanes(chunkedPanes("Files", files))
+			return
 		}
-		scr.Sections = sections
+		scr.Sections = append(summary, files...)
 	}
 	s.Refresh(s)
 	return s
+}
+
+// previewParts is the summary and the per-kind file lists. The run
+// actions stay with the caller.
+func (a *ToolApp) previewParts(plan fileplan.Plan) (summary, files []mint.Section) {
+	var head []mint.Row
+	head = append(head,
+		mint.Value(mint.ValueOpts{Label: "Command", Get: func() string { return a.CommandPreview() }}),
+		mint.Label(mint.StyleHeading, "Will "+planSummary(plan)),
+	)
+	if a.Spec.Preview != nil && a.Spec.Preview.Adapter == PreviewCoreutils {
+		head = append(head, mint.Label(mint.StyleCaption, "Mint's estimate, from how "+plan.Tool+" works: it is not "+plan.Tool+"'s own output. Files can change before it runs; Mint checks again just before."))
+	}
+	if len(plan.Unknown) > 0 {
+		head = append(head, mint.Label(mint.StyleCaption, "Options this preview doesn't understand: "+mint.CleanLineVisible(strings.Join(plan.Unknown, " "))+". The result may differ."))
+	}
+	summary = append(summary, mint.Section{Name: "Preview", Rows: head})
+	if len(plan.Warnings) > 0 {
+		var rows []mint.Row
+		for _, w := range plan.Warnings {
+			prefix := "Note: "
+			if w.Blocking {
+				prefix = "⚠ "
+			}
+			rows = append(rows, mint.Label(mint.StyleBody, prefix+mint.CleanLineVisible(w.Text)))
+		}
+		summary = append(summary, mint.Section{Name: "Check before running", Rows: rows})
+	}
+	groups := map[fileplan.Kind][]fileplan.Effect{}
+	for _, e := range plan.Effects {
+		groups[e.Kind] = append(groups[e.Kind], e)
+	}
+	wd, _ := os.Getwd()
+	for _, k := range []fileplan.Kind{fileplan.Fail, fileplan.Delete, fileplan.Overwrite, fileplan.Move, fileplan.Create, fileplan.Keep} {
+		es := groups[k]
+		if len(es) == 0 {
+			continue
+		}
+		var rows []mint.Row
+		for i, e := range es {
+			if i == maxShownPerKind {
+				rows = append(rows, mint.Note(fmt.Sprintf("… and %s more", commas(len(es)-i))))
+				break
+			}
+			rows = append(rows, mint.Label(mint.StyleBody, effectLine(e, wd)))
+		}
+		files = append(files, mint.CollapsibleSection(fmt.Sprintf("%s (%s)", kindHeading(k), commas(len(es))), k == fileplan.Keep || k == fileplan.Create && len(es) > 50, rows...))
+	}
+	return summary, files
 }
 
 func kindHeading(k fileplan.Kind) string {

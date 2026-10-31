@@ -265,6 +265,7 @@ type ToolApp struct {
 	lastOut   string
 	history   []RunRecord
 	presets   []savedPreset
+	helpCache map[string]helpHit
 
 	owner      *invoker        // the user behind `sudo app`, who gets the files
 	store      *secure.Store   // FlagSecret values: encrypted, locked memory, never on disk

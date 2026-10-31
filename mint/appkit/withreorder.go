@@ -489,7 +489,19 @@ func (a *ToolApp) ReorderScreen() *mint.Screen {
 				c.Busy("Reading the rules…", func() { _ = a.reorderLoad(context.Background(), scope) })
 			}}))
 		secs = append(secs, mint.Section{Name: "Apply", Rows: act})
-		s.Sections = secs
+		var controls, rules []mint.Section
+		for _, sec := range secs {
+			if strings.HasPrefix(sec.Name, "Rules, first to last") {
+				rules = append(rules, sec)
+				continue
+			}
+			controls = append(controls, sec)
+		}
+		if len(rules) == 0 {
+			rules = []mint.Section{{Name: "Rules", Rows: []mint.Row{mint.Note("No rules here.")}}}
+		}
+		s.Sections = controls
+		s.SetPanes([]*mint.Pane{{Title: "Rules", Sections: rules}})
 	}
 	return scr
 }

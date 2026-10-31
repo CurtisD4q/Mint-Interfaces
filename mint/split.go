@@ -74,6 +74,24 @@ func (s *Screen) paneAt(index int) *Pane {
 	return nil
 }
 
+// SetPanes replaces the stacked panes. A pane that keeps the same title
+// and position keeps its cursor and scroll.
+func (s *Screen) SetPanes(next []*Pane) {
+	if s == nil {
+		return
+	}
+	for i, p := range next {
+		if p == nil || i >= len(s.Panes) || s.Panes[i] == nil {
+			continue
+		}
+		if s.Panes[i].Title == p.Title {
+			p.ui = s.Panes[i].ui
+			p.hidden = s.Panes[i].hidden
+		}
+	}
+	s.Panes = next
+}
+
 func (s *Screen) paneTitle(index int) string {
 	if index <= 0 {
 		if s.Title != "" {

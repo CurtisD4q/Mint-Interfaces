@@ -27,15 +27,34 @@ func outputTable(t *testing.T, id, text string) mint.Row {
 	})
 	a.SetSnapshotText(text)
 	scr := a.MainScreen()
-	for _, s := range scr.Sections {
-		for _, r := range s.Rows {
-			if rowField(r, "wtype") == "table" {
-				return r
-			}
-		}
+	if row, ok := findTableRow(scr); ok {
+		return row
 	}
 	t.Fatalf("%s: no table row in %v", id, sectionNames(scr))
 	return mint.Row{}
+}
+
+func findTableRow(scr *mint.Screen) (mint.Row, bool) {
+	for _, s := range scr.Sections {
+		for _, r := range s.Rows {
+			if rowField(r, "wtype") == "table" {
+				return r, true
+			}
+		}
+	}
+	for _, p := range scr.Panes {
+		if p == nil {
+			continue
+		}
+		for _, s := range p.Sections {
+			for _, r := range s.Rows {
+				if rowField(r, "wtype") == "table" {
+					return r, true
+				}
+			}
+		}
+	}
+	return mint.Row{}, false
 }
 
 func TestWideArchetypesUseTheTableViewer(t *testing.T) {
