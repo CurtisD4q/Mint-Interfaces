@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // optSpec describes a tool's options: which flags matter, and which take
@@ -143,6 +146,83 @@ func (pl *planner) noteUnplanned(o opts, names ...string) {
 	}
 }
 
+// rmVersion is what "rm --version" reported. The zero value means the
+// version could not be confirmed: rm is missing, it is not GNU coreutils
+// (BSD, BusyBox), or the output could not be parsed.
+type rmVersion struct {
+	gnu          bool
+	major, minor int
+}
+
+// removesLinkOnly reports whether "rm -r link/" removes the symlink
+// itself. GNU coreutils 9.12 and later do. Older GNU coreutils follow
+// the link and empty the directory it points at. An unconfirmed rm is
+// not treated as link-only, so the preview shows that emptying: it is
+// what older GNU coreutils does, and it does not understate a delete.
+func (v rmVersion) removesLinkOnly() bool {
+	return v.gnu && (v.major > 9 || (v.major == 9 && v.minor >= 12))
+}
+
+// rmInstalled is the installed rm, read once. Tests replace it, and must
+// not run in parallel with a test that calls it.
+var rmInstalled = sync.OnceValue(detectInstalledRM)
+
+// detectInstalledRM runs the real rm directly, never through a shell.
+func detectInstalledRM() rmVersion {
+	out, err := exec.Command("rm", "--version").CombinedOutput()
+	if err != nil && strings.TrimSpace(string(out)) == "" {
+		return rmVersion{}
+	}
+	return parseRMVersion(string(out))
+}
+
+// parseRMVersion reads a GNU coreutils version line, for example
+// "rm (GNU coreutils) 9.4". Anything else is unconfirmed.
+func parseRMVersion(s string) rmVersion {
+	line := s
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		line = s[:i]
+	}
+	const mark = "(GNU coreutils)"
+	i := strings.Index(line, mark)
+	if i < 0 {
+		return rmVersion{}
+	}
+	rest := strings.TrimSpace(line[i+len(mark):])
+	major, minor, ok := parseMajorMinor(rest)
+	if !ok {
+		return rmVersion{}
+	}
+	return rmVersion{gnu: true, major: major, minor: minor}
+}
+
+func parseMajorMinor(s string) (major, minor int, ok bool) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i >= len(s) || s[i] != '.' {
+		return 0, 0, false
+	}
+	maj, err := strconv.Atoi(s[:i])
+	if err != nil {
+		return 0, 0, false
+	}
+	j := i + 1
+	k := j
+	for k < len(s) && s[k] >= '0' && s[k] <= '9' {
+		k++
+	}
+	if k == j {
+		return 0, 0, false
+	}
+	min, err := strconv.Atoi(s[j:k])
+	if err != nil {
+		return 0, 0, false
+	}
+	return maj, min, true
+}
+
 func (pl *planner) rm(o opts) {
 	if o.has("help") || o.has("version") {
 		return
@@ -155,6 +235,7 @@ func (pl *planner) rm(o opts) {
 	if len(o.operands) == 0 && !force {
 		pl.warn(true, "no files given: rm will fail")
 	}
+	ver := rmInstalled()
 	for _, op := range o.operands {
 		p := pl.abs(op)
 		trimmed := strings.TrimRight(op, "/")
@@ -172,7 +253,9 @@ func (pl *planner) rm(o opts) {
 			continue
 		}
 		isLink := fi.Mode()&os.ModeSymlink != 0
-		if why := pl.dangerous(p); why != "" && !isLink { // a link: only the link goes (link/ is checked below)
+		// A symlink is not dangerous by itself: only the link is removed.
+		// "rm -r link/" on an rm that follows the slash is checked below.
+		if why := pl.dangerous(p); why != "" && !isLink {
 			if recursive && fi.IsDir() && !o.has("no-preserve-root") && p == "/" {
 				pl.add(Effect{Kind: Fail, Path: p, IsDir: true, Note: "rm refuses to remove / (--preserve-root)"})
 				continue
@@ -180,11 +263,30 @@ func (pl *planner) rm(o opts) {
 			pl.warn(true, "%s is %s", op, why)
 		}
 		switch {
-		case fi.Mode()&os.ModeSymlink != 0:
-			// A trailing slash does not make rm follow the link: coreutils
-			// removes the link itself, exactly as it does without the slash.
-			// (Checked against coreutils 9.12.)
-			pl.add(Effect{Kind: Delete, Path: p, Note: "a symbolic link: only the link is removed"})
+		case fi.Mode()&os.ModeSymlink != 0 && strings.HasSuffix(op, "/") && recursive && !ver.removesLinkOnly():
+			// "rm -r link/" follows the link on GNU coreutils before 9.12,
+			// and when the version can't be confirmed: it empties the
+			// folder the link points to and leaves the link and the folder.
+			// 9.12 and later remove the link itself, which is the next case.
+			target, err := filepath.EvalSymlinks(p)
+			tfi, serr := os.Stat(p)
+			if err != nil || serr != nil || !tfi.IsDir() {
+				pl.add(Effect{Kind: Fail, Path: p, Note: "a link with a trailing /, to something that isn't a folder"})
+				continue
+			}
+			if ver.gnu {
+				pl.warn(true, "%s ends with /, so rm follows the link and deletes everything inside %s. Without the / only the link is removed.", op, target)
+			} else {
+				pl.warn(true, "%s ends with /, so rm may follow the link and delete everything inside %s (couldn't confirm your rm version). Without the / only the link is removed.", op, target)
+			}
+			if why := pl.dangerous(target); why != "" {
+				pl.warn(true, "%s points to %s", op, why)
+			}
+			pl.walk(target, func(path string, fi fs.FileInfo) {
+				if path != target {
+					pl.add(Effect{Kind: Delete, Path: path, IsDir: fi.IsDir(), Size: size(fi), Note: "inside " + target + ", through " + op})
+				}
+			})
 		case fi.Mode()&os.ModeSymlink != 0:
 			pl.add(Effect{Kind: Delete, Path: p, Note: "a symbolic link: only the link is removed"})
 		case !fi.IsDir():
