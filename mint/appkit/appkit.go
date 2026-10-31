@@ -1919,7 +1919,10 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			mode = execOnce
 		}
 		var sections []mint.Section
-		sections = append(sections, a.inputZone())
+		// No input zone: this screen exists to run the same command again
+		// and to read what the runs produced. The target, profile and extra
+		// arguments were settled on the screen that opened it, and the runs
+		// are listed under the output.
 		sections = append(sections, a.flagSections()...)
 		if a.Spec.OutputsFile {
 			sections = append(sections, a.outputFileSection())
