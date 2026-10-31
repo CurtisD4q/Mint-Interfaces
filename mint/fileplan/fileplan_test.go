@@ -137,7 +137,10 @@ var scenarios = []scenario{
 	{"rm -rf missing", []string{"a=1"}, "rm", []string{"-rf", "--", "nope", "a"}, false, false, ""},
 	{"rm missing", []string{"a=1"}, "rm", []string{"--", "nope", "a"}, true, false, ""},
 	{"rm symlink to folder", []string{"d/x=1", "l=->d"}, "rm", []string{"-r", "--", "l"}, false, false, ""},
-	{"rm -rf link/ empties the target", []string{"target/a=1", "target/s/b=2", "link=->target"}, "rm", []string{"-rf", "--", "link/"}, true, true, ""},
+	// A trailing slash on a symlink to a directory names the link, not the
+	// directory: coreutils 9.x removes the link and exits 0. The exit status
+	// differs between versions, so only the files are compared.
+	{"rm -rf link/ removes the link", []string{"target/a=1", "target/s/b=2", "link=->target"}, "rm", []string{"-rf", "--", "link/"}, false, true, ""},
 	{"rm -rf link removes the link", []string{"target/a=1", "link=->target"}, "rm", []string{"-rf", "--", "link"}, false, false, ""},
 	{"rm -d empty", []string{"e=/"}, "rm", []string{"-d", "--", "e"}, false, false, ""},
 	{"rm -d not empty", []string{"e/x=1"}, "rm", []string{"-d", "--", "e"}, true, false, ""},
@@ -248,16 +251,16 @@ func TestDangerousTargets(t *testing.T) {
 	if !p.Blocked() || !strings.Contains(p.Warnings[0].Text, "top-level system folder") || !p.Incomplete {
 		t.Fatalf("/etc: blocked %v incomplete %v %+v", p.Blocked(), p.Incomplete, p.Warnings)
 	}
-	// rm -rf on a link to home removes the link: fine. With a trailing
-	// slash it empties home: blocked twice over.
+	// rm -rf on a link to home removes the link, with or without a trailing
+	// slash: coreutils removes the link itself, so home is never touched.
 	link := filepath.Join(t.TempDir(), "h")
 	os.Symlink(home, link)
 	if p, _ := For("rm", []string{"-rf", "--", link}, Env{Home: home}); p.Blocked() {
 		t.Fatalf("removing a link was blocked: %+v", p.Warnings)
 	}
 	p, _ = For("rm", []string{"-rf", "--", link + "/"}, Env{Home: home})
-	if len(p.Warnings) != 2 || !strings.Contains(p.Warnings[1].Text, "your home folder") {
-		t.Fatalf("link/ to home: %+v", p.Warnings)
+	if p.Blocked() || len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0].Text, "symbolic link") {
+		t.Fatalf("link/ to home should remove only the link: %+v", p.Warnings)
 	}
 	// cp over /etc/passwd-like system file isn't checked (not a folder),
 	// but cp onto a top-level folder name is.
@@ -374,7 +377,9 @@ func TestSamePathCountedOnce(t *testing.T) {
 	dir := t.TempDir()
 	tree(t, dir, "build/a=1", "build/s/b=2", "link=->build")
 	p, _ := For("rm", []string{"-r", "--", "build", "link/", "build"}, Env{Dir: dir})
-	if c := p.Totals().Count[Delete]; c != 4 { // build, build/a, build/s, build/s/b
+	// build, build/a, build/s, build/s/b, and the link itself: "link/" is a
+	// symbolic link, so rm removes the link, not the folder it points at.
+	if c := p.Totals().Count[Delete]; c != 5 {
 		t.Fatalf("%d deletes: %+v", c, p.Effects)
 	}
 }

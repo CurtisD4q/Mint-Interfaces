@@ -460,3 +460,31 @@ func TestEndsWithMark(t *testing.T) {
 	}
 	_ = mint.LogLine{}
 }
+
+// A marker that never arrives must not hold the entry open for ever. A
+// program can swallow it: sqlite3 reads the ".print TOKEN" line into a
+// trailing "--" comment, so it becomes part of the statement and nothing
+// ever prints the token.
+func TestMarkerWaitGivesUp(t *testing.T) {
+	s := &Session{a: Adapters["sqlite3"], outMark: "TOKEN", now: time.Now}
+	s.sentAt = time.Now()
+	if s.finished() {
+		t.Error("finished before the wait even started")
+	}
+	s.sentAt = time.Now().Add(-MarkerWait / 2)
+	if s.finished() {
+		t.Error("finished before MarkerWait had passed")
+	}
+	s.sentAt = time.Now().Add(-MarkerWait - time.Second)
+	if !s.finished() {
+		t.Errorf("still running %v after sending, want finished", MarkerWait+time.Second)
+	}
+}
+
+// A session that never sent anything is not finished by the marker rule.
+func TestMarkerWaitNeedsASentCommand(t *testing.T) {
+	s := &Session{a: Adapters["sqlite3"], outMark: "TOKEN", now: time.Now}
+	if s.finished() {
+		t.Error("finished with no command sent")
+	}
+}

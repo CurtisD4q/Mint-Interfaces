@@ -58,6 +58,12 @@ var (
 	// StderrGrace: after the stdout marker, how long to wait for the
 	// stderr marker (or, without one, for late error lines).
 	StderrGrace = 400 * time.Millisecond
+	// MarkerWait: the longest a command waits for its closing marker. A
+	// marker is a line sent after the command, and a program may swallow it
+	// - sqlite3 reads it into a trailing "--" comment, so it becomes part of
+	// the statement and never prints. Without this bound the entry would run
+	// for ever and the command box would refuse every later command.
+	MarkerWait = 10 * time.Second
 )
 
 // ErrBusy is returned by Send while a command is still running.
@@ -86,8 +92,11 @@ type Session struct {
 	gotOut  time.Time
 	gotErr  bool
 	lastOut time.Time
-	next    int // absolute line number to read next
-	now     func() time.Time
+	// sentAt is when cur was written to the program, so a marker that never
+	// arrives can be given up on after MarkerWait.
+	sentAt time.Time
+	next   int // absolute line number to read next
+	now    func() time.Time
 
 	// For CancelBackend: which server process runs this session's
 	// queries, and when it started (so a reused PID is never cancelled).
@@ -187,6 +196,7 @@ func (s *Session) sendLocked(e *Entry) error {
 	s.outMark, s.errMark, s.outCmd, s.errCmd = "", "", "", ""
 	s.gotOut, s.gotErr = time.Time{}, false
 	s.lastOut = s.now()
+	s.sentAt = s.now()
 	payload := cmd + "\n"
 	if s.a.Markers != nil {
 		t := token()
@@ -328,7 +338,11 @@ func (s *Session) finished() bool {
 	case s.outMark == "":
 		return now.Sub(s.lastOut) >= IdleEnd
 	case s.gotOut.IsZero():
-		return false
+		// The marker never arrived. It usually means the program took it as
+		// part of the command (a trailing "--" comment swallows the line
+		// after it), so the command is over once the wait passes. Running on
+		// would leave the entry unfinished for ever.
+		return !s.sentAt.IsZero() && now.Sub(s.sentAt) >= MarkerWait
 	case s.errMark != "":
 		return s.gotErr || now.Sub(s.gotOut) >= StderrGrace
 	default:
