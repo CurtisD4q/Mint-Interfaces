@@ -265,9 +265,21 @@ func (a *ToolApp) ActiveLines() []string {
 	a.mu.Lock()
 	job := a.activeJob
 	snap := append([]string(nil), a.SnapshotLines...)
+	fromFile := a.outputFromFile
 	a.mu.Unlock()
 	if job != nil {
-		if ll := job.Lines(); len(ll) > 0 {
+		ll := job.Lines()
+		if !stdoutEmpty(ll) {
+			out := make([]string, len(ll))
+			for i, l := range ll {
+				out[i] = l.Text
+			}
+			return out
+		}
+		if fromFile && len(snap) > 0 {
+			return snap
+		}
+		if len(ll) > 0 {
 			out := make([]string, len(ll))
 			for i, l := range ll {
 				out[i] = l.Text
@@ -923,13 +935,10 @@ func (a *ToolApp) inputZone() mint.Section {
 			Set:     func(v string) { a.ApplyProfile(v) },
 		}))
 	}
-	rows = append(rows, mint.Text(mint.TextOpts{
-		ID:          "extra_args",
-		Label:       "Extra arguments",
-		Placeholder: "optional CLI flags",
-		Get:         func() string { return a.ExtraArgs },
-		Set:         func(v string) { a.ExtraArgs = v },
-	}))
+	rows = append(rows, a.textInput("extra_args", "Extra arguments", "optional CLI flags",
+		func() string { return a.ExtraArgs },
+		func(v string) { a.ExtraArgs = v },
+		boxExtra, nil))
 	name := a.inputSectionName(a.inputFallback())
 	if len(a.Spec.Subcommands) > 0 {
 		if l, ok := a.screenWording(); ok && l.Title != "" {

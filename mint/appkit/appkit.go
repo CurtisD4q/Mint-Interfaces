@@ -118,6 +118,11 @@ type ToolSpec struct {
 	TargetDefault           string `json:"target_default,omitempty"`
 	SecondTargetLabel       string `json:"second_target_label,omitempty"`
 	SecondTargetPlaceholder string `json:"second_target_placeholder,omitempty"`
+	// PositionalRoles is the role of each positional argument, in order, from
+	// the usage line. The target box is the first and the second box is the
+	// next. Empty when the usage line was not available; the boxes then use
+	// their labels. See ArgRole.
+	PositionalRoles []ArgRole `json:"positional_roles,omitempty"`
 	// WantTarget / HideTarget come from FeatTarget when the caller did not
 	// set TargetLabel. TwoInputs comes from FeatTwoInputs (compare, mirror,
 	// transfer): two boxes, both passed as arguments.
@@ -288,6 +293,9 @@ type ToolApp struct {
 	svcProbe     serviceProbe    // WithService: cached socket scan
 
 	session *transcript.Session // WithTranscript: the open session
+
+	fieldErr       map[string]bool // boxes whose last commit had an unset variable or a missing path
+	outputFromFile bool            // SnapshotLines was loaded from the file the tool wrote
 }
 
 // New creates and initializes a ToolApp from a ToolSpec, applying its
@@ -493,7 +501,7 @@ func (a *ToolApp) ResolvedOutputPath() string {
 	if !a.Spec.OutputsFile || !a.SaveToFile {
 		return ""
 	}
-	name := strings.TrimSpace(a.OutputFile)
+	name := expandArgValue(strings.TrimSpace(a.OutputFile))
 	if name == "" {
 		name = DefaultOutputFilename(a.Spec.Name, a.Spec.DefaultExt)
 	}
@@ -501,7 +509,7 @@ func (a *ToolApp) ResolvedOutputPath() string {
 	if filepath.IsAbs(name) {
 		return filepath.Clean(name)
 	}
-	dir := strings.TrimSpace(a.ResultsDir)
+	dir := expandArgValue(strings.TrimSpace(a.ResultsDir))
 	if dir == "" {
 		dir = "."
 	}
@@ -566,7 +574,7 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 					parts = strings.Split(val, "\n")
 				}
 				for _, part := range parts {
-					part = strings.TrimSpace(part)
+					part = expandArgValue(strings.TrimSpace(part))
 					if part == "" {
 						continue
 					}
@@ -594,7 +602,7 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		if mask {
 			extra = maskFreeText(extra, a.secretFlagNames())
 		}
-		args = append(args, splitShellWords(extra)...)
+		args = append(args, expandArgWords(extra)...)
 	}
 
 	var operands []string
@@ -602,14 +610,14 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		if mask {
 			target = maskFreeText(target, a.secretFlagNames())
 		}
-		operands = append(operands, splitShellWords(target)...)
+		operands = append(operands, expandArgWords(target)...)
 	}
 	if a.Spec.TwoInputs {
 		if second := strings.TrimSpace(a.SecondTarget); second != "" {
 			if mask {
 				second = maskFreeText(second, a.secretFlagNames())
 			}
-			operands = append(operands, splitShellWords(second)...)
+			operands = append(operands, expandArgWords(second)...)
 		}
 	}
 	if len(operands) > 0 {
@@ -1122,6 +1130,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	if a.activeJob != nil && a.activeJob.Running() {
 		a.activeJob.Stop()
 	}
+	a.outputFromFile = false
 	a.mu.Unlock()
 
 	if labels := a.expiredSecrets(); len(labels) > 0 {
@@ -1179,6 +1188,20 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			if outPath != "" && !a.toolWritesOutput() {
 				_ = mint.SaveLogLines(outPath, lines)
 			}
+			textLines := make([]string, len(lines))
+			for i, l := range lines {
+				textLines[i] = l.Text
+			}
+			fromFile := false
+			// The tool's own -o (tree) replaces stdout. When that file has
+			// the text and stdout was empty, show the file. A binary file
+			// stays on disk.
+			if outPath != "" && a.toolWritesOutput() && stdoutEmpty(lines) {
+				if loaded := readToolOutputFile(outPath); len(loaded) > 0 {
+					textLines = loaded
+					fromFile = true
+				}
+			}
 			level := runLevel
 			found := masker.Findings()
 			if len(found) > 0 {
@@ -1202,10 +1225,6 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			if j.State() == runner.Failed && !runningAsRoot() && looksLikeNeedsRoot(j.LastError()) {
 				mint.ToastError(needsRootMessage(a.Spec.Name))
 			}
-			textLines := make([]string, len(lines))
-			for i, l := range lines {
-				textLines[i] = l.Text
-			}
 			rec := RunRecord{
 				ID:         started.Format("20060102-150405"),
 				Time:       started,
@@ -1215,10 +1234,11 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 				OutputFile: outPath,
 				State:      j.State().String(),
 				DurationMs: j.Elapsed().Milliseconds(),
-				LineCount:  len(lines),
+				LineCount:  len(textLines),
 			}
 			a.mu.Lock()
 			a.SnapshotLines = textLines
+			a.outputFromFile = fromFile
 			a.history = append([]RunRecord{rec}, a.history...)
 			if len(a.history) > 50 {
 				a.history = a.history[:50]
@@ -1357,32 +1377,23 @@ func (a *ToolApp) showTarget() bool {
 func (a *ToolApp) targetRows(idPrefix string) []mint.Row {
 	if a.Spec.TwoInputs {
 		return []mint.Row{
-			mint.Text(mint.TextOpts{
-				ID:          idPrefix + "target",
-				Label:       a.Spec.TargetLabel,
-				Placeholder: a.Spec.TargetPlaceholder,
-				Get:         func() string { return a.Target },
-				Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-			}),
-			mint.Text(mint.TextOpts{
-				ID:          idPrefix + "target2",
-				Label:       a.Spec.SecondTargetLabel,
-				Placeholder: a.Spec.SecondTargetPlaceholder,
-				Get:         func() string { return a.SecondTarget },
-				Set:         func(v string) { a.SecondTarget = strings.TrimSpace(v) },
-			}),
+			a.textInput(idPrefix+"target", a.Spec.TargetLabel, a.Spec.TargetPlaceholder,
+				func() string { return a.Target },
+				func(v string) { a.Target = v },
+				boxTarget, nil),
+			a.textInput(idPrefix+"target2", a.Spec.SecondTargetLabel, a.Spec.SecondTargetPlaceholder,
+				func() string { return a.SecondTarget },
+				func(v string) { a.SecondTarget = v },
+				boxTarget2, nil),
 		}
 	}
 	if !a.showTarget() {
 		return nil
 	}
-	return []mint.Row{mint.Text(mint.TextOpts{
-		ID:          idPrefix + "target",
-		Label:       a.Spec.TargetLabel,
-		Placeholder: a.Spec.TargetPlaceholder,
-		Get:         func() string { return a.Target },
-		Set:         func(v string) { a.Target = strings.TrimSpace(v) },
-	})}
+	return []mint.Row{a.textInput(idPrefix+"target", a.Spec.TargetLabel, a.Spec.TargetPlaceholder,
+		func() string { return a.Target },
+		func(v string) { a.Target = v },
+		boxTarget, nil)}
 }
 
 func (a *ToolApp) flagSections() []mint.Section {
@@ -1447,29 +1458,21 @@ func (a *ToolApp) outputFileSection() mint.Section {
 	return mint.Section{
 		Name: "Output File (WithFileOutput)",
 		Rows: append(rows,
-			mint.Text(mint.TextOpts{
-				ID:          "out:dir",
-				Label:       "Save directory",
-				Placeholder: "/path/to/results",
-				Get:         func() string { return a.ResultsDir },
-				Set: func(v string) {
-					if strings.TrimSpace(v) != "" && strings.TrimSpace(v) != a.ResultsDir {
-						a.ResultsDir = strings.TrimSpace(v)
+			a.textInput("out:dir", "Save directory", "/path/to/results",
+				func() string { return a.ResultsDir },
+				func(v string) {
+					if v != "" && v != a.ResultsDir {
+						a.ResultsDir = v
 						a.InMemory, a.diskDir = false, "" // a folder of your choosing
 					}
-				},
-			}),
-			mint.Text(mint.TextOpts{
-				ID:          "out:file",
-				Label:       "File name",
-				Placeholder: "output." + a.Spec.DefaultExt,
-				Get:         func() string { return a.OutputFile },
-				Set: func(v string) {
-					if strings.TrimSpace(v) != "" {
-						a.OutputFile = strings.TrimSpace(v)
+				}, boxOutDir, nil),
+			a.textInput("out:file", "File name", "output."+a.Spec.DefaultExt,
+				func() string { return a.OutputFile },
+				func(v string) {
+					if v != "" {
+						a.OutputFile = v
 					}
-				},
-			}),
+				}, boxOutFile, nil),
 			mint.Value(mint.ValueOpts{
 				Label: "Full output path",
 				Get: func() string {
@@ -1584,9 +1587,12 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 		})
 	case FlagFile, FlagDir:
 		dirsOnly := f.Kind == FlagDir
+		spec := f
 		return mint.Action(mint.ActionOpts{
-			Label: label,
+			ID:    "flag:" + key,
+			Label: a.boxLabel("flag:"+key, label),
 			Hint:  a.pathFlagSummary(key, dirsOnly),
+			Alert: a.boxBad("flag:" + key),
 			OnActivate: func(c *mint.Ctx) {
 				startDir := a.ResultsDir
 				if cur := strings.TrimSpace(a.Values[key]); cur != "" {
@@ -1597,18 +1603,21 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 					}
 				}
 				if chosen, ok := browsePathPopup(c, label, startDir, a.Values[key], dirsOnly); ok {
-					a.Values[key] = chosen
+					a.Values[key] = a.acceptText("flag:"+key, chosen, boxFlag, &spec)
 				}
 			},
 		})
 	default:
 		if isRepeatableKVFlag(f) {
+			spec := f
 			return mint.Action(mint.ActionOpts{
-				Label: label,
+				ID:    "flag:" + key,
+				Label: a.boxLabel("flag:"+key, label),
 				Hint:  a.kvFlagSummary(key, f.Hint),
+				Alert: a.boxBad("flag:" + key),
 				OnActivate: func(c *mint.Ctx) {
 					if updated, ok := editRepeatableValuesPopup(c, label, a.Values[key], f.Hint); ok {
-						a.Values[key] = updated
+						a.Values[key] = a.acceptText("flag:"+key, updated, boxFlag, &spec)
 					}
 				},
 			})
@@ -1617,13 +1626,11 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 		if hint == "" {
 			hint = "value"
 		}
-		return mint.Text(mint.TextOpts{
-			ID:          "flag:" + key,
-			Label:       label,
-			Placeholder: hint,
-			Get:         func() string { return a.Values[key] },
-			Set:         func(v string) { a.Values[key] = strings.TrimSpace(v) },
-		})
+		spec := f
+		return a.textInput("flag:"+key, label, hint,
+			func() string { return a.Values[key] },
+			func(v string) { a.Values[key] = v },
+			boxFlag, &spec)
 	}
 }
 
@@ -2046,18 +2053,14 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 	s.Refresh = func(scr *mint.Screen) {
 		entries, err := a.ListResultsDir()
 		dirRows := []mint.Row{
-			mint.Text(mint.TextOpts{
-				ID:          "browser:dir",
-				Label:       "Current directory",
-				Placeholder: "/path/to/results",
-				Get:         func() string { return a.ResultsDir },
-				Set: func(v string) {
-					if strings.TrimSpace(v) != "" {
-						a.ResultsDir = strings.TrimSpace(v)
+			a.textInput("browser:dir", "Current directory", "/path/to/results",
+				func() string { return a.ResultsDir },
+				func(v string) {
+					if v != "" {
+						a.ResultsDir = v
 						_ = a.SaveSettings()
 					}
-				},
-			}),
+				}, boxOutDir, nil),
 			mint.Action(mint.ActionOpts{
 				Label: "Parent directory (..)",
 				Hint:  "up",

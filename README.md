@@ -81,6 +81,14 @@ Once installed, the steps from any directory are:
 
 `mint-gen --help` is the one guide for Mint-Interfaces. It covers scaffolding and running an app (`mint-gen ps`, `mint-gen --build ps`, `mint-gen --run ps`, and the other flags), then how to use the app: the home menu, setting options and running a command, pane keys (Tab, Shift-Tab, `[`, `]`, `|`, and a click to focus), table keys (left and right to scroll sideways, H and L to narrow or widen a column), Presets, Run History, and Manual / `--man` for the program's full manual. The flag list follows the guide. A generated app's own `--help` stays a short usage list; `--man` still opens that app's Manual screen.
 
+## ~ and $VAR in boxes
+
+Press Enter in a target, path, option or Extra arguments box and Mint rewrites that box. A leading `~` or `~/` becomes your home directory, and `$VAR` and `${VAR}` become the value from the environment. The command preview, the line that runs, and Run History all show that expanded text.
+
+Quoting follows the shell. Inside single quotes nothing changes, so `'~'` and `'$HOME'` stay as typed. Inside double quotes `$VAR` expands and `~` does not. A value that contains a space after expansion is quoted again.
+
+Mint does not start a shell for this. `|`, `;`, `&&`, `$(...)`, backticks and globs stay as characters; nothing is executed and `*` is not expanded. An unset variable is left as you typed it. The row turns red and bold, and its label becomes "<Field label> - File path does not exist!" (for example "Extra arguments - File path does not exist!"). The label is the warning on its own when `NO_COLOR` is set. The same row is used when a path is not on disk: input paths must exist, and output paths (save-to-file, an output flag such as tree's `-o`, or `--output=~/report.txt` in Extra arguments) only need their parent directory. A word that is a flag or a plain pattern is not treated as a path. Edit the box and press Enter again to clear the warning. Values that never went through Enter, such as a preset or an older history entry, are expanded the same way when the command runs.
+
 ## Prerequisites
 
 **To run a Mint app:** nothing to install. Apps are single static binaries.

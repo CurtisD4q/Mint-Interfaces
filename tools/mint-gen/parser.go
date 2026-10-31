@@ -221,8 +221,15 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 		spec.Reorder = &r
 	}
 	// One answer for what the tool reads and writes (see BuildIOModel).
-	model := BuildIOModel(spec, ParseSynopsis(name, manLines, helpLines))
+	syn := ParseSynopsis(name, manLines, helpLines)
+	model := BuildIOModel(spec, syn)
 	applyIOModel(&spec, model)
+	if len(syn.Forms) > 0 {
+		spec.PositionalRoles = make([]appkit.ArgRole, len(syn.Forms[0].Positionals))
+		for i, p := range syn.Forms[0].Positionals {
+			spec.PositionalRoles[i] = p.Role
+		}
+	}
 	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, archExt)
 	model.Archetype = choice
 	spec.DefaultExt = model.Ext
