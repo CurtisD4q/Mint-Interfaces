@@ -5,30 +5,30 @@ import (
 	"testing"
 )
 
-// A flag left at its default is not passed, so a slider at 0 does not send
-// "--months 0" and block the flag from ever being dropped.
-func TestDefaultValueOmitsTheFlag(t *testing.T) {
+// cal's -n has no Default from mint-gen, so a slider left at 0 was sending
+// "-n 0": the tool reads that as a real limit, and months and a year could
+// not be asked for at once.
+func TestZeroSliderOmitsTheFlag(t *testing.T) {
 	a := newTestApp(t, ToolSpec{Name: "cal", Bin: "cal", Flags: []FlagSpec{
-		{Flag: "-n", Kind: FlagInt, Label: "Months", Default: "0", Min: 0, Max: 12},
+		{Flag: "-n", Kind: FlagInt, Label: "Months", Min: 0, Max: 12},
 		{Flag: "-y", Kind: FlagBool, Label: "Year"},
 	}})
 
-	args, _ := a.BuildArgs()
-	if strings.Contains(strings.Join(args, " "), "-n") {
-		t.Errorf("default slider value still sent: %v", args)
+	a.Values["-n"] = "0"
+	if args, _ := a.BuildArgs(); strings.Contains(strings.Join(args, " "), "-n") {
+		t.Errorf("slider at 0 still sent: %v", args)
 	}
 
-	// Changed away from the default, it is sent.
+	// Set to 4, it is sent.
 	a.Values["-n"] = "4"
-	args, _ = a.BuildArgs()
-	if !strings.Contains(strings.Join(args, " "), "-n 4") {
-		t.Errorf("changed value not sent: %v", args)
+	if args, _ := a.BuildArgs(); !strings.Contains(strings.Join(args, " "), "-n 4") {
+		t.Errorf("value 4 not sent: %v", args)
 	}
 
-	// Back at the default, it is dropped again, so -y can be used alone.
+	// Back to 0 with the year on: only -y goes.
 	a.Values["-n"] = "0"
 	a.Values["-y"] = "true"
-	args, _ = a.BuildArgs()
+	args, _ := a.BuildArgs()
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "-n") {
 		t.Errorf("slider back at 0 still sent: %v", args)
@@ -38,17 +38,19 @@ func TestDefaultValueOmitsTheFlag(t *testing.T) {
 	}
 }
 
-// A flag with no default is unaffected: an empty value is already skipped,
-// and a real value is still sent.
-func TestFlagWithoutDefaultUnchanged(t *testing.T) {
+// A declared Default is skipped too, for every kind of flag.
+func TestDeclaredDefaultOmitsTheFlag(t *testing.T) {
 	a := newTestApp(t, ToolSpec{Name: "x", Bin: "x", Flags: []FlagSpec{
-		{Flag: "--name", Kind: FlagText, Label: "Name"},
+		{Flag: "--mode", Kind: FlagText, Label: "Mode", Default: "auto"},
+		{Flag: "--depth", Kind: FlagInt, Label: "Depth", Default: "3", Min: 0, Max: 9},
 	}})
-	if args, _ := a.BuildArgs(); strings.Contains(strings.Join(args, " "), "--name") {
-		t.Errorf("empty flag sent: %v", args)
+	if args, _ := a.BuildArgs(); len(args) != 0 {
+		t.Errorf("defaults were sent: %v", args)
 	}
-	a.Values["--name"] = "bob"
-	if args, _ := a.BuildArgs(); !strings.Contains(strings.Join(args, " "), "--name bob") {
-		t.Errorf("value not sent: %v", args)
+	a.Values["--mode"] = "manual"
+	a.Values["--depth"] = "5"
+	joined := strings.Join(func() []string { args, _ := a.BuildArgs(); return args }(), " ")
+	if !strings.Contains(joined, "--mode manual") || !strings.Contains(joined, "--depth 5") {
+		t.Errorf("changed values not sent: %v", joined)
 	}
 }
