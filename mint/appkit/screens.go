@@ -350,6 +350,185 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 	}
 }
 
+// maxHomeSubcommands is how many subcommands of a toolkit or records tool
+// become their own home items. The rest stay on the primary screen.
+const maxHomeSubcommands = 6
+
+// confirmAction asks before a row action. Tests replace it.
+var confirmAction = func(c *mint.Ctx, title, body string) bool {
+	return c.Confirm(title, body)
+}
+
+// showStatusItem reports whether the home list should offer Status.
+// The primary screen already is the state or live view for those modes.
+func (a *ToolApp) showStatusItem() bool {
+	if !a.Spec.CanReadState() {
+		return false
+	}
+	switch a.executionMode() {
+	case execState, execPoll:
+		return false
+	default:
+		return true
+	}
+}
+
+// showCompareItem reports whether Compare should open the differences
+// screen. Two inputs with no Diff spec are already the primary screen.
+func (a *ToolApp) showCompareItem() bool {
+	return a.Spec.Diff != nil
+}
+
+func (a *ToolApp) compareHomeScreen() *mint.Screen {
+	if a.Spec.Diff != nil {
+		return a.DiffScreen()
+	}
+	return a.MainScreen()
+}
+
+// StatusScreen runs the read-only status command (StatusArgs, or the
+// tool's own command when it only reads) and shows the result, with refresh.
+func (a *ToolApp) StatusScreen() *mint.Screen {
+	s := &mint.Screen{
+		Icon:  "◎",
+		Title: a.Spec.Name + " — Status",
+		Enter: func(scr *mint.Screen) { a.refreshAsync() },
+		Poll:  func(scr *mint.Screen) bool { return a.takeRefreshed() },
+	}
+	s.Refresh = func(scr *mint.Screen) {
+		scr.Sections = []mint.Section{
+			{Name: "Status", Rows: []mint.Row{a.refreshRow("Refresh")}},
+			a.buildOutputDisplaySection("Result"),
+		}
+	}
+	s.Refresh(s)
+	return s
+}
+
+// ActionsScreen lists the tool's row actions. Choosing one asks for the
+// target (the value a table's column 0 would have supplied) and runs it
+// through the same confirmation path as selecting a table row.
+func (a *ToolApp) ActionsScreen() *mint.Screen {
+	var rows []mint.Row
+	for _, act := range a.Spec.RowActions {
+		act := act
+		rows = append(rows, mint.Action(mint.ActionOpts{
+			Label: act.Label,
+			Hint:  act.Hint,
+			OnActivate: func(c *mint.Ctx) {
+				target, ok := c.Prompt(act.Label, "Target value", "")
+				if !ok {
+					return
+				}
+				a.invokeRowAction(c, act, strings.TrimSpace(target), strings.TrimSpace(target), false)
+			},
+		}))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, mint.Note("  No actions."))
+	}
+	s := &mint.Screen{
+		Icon:     "▸",
+		Title:    "Actions",
+		Sections: []mint.Section{{Name: "Actions", Rows: rows}},
+	}
+	return s
+}
+
+// invokeRowAction runs one row action. Confirm and Irreversible are honoured
+// the same way selecting a table row does. pop returns to the previous
+// screen after the action, which the table path does.
+func (a *ToolApp) invokeRowAction(c *mint.Ctx, act RowActionSpec, target, summary string, pop bool) {
+	if act.Confirm || a.Spec.Irreversible {
+		if summary == "" {
+			summary = target
+		}
+		if !confirmAction(c, "Confirm "+act.Label, fmt.Sprintf("Run %s on %s?", act.Label, summary)) {
+			return
+		}
+	}
+	cmdArgs := append([]string(nil), act.Subcommand...)
+	if target != "" {
+		cmdArgs = append(cmdArgs, target)
+	}
+	var out string
+	var err error
+	c.Busy(act.Label+"…", func() {
+		out, err = util.RunTimeout(actionTimeout, a.Spec.BinaryName(), cmdArgs...)
+	})
+	if err != nil {
+		c.ToastError(fmt.Sprintf("%s failed: %v", act.Label, err))
+	} else {
+		c.Toast(act.Label + " completed")
+	}
+	if out != "" {
+		a.SetSnapshotText(out)
+	}
+	if pop {
+		c.Pop()
+	}
+}
+
+func splitTableArchetype(id string) bool {
+	switch id {
+	case "list", "inspect", "records", "search":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *ToolApp) detailPane(s *mint.Screen) []mint.Section {
+	headers, cells, _, ok := s.SelectedTableRow()
+	if !ok || len(cells) == 0 {
+		return []mint.Section{{Name: "Details", Rows: []mint.Row{mint.Note("  Select a row.")}}}
+	}
+	var rows []mint.Row
+	for i, cell := range cells {
+		label := fmt.Sprintf("Column %d", i+1)
+		if i < len(headers) && headers[i] != "" {
+			label = headers[i]
+		}
+		val := cell
+		rows = append(rows, mint.Value(mint.ValueOpts{
+			Label: label,
+			Get:   func() string { return val },
+		}))
+	}
+	return []mint.Section{{Name: "Details", Rows: rows}}
+}
+
+func (a *ToolApp) actionPane(s *mint.Screen) []mint.Section {
+	_, cells, _, ok := s.SelectedTableRow()
+	if len(a.Spec.RowActions) == 0 {
+		return []mint.Section{{Name: "Actions", Rows: []mint.Row{mint.Note("  No row actions.")}}}
+	}
+	if !ok {
+		return []mint.Section{{Name: "Actions", Rows: []mint.Row{mint.Note("  Select a row.")}}}
+	}
+	summary := strings.Join(cells, " · ")
+	var rows []mint.Row
+	for _, act := range a.Spec.RowActions {
+		act := act
+		rows = append(rows, mint.Action(mint.ActionOpts{
+			Label: act.Label,
+			Hint:  act.Hint,
+			OnActivate: func(c *mint.Ctx) {
+				col := act.Column
+				if col < 0 || col >= len(cells) {
+					col = 0
+				}
+				target := ""
+				if col < len(cells) {
+					target = cells[col]
+				}
+				a.invokeRowAction(c, act, target, summary, false)
+			},
+		}))
+	}
+	return []mint.Section{{Name: "Actions", Rows: rows}}
+}
+
 func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []string) {
 	summary := strings.Join(row, " · ")
 	if len(a.Spec.RowActions) == 0 {
@@ -376,11 +555,6 @@ func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []s
 			Label: act.Label,
 			Hint:  act.Hint,
 			OnActivate: func(c *mint.Ctx) {
-				if act.Confirm || a.Spec.Irreversible {
-					if !c.Confirm("Confirm "+act.Label, fmt.Sprintf("Run %s on %s?", act.Label, summary)) {
-						return
-					}
-				}
 				col := act.Column
 				if col < 0 || col >= len(row) {
 					col = 0
@@ -389,24 +563,7 @@ func (a *ToolApp) handleTableRowSelect(c *mint.Ctx, rowIdx int, headers, row []s
 				if len(row) > col {
 					target = row[col]
 				}
-				cmdArgs := append([]string(nil), act.Subcommand...)
-				if target != "" {
-					cmdArgs = append(cmdArgs, target)
-				}
-				var out string
-				var err error
-				c.Busy(act.Label+"…", func() {
-					out, err = util.RunTimeout(actionTimeout, a.Spec.BinaryName(), cmdArgs...)
-				})
-				if err != nil {
-					c.ToastError(fmt.Sprintf("%s failed: %v", act.Label, err))
-				} else {
-					c.Toast(act.Label + " completed")
-				}
-				if out != "" {
-					a.SetSnapshotText(out)
-				}
-				c.Pop()
+				a.invokeRowAction(c, act, target, summary, true)
 			},
 		}))
 	}
@@ -666,6 +823,8 @@ func (a *ToolApp) MainScreen() *mint.Screen {
 	}
 	canPoll := mode == execPoll && a.Spec.CanReadState()
 	var lastPoll time.Time
+	splitTable := splitTableArchetype(a.Spec.ArchetypeID)
+	splitDiff := (a.Spec.TwoInputs || a.Spec.Diff != nil) && !splitTable
 
 	s := &mint.Screen{
 		Icon:  icon,
@@ -699,6 +858,22 @@ func (a *ToolApp) MainScreen() *mint.Screen {
 			return a.takeRefreshed()
 		},
 	}
+	if splitTable {
+		s.Panes = []*mint.Pane{
+			{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(s) }},
+			{Title: "Actions", Refresh: func(p *mint.Pane) { p.Sections = a.actionPane(s) }},
+		}
+	} else if splitDiff {
+		title := a.outputSectionName(a.outputFallback(mode))
+		s.Panes = []*mint.Pane{{
+			Title: title,
+			Refresh: func(p *mint.Pane) {
+				if a.showsInlineResults() {
+					p.Sections = []mint.Section{a.buildOutputDisplaySection(title)}
+				}
+			},
+		}}
+	}
 	s.Refresh = func(scr *mint.Screen) {
 		var sections []mint.Section
 		sections = append(sections, a.inputZone())
@@ -710,10 +885,15 @@ func (a *ToolApp) MainScreen() *mint.Screen {
 			sections = append(sections, *rootSec)
 		}
 		sections = append(sections, a.executionZone(mode, canPoll, interval))
-		if a.showsInlineResults() {
+		if a.showsInlineResults() && !splitDiff {
 			sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName(a.outputFallback(mode))))
 		}
 		scr.Sections = sections
+		for _, p := range scr.Panes {
+			if p != nil && p.Refresh != nil {
+				p.Refresh(p)
+			}
+		}
 	}
 	s.Refresh(s)
 	return s

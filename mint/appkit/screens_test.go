@@ -47,6 +47,16 @@ func hasSection(scr *mint.Screen, name string) bool {
 			return true
 		}
 	}
+	for _, p := range scr.Panes {
+		if p == nil {
+			continue
+		}
+		for _, s := range p.Sections {
+			if s.Name == name {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -323,6 +333,14 @@ func sectionNames(scr *mint.Screen) []string {
 	var out []string
 	for _, s := range scr.Sections {
 		out = append(out, s.Name)
+	}
+	for _, p := range scr.Panes {
+		if p == nil {
+			continue
+		}
+		for _, s := range p.Sections {
+			out = append(out, s.Name)
+		}
 	}
 	return out
 }

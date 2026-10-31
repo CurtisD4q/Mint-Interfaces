@@ -143,7 +143,10 @@ func expandTable(r Row, width int) []Row {
 			onActivate: act,
 			// the row remembers the table it came from, so ← → can scroll
 			// it and H L resize its columns.
-			table: &r,
+			table:    &r,
+			cells:    rowCopy,
+			cellHead: append([]string(nil), hdrCopy...),
+			cellIdx:  idx,
 		})
 	}
 

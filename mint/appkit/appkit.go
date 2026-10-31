@@ -264,6 +264,7 @@ type ToolApp struct {
 	activeJob *runner.Job
 	lastOut   string
 	history   []RunRecord
+	presets   []savedPreset
 
 	owner      *invoker        // the user behind `sudo app`, who gets the files
 	store      *secure.Store   // FlagSecret values: encrypted, locked memory, never on disk
@@ -403,7 +404,40 @@ func New(spec ToolSpec) *ToolApp {
 		_ = a.SetInMemory(true)
 	}
 	a.loadHistory()
+	a.loadPresets()
 	return a
+}
+
+// historyRows lists recorded runs, the same rows the history screen and the
+// run screen's recent-runs pane show.
+func (a *ToolApp) historyRows() []mint.Row {
+	hist := a.History()
+	var rows []mint.Row
+	if len(hist) == 0 {
+		return []mint.Row{mint.Note("  No runs recorded yet.")}
+	}
+	for _, rec := range hist {
+		r := rec
+		rows = append(rows, mint.Action(mint.ActionOpts{
+			Label: fmt.Sprintf("[%s] %s", r.Time.Format("15:04:05"), r.CmdLine),
+			Hint:  fmt.Sprintf("%s · %d lines", r.State, r.LineCount),
+			OnActivate: func(c *mint.Ctx) {
+				if r.OutputFile != "" {
+					if b, err := os.ReadFile(r.OutputFile); err == nil {
+						raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+						lines := make([]mint.LogLine, len(raw))
+						for i, l := range raw {
+							lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
+						}
+						c.Push(mint.ViewLog(filepath.Base(r.OutputFile), func() []mint.LogLine { return lines }))
+						return
+					}
+				}
+				c.Message("Run Details", fmt.Sprintf("Command: %s\nState: %s\nLines: %d", r.CmdLine, r.State, r.LineCount))
+			},
+		}))
+	}
+	return rows
 }
 
 // DefaultOutputFilename returns a clean timestamped filename for tool outputs.
@@ -1835,137 +1869,170 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			return job != nil && job.Changed()
 		},
 	}
+	s.Panes = []*mint.Pane{
+		{Title: "Live output", Refresh: func(p *mint.Pane) {
+			p.Sections = a.liveOutputSections()
+		}},
+		{Title: "Recent runs", Refresh: func(p *mint.Pane) {
+			p.Sections = []mint.Section{{Name: "Recent runs", Rows: a.historyRows()}}
+		}},
+	}
 	s.Refresh = func(scr *mint.Screen) {
-		job := a.ActiveJob()
-		var statusRows []mint.Row
-		statusRows = append(statusRows,
-			mint.Value(mint.ValueOpts{
-				Label: "Command",
-				Get:   func() string { return a.CommandPreview() },
-			}),
-			mint.Progress(mint.ProgressOpts{
-				ID:    "run:progress",
-				Label: "Job progress",
-				Get: func() int {
-					j := a.ActiveJob()
-					if j == nil {
-						return 0
-					}
-					if p := j.Percent(); p >= 0 {
-						return p
-					}
-					if j.Running() {
-						return 50
-					}
-					return 100
-				},
-				Format: func(pct int) string {
-					j := a.ActiveJob()
-					if j == nil {
-						return "idle"
-					}
-					_, total := j.TailLines(1)
-					return fmt.Sprintf("%s · %s · %d lines", j.State(), j.Elapsed().Round(100*time.Millisecond), total)
-				},
-			}),
-			mint.Value(mint.ValueOpts{
-				Label: "Output file",
-				Get: func() string {
-					a.mu.Lock()
-					out := a.lastOut
-					a.mu.Unlock()
-					if out == "" {
-						return "(not saving to file)"
-					}
-					if info, err := os.Stat(out); err == nil {
-						return fmt.Sprintf("%s (%d bytes)", out, info.Size())
-					}
-					return out + " (pending)"
-				},
-			}),
-		)
-
-		var actRows []mint.Row
-		if row, ok := a.diffActionRow(); ok {
-			actRows = append(actRows, row)
+		mode := a.executionMode()
+		if mode == execPoll {
+			// Polling stays on the main screen. Here the form starts a run
+			// so an option can be changed and run again without leaving.
+			mode = execOnce
 		}
-		if row, ok := a.findingsActionRow(); ok {
-			actRows = append(actRows, row)
+		var sections []mint.Section
+		sections = append(sections, a.inputZone())
+		sections = append(sections, a.flagSections()...)
+		if a.Spec.OutputsFile {
+			sections = append(sections, a.outputFileSection())
 		}
-		actRows = append(actRows,
-			mint.Action(mint.ActionOpts{
-				Label: "Open full log viewer (search / horizontal scroll / save)…",
-				Hint:  "log",
-				OnActivate: func(c *mint.Ctx) {
-					j := a.ActiveJob()
-					if j == nil {
-						c.ToastWarn("No job output yet")
-						return
-					}
-					c.Push(mint.ViewLog(a.Spec.Name+" output", j.Lines))
-				},
-			}),
-			mint.Action(mint.ActionOpts{
-				Label: "Save captured output to file…",
-				Hint:  "save",
-				OnActivate: func(c *mint.Ctx) {
-					j := a.ActiveJob()
-					if j == nil {
-						c.ToastWarn("No job output yet")
-						return
-					}
-					def := a.ResolvedOutputPath()
-					if def == "" {
-						def = filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.outputExt()))
-					}
-					dest, ok := c.Prompt("Save Output", "Destination file path", def)
-					if !ok || strings.TrimSpace(dest) == "" {
-						return
-					}
-					if err := mint.SaveLogLines(strings.TrimSpace(dest), j.Lines()); err != nil {
-						c.ToastError("Save failed: " + err.Error())
-						return
-					}
-					level, _ := a.DataLevel()
-					a.protectFile(level, util.ExpandUser(strings.TrimSpace(dest)))
-					a.giveBack(util.ExpandUser(strings.TrimSpace(dest)))
-					c.Toast("Saved to " + dest)
-				},
-			}),
-			mint.Action(mint.ActionOpts{
-				Label:      "Encrypt the output (passphrase)…",
-				Hint:       "encrypt",
-				OnActivate: a.encryptOutput,
-			}),
-			mint.Action(mint.ActionOpts{
-				Label: "Browse output directory…",
-				Hint:  "files",
-				OnActivate: func(c *mint.Ctx) {
-					c.Push(a.DirectoryScreen())
-				},
-			}),
-		)
-		if job != nil && job.Running() {
-			actRows = append(actRows, mint.Action(mint.ActionOpts{
-				Label: "Stop running job",
-				Hint:  "stop",
-				OnActivate: func(c *mint.Ctx) {
-					if j := a.ActiveJob(); j != nil {
-						j.Stop()
-						c.ToastWarn("Stopped job")
-					}
-				},
-			}))
+		if root := a.rootAuthSection(); root != nil {
+			sections = append(sections, *root)
 		}
-
-		scr.Sections = []mint.Section{
-			{Name: "Run Status", Rows: statusRows},
-			{Name: "Actions", Rows: actRows},
-			a.buildOutputDisplaySection("Captured Output"),
+		sections = append(sections, a.executionZone(mode, false, 0))
+		scr.Sections = sections
+		for _, p := range scr.Panes {
+			if p != nil && p.Refresh != nil {
+				p.Refresh(p)
+			}
 		}
 	}
 	s.Refresh(s)
 	return s
+}
+
+func (a *ToolApp) liveOutputSections() []mint.Section {
+	job := a.ActiveJob()
+	var statusRows []mint.Row
+	statusRows = append(statusRows,
+		mint.Value(mint.ValueOpts{
+			Label: "Command",
+			Get:   func() string { return a.CommandPreview() },
+		}),
+		mint.Progress(mint.ProgressOpts{
+			ID:    "run:progress",
+			Label: "Job progress",
+			Get: func() int {
+				j := a.ActiveJob()
+				if j == nil {
+					return 0
+				}
+				if p := j.Percent(); p >= 0 {
+					return p
+				}
+				if j.Running() {
+					return 50
+				}
+				return 100
+			},
+			Format: func(pct int) string {
+				j := a.ActiveJob()
+				if j == nil {
+					return "idle"
+				}
+				_, total := j.TailLines(1)
+				return fmt.Sprintf("%s · %s · %d lines", j.State(), j.Elapsed().Round(100*time.Millisecond), total)
+			},
+		}),
+		mint.Value(mint.ValueOpts{
+			Label: "Output file",
+			Get: func() string {
+				a.mu.Lock()
+				out := a.lastOut
+				a.mu.Unlock()
+				if out == "" {
+					return "(not saving to file)"
+				}
+				if info, err := os.Stat(out); err == nil {
+					return fmt.Sprintf("%s (%d bytes)", out, info.Size())
+				}
+				return out + " (pending)"
+			},
+		}),
+	)
+
+	var actRows []mint.Row
+	if row, ok := a.diffActionRow(); ok {
+		actRows = append(actRows, row)
+	}
+	if row, ok := a.findingsActionRow(); ok {
+		actRows = append(actRows, row)
+	}
+	actRows = append(actRows,
+		mint.Action(mint.ActionOpts{
+			Label: "Open full log viewer (search / horizontal scroll / save)…",
+			Hint:  "log",
+			OnActivate: func(c *mint.Ctx) {
+				j := a.ActiveJob()
+				if j == nil {
+					c.ToastWarn("No job output yet")
+					return
+				}
+				c.Push(mint.ViewLog(a.Spec.Name+" output", j.Lines))
+			},
+		}),
+		mint.Action(mint.ActionOpts{
+			Label: "Save captured output to file…",
+			Hint:  "save",
+			OnActivate: func(c *mint.Ctx) {
+				j := a.ActiveJob()
+				if j == nil {
+					c.ToastWarn("No job output yet")
+					return
+				}
+				def := a.ResolvedOutputPath()
+				if def == "" {
+					def = filepath.Join(a.ResultsDir, DefaultOutputFilename(a.Spec.Name, a.outputExt()))
+				}
+				dest, ok := c.Prompt("Save Output", "Destination file path", def)
+				if !ok || strings.TrimSpace(dest) == "" {
+					return
+				}
+				if err := mint.SaveLogLines(strings.TrimSpace(dest), j.Lines()); err != nil {
+					c.ToastError("Save failed: " + err.Error())
+					return
+				}
+				level, _ := a.DataLevel()
+				a.protectFile(level, util.ExpandUser(strings.TrimSpace(dest)))
+				a.giveBack(util.ExpandUser(strings.TrimSpace(dest)))
+				c.Toast("Saved to " + dest)
+			},
+		}),
+		mint.Action(mint.ActionOpts{
+			Label:      "Encrypt the output (passphrase)…",
+			Hint:       "encrypt",
+			OnActivate: a.encryptOutput,
+		}),
+		mint.Action(mint.ActionOpts{
+			Label: "Browse output directory…",
+			Hint:  "files",
+			OnActivate: func(c *mint.Ctx) {
+				c.Push(a.DirectoryScreen())
+			},
+		}),
+	)
+	if job != nil && job.Running() {
+		actRows = append(actRows, mint.Action(mint.ActionOpts{
+			Label: "Stop running job",
+			Hint:  "stop",
+			OnActivate: func(c *mint.Ctx) {
+				if j := a.ActiveJob(); j != nil {
+					j.Stop()
+					c.ToastWarn("Stopped job")
+				}
+			},
+		}))
+	}
+
+	return []mint.Section{
+		{Name: "Run Status", Rows: statusRows},
+		{Name: "Actions", Rows: actRows},
+		a.buildOutputDisplaySection("Captured Output"),
+	}
 }
 
 // DirectoryScreen builds an interactive browser for ResultsDir so users can
@@ -2090,34 +2157,7 @@ func (a *ToolApp) HistoryScreen() *mint.Screen {
 		Title: "Run History",
 	}
 	s.Refresh = func(scr *mint.Screen) {
-		hist := a.History()
-		var rows []mint.Row
-		if len(hist) == 0 {
-			rows = append(rows, mint.Note("  No runs recorded yet."))
-		} else {
-			for _, rec := range hist {
-				r := rec
-				rows = append(rows, mint.Action(mint.ActionOpts{
-					Label: fmt.Sprintf("[%s] %s", r.Time.Format("15:04:05"), r.CmdLine),
-					Hint:  fmt.Sprintf("%s · %d lines", r.State, r.LineCount),
-					OnActivate: func(c *mint.Ctx) {
-						if r.OutputFile != "" {
-							if b, err := os.ReadFile(r.OutputFile); err == nil {
-								raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
-								lines := make([]mint.LogLine, len(raw))
-								for i, l := range raw {
-									lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
-								}
-								c.Push(mint.ViewLog(filepath.Base(r.OutputFile), func() []mint.LogLine { return lines }))
-								return
-							}
-						}
-						c.Message("Run Details", fmt.Sprintf("Command: %s\nState: %s\nLines: %d", r.CmdLine, r.State, r.LineCount))
-					},
-				}))
-			}
-		}
-		scr.Sections = []mint.Section{{Name: "Recent Runs", Rows: rows}}
+		scr.Sections = []mint.Section{{Name: "Recent Runs", Rows: a.historyRows()}}
 	}
 	s.Refresh(s)
 	return s
@@ -2141,34 +2181,105 @@ func (a *ToolApp) BuildApp() *mint.App {
 		}
 	}
 	primaryLabel = a.homeLabel(primaryLabel)
+	if a.Spec.Service != nil || a.Spec.Follow != nil {
+		primaryLabel = "Options"
+	}
 
 	var items []mint.HomeItem
+	items = append(items, mint.HomeItem{
+		Icon:  primaryIcon,
+		Label: primaryLabel,
+		Desc:  a.Spec.Desc,
+		Open:  a.MainScreen,
+	})
+	if a.showStatusItem() {
+		items = append(items, mint.HomeItem{
+			Icon:  "◎",
+			Label: "Status",
+			Desc:  "Read " + a.Spec.Name + " and refresh the result",
+			Open:  a.StatusScreen,
+		})
+	}
+	if len(a.Spec.RowActions) > 0 {
+		items = append(items, mint.HomeItem{
+			Icon:  "▸",
+			Label: "Actions",
+			Desc:  "Run an action on a unit, package or id",
+			Open:  a.ActionsScreen,
+		})
+	}
+	if a.Spec.ArchetypeID == "toolkit" || a.Spec.ArchetypeID == "records" {
+		n := len(a.Spec.Subcommands)
+		if n > maxHomeSubcommands {
+			n = maxHomeSubcommands
+		}
+		for i := 0; i < n; i++ {
+			sub := a.Spec.Subcommands[i]
+			label := sub.Label
+			if label == "" {
+				label = sub.Name
+			}
+			desc := sub.Desc
+			if desc == "" {
+				desc = "Open " + label
+			}
+			name := sub.Name
+			items = append(items, mint.HomeItem{
+				Icon:  "❖",
+				Label: label,
+				Desc:  desc,
+				Open: func() *mint.Screen {
+					a.ActiveSubcommand = name
+					return a.MainScreen()
+				},
+			})
+		}
+	}
+	items = append(items,
+		mint.HomeItem{
+			Icon:  "◇",
+			Label: "Presets",
+			Desc:  "Save, rerun or delete the current options",
+			Open:  a.PresetsScreen,
+		},
+		mint.HomeItem{
+			Icon:  "?",
+			Label: "Help",
+			Desc:  "Read the manual or --help",
+			Open:  a.HelpScreen,
+		},
+	)
+	if a.Spec.Findings != nil {
+		items = append(items, mint.HomeItem{
+			Icon:  "⚑",
+			Label: "Findings",
+			Desc:  "Open findings grouped by severity",
+			Open:  a.FindingsScreen,
+		})
+	}
+	if a.showCompareItem() {
+		items = append(items, mint.HomeItem{
+			Icon:  "⇄",
+			Label: "Compare",
+			Desc:  "Show the differences",
+			Open:  a.compareHomeScreen,
+		})
+	}
 	if a.Spec.Reorder != nil {
 		items = append(items, mint.HomeItem{Icon: "⇅", Label: "Rule order", Desc: "Change the order of " + a.Spec.Name + "'s rules, with a way back", Open: a.ReorderScreen})
 	}
 	if a.Spec.Service != nil {
 		items = append(items, mint.HomeItem{Icon: "◉", Label: "Server", Desc: "Start, stop and see where " + a.Spec.Name + " is listening", Open: a.ServiceScreen})
-		primaryLabel = "Options"
 	}
 	if a.Spec.Follow != nil {
-		// Stream first: the log, then the options.
 		items = append(items, mint.HomeItem{Icon: "↧", Label: "Live log", Desc: "Follow " + a.Spec.Name + "'s output as it arrives", Open: a.FollowScreen})
-		primaryLabel = "Options"
 	}
-	items = append(items,
-		mint.HomeItem{
-			Icon:  primaryIcon,
-			Label: primaryLabel,
-			Desc:  a.Spec.Desc,
-			Open:  a.MainScreen,
-		},
-		mint.HomeItem{
-			Icon:  "◧",
-			Label: "Live Run & Output",
-			Desc:  "Monitor active job, search output, or save log",
-			Open:  a.RunScreen,
-		},
-	)
+	items = append(items, mint.HomeItem{
+		Icon:  "◧",
+		Label: "Live Run & Output",
+		Desc:  "Monitor active job, search output, or save log",
+		Open:  a.RunScreen,
+	})
 
 	if a.Spec.OutputsFile {
 		items = append(items, mint.HomeItem{
