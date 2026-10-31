@@ -153,7 +153,7 @@ func (r *Row) isSelectable() bool {
 		return r.collapsible
 	}
 	switch r.wtype {
-	case "note", "divider", "rule", "spacer", "label", "logline", "log", "progress":
+	case "note", "divider", "spacer", "label", "logline", "log", "progress":
 		return false
 	}
 	return true

@@ -562,24 +562,6 @@ func gapIsRuleThenBlank(grid []string, row int) bool {
 	return isGapRule(grid[row-3]) && contentBlank(grid[row-2])
 }
 
-func sectionGapIsRuleThenBlank(lines []string, from, to string) bool {
-	a, b := -1, -1
-	for i, ln := range lines {
-		if a < 0 && strings.Contains(ln, from) {
-			a = i
-			continue
-		}
-		if a >= 0 && strings.Contains(ln, to) {
-			b = i
-			break
-		}
-	}
-	if a < 0 || b != a+3 {
-		return false
-	}
-	return isGapRule(lines[a+1]) && contentBlank(lines[a+2])
-}
-
 func maxInternalBlanks(lines []string) int {
 	maxRun, run, seen := 0, 0, false
 	for _, ln := range lines {
@@ -849,11 +831,8 @@ func TestSectionGapIsTwoOnPaneScreens(t *testing.T) {
 	frame := s.renderFrame(h, w)
 	lines := contentLines(frame, h, w, s.viewTop, s.viewAvail)
 	n, ok := blanksBetween(lines, "host", "Run")
-	if ok || n == paneGapLines {
-		t.Fatalf("section gap is still %d blank lines; the first should be a rule\n%s", n, strings.Join(lines, "\n"))
-	}
-	if !sectionGapIsRuleThenBlank(lines, "host", "Run") {
-		t.Fatalf("section gap\n%s", strings.Join(lines, "\n"))
+	if !ok || n != paneGapLines {
+		t.Fatalf("section gap %d ok=%v; inside a pane it stays blank\n%s", n, ok, strings.Join(lines, "\n"))
 	}
 	if gap := maxInternalBlanks(lines); gap > paneGapLines {
 		t.Fatalf("gap %d\n%s", gap, strings.Join(lines, "\n"))
@@ -917,7 +896,7 @@ func TestDividersStayPlainWhenColorIsOff(t *testing.T) {
 	t.Cleanup(func() { C = saved })
 	C = (&level1Runtime{baseRuntime: baseRuntime{profile: p}}).quantizePalette(loadPalette())
 
-	s := &Screen{
+	plainScreen := &Screen{
 		Title:          "Tools",
 		SectionSpacing: paneGapLines,
 		Sections: []Section{
@@ -925,17 +904,29 @@ func TestDividersStayPlainWhenColorIsOff(t *testing.T) {
 			{Name: "More", Rows: []Row{Note("gamma")}},
 		},
 	}
-	frame := s.renderFrame(24, 80)
+	frame := plainScreen.renderFrame(24, 80)
 	grid := frameGrid(frame, 24, 80)
 	if !isGapRule(grid[2]) || !strings.Contains(grid[2], "─") {
 		t.Fatalf("NO_COLOR title rule: %q", grid[2])
 	}
-	lines := contentLines(frame, 24, 80, s.viewTop, s.viewAvail)
-	if !sectionGapIsRuleThenBlank(lines, "alpha", "More") {
-		t.Fatalf("NO_COLOR section gap\n%s", strings.Join(lines, "\n"))
+	lines := contentLines(frame, 24, 80, plainScreen.viewTop, plainScreen.viewAvail)
+	n, ok := blanksBetween(lines, "alpha", "More")
+	if !ok || n != paneGapLines {
+		t.Fatalf("NO_COLOR section gap %d ok=%v; sections stay blank\n%s", n, ok, strings.Join(lines, "\n"))
 	}
 	if strings.Contains(styleBefore(frame, "────────"), "\x1b[38;") {
-		t.Fatal("NO_COLOR rule still carries a colour")
+		t.Fatal("NO_COLOR title rule still carries a colour")
+	}
+
+	panes := longSplitScreen()
+	pframe := panes.renderFrame(40, 80)
+	pgrid := frameGrid(pframe, 40, 80)
+	targets, okT := bandByTitle(panes, "Targets")
+	if !okT || !gapIsRuleThenBlank(pgrid, targets.divRow) {
+		t.Fatalf("NO_COLOR pane gap is not a plain rule\n%s", strings.Join(contentLines(pframe, 40, 80, panes.viewTop, panes.viewAvail), "\n"))
+	}
+	if strings.Contains(styleBefore(pframe, "────────"), "\x1b[38;") {
+		t.Fatal("NO_COLOR pane rule still carries a colour")
 	}
 }
 

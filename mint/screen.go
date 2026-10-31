@@ -328,19 +328,10 @@ func (st *uiState) flatten(sections []Section, width, spacing int) []Row {
 		}
 		if sec.Name != "" {
 			if spacing > 0 && len(items) > 0 {
-				// A two-line gap keeps its height: the first line is a
-				// dim rule and the second stays blank. A one-line gap
-				// stays blank, so screens that asked for a single line
-				// do not grow a rule.
-				if spacing >= paneGapLines {
-					items = append(items, gapRule())
-					for i := 1; i < spacing; i++ {
-						items = append(items, Spacer())
-					}
-				} else {
-					for i := 0; i < spacing; i++ {
-						items = append(items, Spacer())
-					}
+				// Gaps between sections stay blank. The dim rule is only
+				// drawn between stacked panes, not inside one.
+				for i := 0; i < spacing; i++ {
+					items = append(items, Spacer())
 				}
 			}
 			if sec.Collapsible {
@@ -393,9 +384,6 @@ func clampInt(v, lo, hi int) int {
 	}
 	return v
 }
-
-// gapRule is the first line of a two-line section gap.
-func gapRule() Row { return Row{kind: "row", wtype: "rule"} }
 
 // dividerLine repeats ch to exactly n cells.
 func dividerLine(ch string, n int) string {
@@ -1125,8 +1113,6 @@ func (screen *Screen) bind() {
 				cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
 			case it.wtype == "divider":
 				cv.put(r, left, C.Dim+dividerLine(it.divChar, max(0, w-4))+Reset)
-			case it.wtype == "rule":
-				paintRule(cv, r, w)
 			case it.wtype == "logline":
 				cv.logLine(r, w, it)
 			case it.wtype == "spacer":

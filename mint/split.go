@@ -426,8 +426,6 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 			cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
 		case it.wtype == "divider":
 			cv.put(r, left, C.Dim+dividerLine(it.divChar, max(0, w-4))+Reset)
-		case it.wtype == "rule":
-			paintRule(cv, r, w)
 		case it.wtype == "logline":
 			cv.logLine(r, w, it)
 		case it.wtype == "spacer":
@@ -627,7 +625,7 @@ func (s *Screen) paintGapRules(cv *canvas, bands []paneBand, w int) {
 			}
 			if gap >= 2 {
 				ruleRow := b.divRow - gap
-				if ruleRow >= 1 && !divAt[ruleRow-1] && !s.slotIsRule(prev, ruleRow-1) {
+				if ruleRow >= 1 && !divAt[ruleRow-1] {
 					paintRule(cv, ruleRow, w)
 				}
 			}
@@ -657,22 +655,6 @@ func (s *Screen) trailingPad(b *paneBand) int {
 		return 0
 	}
 	return b.rows - vis
-}
-
-// slotIsRule reports whether row, inside b, is showing a section-gap rule.
-func (s *Screen) slotIsRule(b *paneBand, row int) bool {
-	if s == nil || b == nil || b.rows <= 0 || row < b.top || row >= b.top+b.rows {
-		return false
-	}
-	st := s.uiAt(b.index)
-	if st == nil {
-		return false
-	}
-	idx := st.scroll + (row - b.top)
-	if idx < 0 || idx >= len(st.items) {
-		return false
-	}
-	return st.items[idx].wtype == "rule"
 }
 
 func paintDivider(cv *canvas, row, w int, title string, focused bool) {
