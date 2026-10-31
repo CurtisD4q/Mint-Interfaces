@@ -377,3 +377,40 @@ func homeHas(app *mint.App, label string) bool {
 	}
 	return false
 }
+
+// A status run (Status, refresh, polling) of a tool Mint thinks only
+// reports state never takes the extra-arguments box or an option that
+// looks destructive, so a wrong guess cannot run "-delete" or "--force"
+// unasked. Run still sends them.
+func TestStatusRunLeavesOutExtraArgsAndDestructiveOptions(t *testing.T) {
+	a := newTestApp(t, ToolSpec{Name: "finder9", Bin: "finder9", ReadOnly: true,
+		Flags: []FlagSpec{
+			{Flag: "--name", Kind: FlagText, Label: "Name"},
+			{Flag: "--force", Kind: FlagBool, Label: "Force overwrite"},
+		}})
+	a.Target = "/srv"
+	a.ExtraArgs = "-delete"
+	a.Values["--name"] = "*.log"
+	a.Values["--force"] = "true"
+	status, ok := a.statusArgs()
+	if !ok {
+		t.Fatal("no status command for a read-only tool")
+	}
+	joined := strings.Join(status, " ")
+	if strings.Contains(joined, "-delete") || strings.Contains(joined, "--force") {
+		t.Errorf("status run %q", joined)
+	}
+	if !strings.Contains(joined, "--name *.log") || !strings.Contains(joined, "/srv") {
+		t.Errorf("status run lost the view options or target: %q", joined)
+	}
+	run, _ := a.BuildArgs()
+	if r := strings.Join(run, " "); !strings.Contains(r, "-delete") || !strings.Contains(r, "--force") {
+		t.Errorf("run %q", r)
+	}
+	// The same holds for a status command (StatusArgs).
+	a.Spec.ReadOnly, a.Spec.StatusArgs = false, []string{"--list"}
+	status, _ = a.statusArgs()
+	if s := strings.Join(status, " "); strings.Contains(s, "-delete") || strings.Contains(s, "--force") {
+		t.Errorf("status command run %q", s)
+	}
+}

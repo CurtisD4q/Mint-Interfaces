@@ -548,13 +548,34 @@ func (a *ToolApp) buildFlagAndTargetArgs() (args []string, outPath string) {
 // or recorded.
 const secretMask = "••••••"
 
+// argMode says what an argument list is for.
+type argMode struct {
+	// mask: for showing or recording (previews, history). Secret values
+	// are replaced by secretMask, and $VAR stays as typed instead of its
+	// value, which may be a token.
+	mask bool
+	// status: for a run Mint may start without the Run button (a
+	// read-only status, refresh or poll). The extra-arguments box and
+	// options that look destructive are left out, so a guess that the
+	// tool only reports state can never run "-delete" or "--reset".
+	status bool
+}
+
 // composeFlagArgs builds the flag, output and target arguments. With mask,
 // secret values are replaced by secretMask (for previews and history).
 // stdin lists the secrets (by key) the program reads from standard input;
 // StartJob writes them straight from the secure store.
 func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, stdin []string) {
+	return a.composeArgs(argMode{mask: mask})
+}
+
+func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdin []string) {
+	mask := mode.mask
 	for _, f := range a.Spec.Flags {
 		val := strings.TrimSpace(a.Values[f.Flag])
+		if mode.status && f.Kind != FlagSecret && LooksDestructive(f.Flag, strings.TrimSpace(f.Label+" "+f.Hint)) {
+			continue
+		}
 		switch f.Kind {
 		case FlagSecret:
 			key := f.SecretKey()
@@ -609,7 +630,11 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 					parts = strings.Split(val, "\n")
 				}
 				for _, part := range parts {
-					part = expandArgValue(strings.TrimSpace(part))
+					if mask {
+						part = shownArgValue(strings.TrimSpace(part))
+					} else {
+						part = expandArgValue(strings.TrimSpace(part))
+					}
 					if part == "" {
 						continue
 					}
@@ -633,26 +658,29 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 		}
 	}
 
-	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" {
+	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" && !mode.status {
 		if mask {
-			extra = maskFreeText(extra, a.secretFlagNames())
+			args = append(args, shownArgWords(maskFreeText(extra, a.secretFlagNames()))...)
+		} else {
+			args = append(args, expandArgWords(extra)...)
 		}
-		args = append(args, expandArgWords(extra)...)
 	}
 
 	var operands []string
 	if target := strings.TrimSpace(a.Target); target != "" {
 		if mask {
-			target = maskFreeText(target, a.secretFlagNames())
+			operands = append(operands, shownArgWords(maskFreeText(target, a.secretFlagNames()))...)
+		} else {
+			operands = append(operands, expandArgWords(target)...)
 		}
-		operands = append(operands, expandArgWords(target)...)
 	}
 	if a.Spec.TwoInputs {
 		if second := strings.TrimSpace(a.SecondTarget); second != "" {
 			if mask {
-				second = maskFreeText(second, a.secretFlagNames())
+				operands = append(operands, shownArgWords(maskFreeText(second, a.secretFlagNames()))...)
+			} else {
+				operands = append(operands, expandArgWords(second)...)
 			}
-			operands = append(operands, expandArgWords(second)...)
 		}
 	}
 	if len(operands) > 0 {
@@ -950,6 +978,10 @@ func (a *ToolApp) BuildArgs() (args []string, outPath string) {
 }
 
 func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []string) {
+	return a.buildArgsFor(argMode{mask: mask})
+}
+
+func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, stdin []string) {
 	if len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
 			args = append(args, sub.Args...)
@@ -958,7 +990,7 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 		args = append(args, a.Spec.ApplyArgs...)
 	}
 	prefix := len(args) // subcommand or apply words
-	flagArgs, outPath, stdin := a.composeFlagArgs(mask)
+	flagArgs, outPath, stdin := a.composeArgs(mode)
 	args = append(args, flagArgs...)
 	args, _ = a.diffArgs(args, prefix)
 	args, _ = a.findingsArgs(args, prefix)
