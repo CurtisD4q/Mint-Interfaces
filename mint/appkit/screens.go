@@ -3,6 +3,7 @@ package appkit
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -356,10 +357,55 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 		},
 	}))
 
+	// The runs before this one, folded away under the results. They are
+	// here rather than in a pane of their own so that a reader who wants
+	// to compare two runs finds both in the same place.
+	rows = append(rows, a.earlierRunRows()...)
+
 	return mint.Section{
 		Name: title,
 		Rows: rows,
 	}
+}
+
+// earlierRunRows folds the output of the runs before the current one under
+// the results, newest first. A run with no lines kept (an old entry, or one
+// whose output was saved to a file) still opens: its file is read on demand.
+func (a *ToolApp) earlierRunRows() []mint.Row {
+	hist := a.History()
+	if len(hist) < 2 {
+		return nil
+	}
+	var rows []mint.Row
+	for _, rec := range hist[1:] {
+		r := rec
+		title := fmt.Sprintf("%s · %s", r.Time.Format("15:04:05"), r.CmdLine)
+		badge := fmt.Sprintf("%s · %d lines", r.State, r.LineCount)
+		rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
+			ID:        "run:" + r.ID,
+			Title:     title,
+			Badge:     badge,
+			Collapsed: true,
+			Lines:     func() []string { return a.runLines(r) },
+			ChunkSize: a.Spec.ChunkSize,
+		}))
+	}
+	return rows
+}
+
+// runLines is the output of one recorded run: the lines kept in memory, or
+// the file it was saved to, read when the row is opened.
+func (a *ToolApp) runLines(r RunRecord) []string {
+	if len(r.Lines) > 0 {
+		return r.Lines
+	}
+	if r.OutputFile != "" {
+		if b, err := os.ReadFile(r.OutputFile); err == nil {
+			return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+		}
+		return []string{fmt.Sprintf("The output file %s is no longer there.", r.OutputFile)}
+	}
+	return []string{"This run's output was not kept."}
 }
 
 // maxHomeSubcommands is how many subcommands of a toolkit or records tool

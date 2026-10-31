@@ -235,7 +235,19 @@ type RunRecord struct {
 	State      string    `json:"state"`
 	DurationMs int64     `json:"duration_ms"`
 	LineCount  int       `json:"line_count"`
+	// Lines is what the run put on screen. It is kept for the last few runs
+	// so the results pane can show an earlier one without reading its file
+	// back (the file may have been moved or deleted since).
+	Lines []string `json:"lines,omitempty"`
 }
+
+// historyLineLimit is how many lines of each run are kept in memory, and
+// historyKeep is how many runs keep them. Older runs still appear in the
+// list and open their file on disk.
+const (
+	historyLineLimit = 500
+	historyKeep      = 10
+)
 
 // FileEntry represents an entry inside ResultsDir.
 type FileEntry struct {
@@ -415,6 +427,17 @@ func New(spec ToolSpec) *ToolApp {
 	a.loadHistory()
 	a.loadPresets()
 	return a
+}
+
+// keepLines returns at most historyLineLimit of lines, remembering how many
+// were dropped so the pane can say so.
+func keepLines(lines []string) []string {
+	if len(lines) <= historyLineLimit {
+		return append([]string(nil), lines...)
+	}
+	out := append([]string(nil), lines[:historyLineLimit]...)
+	out[historyLineLimit-1] = fmt.Sprintf("… (%d more lines)", len(lines)-historyLineLimit+1)
+	return out
 }
 
 // historyRows lists recorded runs, the same rows the history screen and the
@@ -1235,6 +1258,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 				State:      j.State().String(),
 				DurationMs: j.Elapsed().Milliseconds(),
 				LineCount:  len(textLines),
+				Lines:      keepLines(textLines),
 			}
 			a.mu.Lock()
 			a.SnapshotLines = textLines
@@ -1242,6 +1266,11 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 			a.history = append([]RunRecord{rec}, a.history...)
 			if len(a.history) > 50 {
 				a.history = a.history[:50]
+			}
+			// Only the newest few keep their lines in memory; the rest are
+			// in runs.json and would make it grow without bound.
+			for i := historyKeep; i < len(a.history); i++ {
+				a.history[i].Lines = nil
 			}
 			a.saveHistoryLocked()
 			a.mu.Unlock()
