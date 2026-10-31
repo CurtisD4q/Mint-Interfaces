@@ -2,11 +2,13 @@
 // argument list, without doing it, so an interface can show the effect
 // before the user confirms.
 //
-// It only reads: Lstat, ReadDir and EvalSymlinks, never following a
-// symlink into a folder. The result is Mint's estimate from GNU
-// coreutils' rules, not output from the tool, and the tree can change
-// between planning and running; callers say so, and plan again just
-// before running.
+// It only reads the tree: Lstat, ReadDir and EvalSymlinks, never following a
+// symlink into a folder. Planning rm also runs "rm --version" once, to tell
+// GNU coreutils before 9.12 (which follows "rm -r link/" and empties the
+// folder) from 9.12 and later (which removes the link). The result is Mint's
+// estimate from those rules, not output from the deletion itself, and the
+// tree can change between planning and running; callers say so, and plan
+// again just before running.
 package fileplan
 
 import (
@@ -185,7 +187,8 @@ func For(tool string, args []string, env Env) (Plan, error) {
 }
 
 // dedupe keeps the first effect for each path: a file reached twice (as
-// "build" and through "link/") is still deleted once.
+// "build" and, when rm follows a trailing slash, through "link/") is
+// still deleted once.
 func dedupe(es []Effect) []Effect {
 	seen := map[string]bool{}
 	out := es[:0]
