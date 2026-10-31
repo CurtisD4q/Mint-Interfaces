@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
 // The results pane lists the recorded runs, newest first, so one can be
@@ -103,9 +105,9 @@ func TestRunScreenHasNoInputSection(t *testing.T) {
 			t.Errorf("run screen has an input section %q", sec.Name)
 		}
 	}
-	// The flags are still there: the screen runs the tool.
+	// The run command is pinned under the output.
 	found := false
-	for _, sec := range scr.Sections {
+	for _, sec := range append(scr.Sections, scr.Dock...) {
 		if sec.Name == "Run" {
 			found = true
 		}
@@ -125,21 +127,23 @@ func TestRunsAreListedOnce(t *testing.T) {
 		{ID: "1", Time: time.Now(), CmdLine: "tree --prune", State: "done", LineCount: 137, Lines: []string{"x"}},
 	}
 	scr := a.RunScreen()
-	for _, sec := range scr.Sections {
-		if strings.Contains(sec.Name, "Output") || sec.Name == "Items" {
-			t.Errorf("run screen carries its own output section %q; the Live output pane has it", sec.Name)
-		}
-	}
-	// The pane still has it.
-	found := false
-	for _, p := range scr.Panes {
-		for _, sec := range p.Sections {
-			if sec.Name == "Captured Output" {
-				found = true
+	// One list. With nothing above the output, that list is the screen;
+	// it is not also repeated in a pane.
+	n := 0
+	each := func(secs []mint.Section) {
+		for _, sec := range secs {
+			if sec.Name == "Captured Output" || sec.Name == "Items" {
+				n++
 			}
 		}
 	}
-	if !found {
-		t.Error("run screen lost its Captured Output section")
+	each(scr.Sections)
+	for _, p := range scr.Panes {
+		if p != nil {
+			each(p.Sections)
+		}
+	}
+	if n != 1 {
+		t.Errorf("captured output appears %d times; want one", n)
 	}
 }

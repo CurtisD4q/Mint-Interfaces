@@ -265,7 +265,7 @@ func (a *ToolApp) PreviewScreen(plan fileplan.Plan, run func(c *mint.Ctx, plan f
 				files = []mint.Section{{Name: "Files", Rows: []mint.Row{mint.Note("  Nothing will change.")}}}
 			}
 			scr.Sections = summary
-			scr.SetPanes(chunkedPanes("Files", files))
+			scr.SetPanes(appendPane(nil, onePane("Files", files)))
 			return
 		}
 		scr.Sections = append(summary, files...)

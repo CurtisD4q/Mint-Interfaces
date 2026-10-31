@@ -94,6 +94,9 @@ func (s *Screen) SetPanes(next []*Pane) {
 
 func (s *Screen) paneTitle(index int) string {
 	if index <= 0 {
+		if s.TopTitle != "" {
+			return s.TopTitle
+		}
 		if s.Title != "" {
 			return s.Title
 		}
@@ -116,6 +119,9 @@ func (s *Screen) paneWeight(index int) float64 {
 }
 
 func (s *Screen) uiAt(index int) *uiState {
+	if s != nil && len(s.Dock) > 0 && index >= s.paneCount() {
+		return s.dockState()
+	}
 	if index <= 0 {
 		if s.ui == nil {
 			s.ui = &uiState{row: 1, lastGood: map[string]any{}, collapsed: map[string]bool{}}
@@ -154,11 +160,50 @@ func (s *Screen) sectionsAt(index int) []Section {
 	return nil
 }
 
-// cycleFocus moves focus by dir (+1 or -1) through every pane, including
-// ones that are hidden or collapsed to a divider. Tab goes forward,
-// Shift-Tab (btab) goes backward.
-func (s *Screen) cycleFocus(dir int) {
+// focusCount is the panes, plus the docked command bar when the screen has one.
+func (s *Screen) focusCount() int {
+	if s == nil {
+		return 0
+	}
 	n := s.paneCount()
+	if len(s.Dock) > 0 {
+		n++
+	}
+	return n
+}
+
+func (s *Screen) dockState() *uiState {
+	if s.dockUI == nil {
+		s.dockUI = &uiState{row: 1, lastGood: map[string]any{}, collapsed: map[string]bool{}}
+	}
+	if s.dockUI.collapsed == nil {
+		s.dockUI.collapsed = map[string]bool{}
+	}
+	if s.dockUI.lastGood == nil {
+		s.dockUI.lastGood = map[string]any{}
+	}
+	return s.dockUI
+}
+
+// dockHeight is the rows the docked command bar needs. Zero means the
+// screen has no dock. The bar is not a pane, so it draws no divider of
+// its own; the rules stay between the stacked panes.
+func (s *Screen) dockHeight(w int) int {
+	if s == nil || len(s.Dock) == 0 || w < 4 {
+		return 0
+	}
+	n := len(s.dockState().flatten(s.Dock, w, 0))
+	if n < 1 {
+		return 0
+	}
+	return n
+}
+
+// cycleFocus moves focus by dir (+1 or -1) through every pane, including
+// ones that are hidden or collapsed to a divider, and the docked bar.
+// Tab goes forward, Shift-Tab (btab) goes backward.
+func (s *Screen) cycleFocus(dir int) {
+	n := s.focusCount()
 	if n <= 1 || dir == 0 {
 		return
 	}
@@ -284,8 +329,17 @@ func (s *Screen) bandIndex(row int) (int, bool) {
 // what is left.
 func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 	n := s.paneCount()
-	if s.focus < 0 || s.focus >= n {
+	if s.focus < 0 || s.focus >= s.focusCount() {
 		s.focus = 0
+	}
+	// The dock is not a pane. While it has focus, the last pane stays open
+	// so a short terminal does not collapse every pane.
+	focusPane := s.focus
+	if focusPane >= n {
+		focusPane = n - 1
+	}
+	if focusPane < 0 {
+		focusPane = 0
 	}
 	plans := make([]panePlan, n)
 	for i := 0; i < n; i++ {
@@ -299,15 +353,16 @@ func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 	}
 	dividers := 0
 	for i := range plans {
-		// Every extra pane has a divider. The top pane has one only when
-		// it is hidden or about to be collapsed.
-		if plans[i].index > 0 {
+		// Every extra pane has a divider. The top pane has one when it
+		// carries its own title, and when it is hidden or collapsed.
+		if plans[i].index > 0 || (plans[i].index == 0 && s.TopTitle != "" && !plans[i].hidden) {
 			dividers++
 			plans[i].div = true
 		}
 	}
 	need := shown*paneMinRows + dividers
-	// A hidden top still needs a divider of its own, which was not counted.
+	// A hidden top still needs a divider of its own. A titled top counts
+	// its divider above only while it is open.
 	if plans[0].hidden {
 		need++
 	}
@@ -318,12 +373,15 @@ func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 		case plans[i].hidden:
 			plans[i].content = false
 			plans[i].div = true
-		case short && plans[i].index != s.focus:
+		case short && plans[i].index != focusPane:
 			plans[i].content = false
 			plans[i].div = true
 			plans[i].hidden = false
 		default:
 			plans[i].content = true
+			if plans[i].index == 0 && s.TopTitle != "" {
+				plans[i].div = true
+			}
 		}
 	}
 	rows, content, leads := s.assignPaneRows(plans, short, avail)
@@ -570,6 +628,20 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 		use(pst)
 		paintRows(cv, pst, pst.items, b.top, b.rows, w, b.index == s.focus, widget, marked)
 	}
+}
+
+// paintDock draws the command bar in rows [top, top+rows). It sits under
+// Output and does not scroll with the panes.
+func (s *Screen) paintDock(cv *canvas, w, top, rows int, use func(*uiState), widget func(*Row, int) string, marked func(*Row, int) bool) {
+	s.dockTop, s.dockRows = 0, 0
+	if s == nil || rows < 1 || len(s.Dock) == 0 {
+		return
+	}
+	st := s.dockState()
+	use(st)
+	preparePane(st, s.Dock, w, 0, rows)
+	paintRows(cv, st, st.items, top, rows, w, s.focus >= s.paneCount(), widget, marked)
+	s.dockTop, s.dockRows = top, rows
 }
 
 func (s *Screen) refreshSplitPanes() {

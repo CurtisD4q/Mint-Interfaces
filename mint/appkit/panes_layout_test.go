@@ -9,30 +9,64 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/fileplan"
 )
 
-func assertPaneCap(t *testing.T, s *mint.Screen) {
+func assertNoEmpty(t *testing.T, s *mint.Screen) {
 	t.Helper()
-	if len(s.Sections) > maxPaneSections {
-		t.Fatalf("top pane has %d sections", len(s.Sections))
+	if s.TopTitle != "" && len(dropEmpty(s.Sections)) == 0 {
+		t.Fatalf("top pane %q has no sections", s.TopTitle)
+	}
+	check := func(where string, secs []mint.Section) {
+		t.Helper()
+		if len(secs) == 0 {
+			t.Fatalf("%s has no sections", where)
+		}
+		for _, sec := range secs {
+			if len(sec.Rows) == 0 {
+				t.Fatalf("%s section %q has no rows", where, sec.Name)
+			}
+		}
+	}
+	if len(s.Sections) > 0 {
+		check("top", s.Sections)
 	}
 	for _, p := range s.Panes {
 		if p == nil {
-			continue
+			t.Fatal("nil pane")
 		}
-		if len(p.Sections) > maxPaneSections {
-			t.Fatalf("pane %q has %d sections", p.Title, len(p.Sections))
-		}
-		if len(p.Sections) == 0 {
-			t.Fatalf("pane %q is empty", p.Title)
+		check(p.Title, p.Sections)
+	}
+	if len(s.Dock) > 0 {
+		check("command bar", s.Dock)
+	}
+}
+
+func assertDistinctAdjacent(t *testing.T, s *mint.Screen) {
+	t.Helper()
+	titles := orderedPaneTitles(s)
+	for i := 1; i < len(titles); i++ {
+		if paneKind(titles[i]) == paneKind(titles[i-1]) {
+			t.Fatalf("adjacent panes %q and %q are the same kind in %v", titles[i-1], titles[i], titles)
 		}
 	}
 }
 
-func assertPaneTitles(t *testing.T, s *mint.Screen, want ...string) {
-	t.Helper()
-	assertPaneCap(t, s)
-	got := paneTitles(s)
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("panes\n got %v\nwant %v", got, want)
+// paneKind groups titles that show the same kind of content. Basic options
+// and advanced options are different kinds: that split is the reason the
+// 13 have two panes. Two output panes, or two copies of one options pane,
+// are the same kind.
+func paneKind(title string) string {
+	switch strings.ToLower(strings.TrimSpace(title)) {
+	case "basic options", "options", "more options":
+		return "basic"
+	case "advanced + additional":
+		return "advanced"
+	case "output", "live output", "report", "page", "progress", "discovered targets", "discovered targets & ports":
+		return "output"
+	case "findings":
+		return "findings"
+	case "what will change", "files":
+		return "preview"
+	default:
+		return strings.ToLower(title)
 	}
 }
 
@@ -53,40 +87,49 @@ func TestArchetypePaneLayouts(t *testing.T) {
 		spec ToolSpec
 		want []string
 	}{
-		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{"Report"}},
-		{"read", ToolSpec{Name: "man", Bin: "echo", ArchetypeID: "read"}, []string{"Page"}},
-		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{"Discovered targets"}},
-		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{"Findings"}},
-		{"convert", ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert"}, nil},
-		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{"Output"}},
-		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{"Progress"}},
-		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{"What will change"}},
-		{"measure", ToolSpec{Name: "fio", Bin: "echo", ArchetypeID: "measure"}, []string{"Options"}},
-		// A table opens its own row, so no Details or Actions pane.
-		{"control", ToolSpec{Name: "systemctl", Bin: "echo", ArchetypeID: "control"}, nil},
-		{"history", ToolSpec{Name: "git", Bin: "echo", ArchetypeID: "history"}, nil},
+		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{titleBasic, titleOutput}},
+		{"read", ToolSpec{Name: "man", Bin: "echo", ArchetypeID: "read"}, []string{titleBasic, titleOutput}},
+		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{titleBasic, titleOutput}},
+		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{titleBasic, "Findings", titleOutput}},
+		{"convert", ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert"}, []string{titleBasic, titleOutput}},
+		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{titleBasic, titleOutput}},
+		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{titleBasic, titleOutput}},
+		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{titleBasic, titleOutput}},
+		{"measure", ToolSpec{Name: "fio", Bin: "echo", ArchetypeID: "measure"}, []string{titleBasic, titleOutput}},
+		{"control", ToolSpec{Name: "systemctl", Bin: "echo", ArchetypeID: "control"}, []string{titleBasic, titleOutput}},
+		{"history", ToolSpec{Name: "git", Bin: "echo", ArchetypeID: "history"}, []string{titleBasic, titleOutput}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
 			s := newTestApp(t, tc.spec).MainScreen()
-			assertPaneTitles(t, s, tc.want...)
+			assertNoEmpty(t, s)
+			got := orderedPaneTitles(s)
+			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+				t.Fatalf("panes\n got %v\nwant %v", got, tc.want)
+			}
+			if len(s.Dock) == 0 {
+				t.Fatal("run command bar is not under the output")
+			}
 		})
 	}
 }
 
-func TestOptionHeadingsChunkAtTen(t *testing.T) {
+func TestManyHeadingsStayOnePane(t *testing.T) {
 	spec := ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe", Flags: flagHeadings(25)}
 	s := newTestApp(t, spec).MainScreen()
-	assertPaneCap(t, s)
-	got := paneTitles(s)
-	// 25 headings do not fit with the chrome, so Options panes precede the results.
-	if len(got) < 2 || got[0] != "Options" || got[len(got)-1] != "Discovered targets" {
-		t.Fatalf("chunked panes %v", got)
+	assertNoEmpty(t, s)
+	got := orderedPaneTitles(s)
+	if strings.Join(got, "|") != titleBasic+"|"+titleOutput {
+		t.Fatalf("25 headings became %v; want one options pane and Output", got)
 	}
-	for _, title := range got[:len(got)-1] {
-		if title != "Options" {
-			t.Fatalf("unexpected pane %q in %v", title, got)
+	var headings int
+	for _, sec := range s.Sections {
+		if strings.HasPrefix(sec.Name, "Heading ") {
+			headings++
 		}
+	}
+	if headings != 25 {
+		t.Fatalf("top pane holds %d headings", headings)
 	}
 }
 
@@ -97,15 +140,15 @@ func TestNoOptionsScreenHasAHelpPane(t *testing.T) {
 			spec.Subcommands = []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}
 		}
 		s := newTestApp(t, spec).MainScreen()
-		for _, title := range append(paneTitles(s), sectionNames(s)...) {
+		for _, title := range append(orderedPaneTitles(s), sectionNames(s)...) {
 			if title == "Help" {
-				t.Fatalf("%s still has a Help pane or section (%v / %v)", def.ID, paneTitles(s), sectionNames(s))
+				t.Fatalf("%s still has a Help pane or section (%v / %v)", def.ID, orderedPaneTitles(s), sectionNames(s))
 			}
 		}
 	}
 }
 
-func TestReportBlocksChunkAtTen(t *testing.T) {
+func TestReportStaysOnePane(t *testing.T) {
 	var b strings.Builder
 	for i := 0; i < 25; i++ {
 		fmt.Fprintf(&b, "SECTION %d\n    line\n", i)
@@ -113,52 +156,53 @@ func TestReportBlocksChunkAtTen(t *testing.T) {
 	a := newTestApp(t, ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"})
 	a.SetSnapshotText(b.String())
 	s := a.MainScreen()
-	assertPaneCap(t, s)
-	var reports int
-	for _, p := range s.Panes {
-		if p.Title == "Report" {
-			reports++
-			if len(p.Sections) == 0 || len(p.Sections) > 10 {
-				t.Fatalf("report pane %d sections", len(p.Sections))
-			}
+	assertNoEmpty(t, s)
+	var output int
+	for _, title := range orderedPaneTitles(s) {
+		if paneKind(title) == "output" {
+			output++
 		}
 	}
-	if reports < 3 {
-		t.Fatalf("25 heading blocks produced %d report panes", reports)
+	if output != 1 {
+		t.Fatalf("output panes in %v, want one", orderedPaneTitles(s))
+	}
+	blob := sectionBlob(outputSections(s))
+	if !strings.Contains(blob, "SECTION 0") && !strings.Contains(blob, "SECTION 24") && !strings.Contains(blob, "25") {
+		t.Fatalf("output pane did not keep the report text:\n%s", blob)
 	}
 }
 
 func TestTransferAndMirrorPanesHoldOutput(t *testing.T) {
 	for _, tc := range []struct {
-		id, title, text string
+		id, text string
 	}{
-		{"transfer", "Progress", "downloaded 10 files"},
-		{"mirror", "What will change", "copied 3 paths"},
+		{"transfer", "downloaded 10 files"},
+		{"mirror", "copied 3 paths"},
 	} {
 		a := newTestApp(t, ToolSpec{Name: tc.id, Bin: "echo", ArchetypeID: tc.id})
 		a.SetSnapshotText(tc.text)
 		s := a.MainScreen()
 		var found bool
 		for _, p := range s.Panes {
-			if p.Title != tc.title {
+			if p.Title != titleOutput {
 				continue
 			}
 			found = true
 			if len(p.Sections) == 0 {
-				t.Fatalf("%s pane empty", tc.title)
+				t.Fatalf("%s output pane empty", tc.id)
 			}
 			blob := sectionBlob(p.Sections)
 			if !strings.Contains(blob, tc.text) && !strings.Contains(blob, "Output") && !strings.Contains(blob, "Changes") && !strings.Contains(blob, "Progress") {
-				t.Fatalf("%s pane did not attach output:\n%s", tc.title, blob)
+				t.Fatalf("%s output pane did not attach output:\n%s", tc.id, blob)
 			}
 		}
 		if !found {
-			t.Fatalf("missing %s pane in %v", tc.title, paneTitles(s))
+			t.Fatalf("missing Output pane in %v", orderedPaneTitles(s))
 		}
 	}
 }
 
-func TestEditFilesPreviewSplitsFiles(t *testing.T) {
+func TestEditFilesPreviewIsOnePane(t *testing.T) {
 	p, _ := KnownPreviewSpec("cp")
 	a := newTestApp(t, ToolSpec{Name: "cp", Bin: "echo", ArchetypeID: "edit-files", Preview: &p})
 	plan := fileplan.Plan{Tool: "cp", Effects: []fileplan.Effect{
@@ -166,7 +210,10 @@ func TestEditFilesPreviewSplitsFiles(t *testing.T) {
 		{Kind: fileplan.Create, Path: "/tmp/b"},
 	}}
 	scr := a.PreviewScreen(plan, func(*mint.Ctx, fileplan.Plan) {})
-	assertPaneTitles(t, scr, "Files")
+	got := paneTitles(scr)
+	if len(got) != 1 || got[0] != "Files" {
+		t.Fatalf("preview panes %v", got)
+	}
 	var names []string
 	for _, s := range scr.Sections {
 		names = append(names, s.Name)
@@ -177,6 +224,15 @@ func TestEditFilesPreviewSplitsFiles(t *testing.T) {
 	if len(scr.Panes[0].Sections) == 0 || !strings.Contains(scr.Panes[0].Sections[0].Name, "Created") {
 		t.Fatalf("files pane %+v", scr.Panes[0].Sections)
 	}
+}
+
+func outputSections(s *mint.Screen) []mint.Section {
+	for _, p := range s.Panes {
+		if p != nil && p.Title == titleOutput {
+			return p.Sections
+		}
+	}
+	return nil
 }
 
 func sectionBlob(sections []mint.Section) string {

@@ -40,11 +40,20 @@ type Screen struct {
 	// split what remains.
 	Weight float64
 
+	// TopTitle names the top band when it is a pane of its own, such as
+	// Basic Options. Empty keeps the screen title as that band's name and
+	// draws no divider while the band is open.
+	TopTitle string
+
 	// Panes are stacked under Sections, top to bottom. A screen with none
 	// is one column and draws exactly as before. There is no side-by-side
 	// layout: every extra pane sits under the one above it, with a one-line
 	// divider that shows its title.
 	Panes []*Pane
+
+	// Dock is drawn under the panes and does not scroll. The run command
+	// bar uses it so the command stays pinned under Output, above the footer.
+	Dock []Section
 
 	// SectionSpacing puts that many blank lines before every named section
 	// except the first. 0 uses the app's setting; negative means none.
@@ -80,6 +89,9 @@ type Screen struct {
 	viewWidth int
 	selRow    Row
 	selOK     bool
+
+	dockUI            *uiState
+	dockTop, dockRows int
 
 	redraw   func(int, int)
 	onKey    func(*Key, *int, *int, *int) (*screenResult, bool)
@@ -1039,9 +1051,25 @@ func (screen *Screen) bind() {
 			finish(cv)
 			return
 		}
-		screen.viewTop, screen.viewAvail, screen.viewWidth = contentTop, avail, w
+		dockH := 0
+		if len(screen.Dock) > 0 {
+			dockH = screen.dockHeight(w)
+			// Leave the panes enough rows to keep their minimum.
+			if keep := avail - paneMinRows; dockH > keep {
+				dockH = keep
+			}
+			if dockH < 2 {
+				dockH = 0
+			}
+		}
+		paneAvail := avail - dockH
+		screen.viewTop, screen.viewAvail, screen.viewWidth = contentTop, paneAvail, w
+		usePane := func(u *uiState) { st = u }
 		if len(screen.Panes) > 0 {
-			screen.paintSplit(cv, w, contentTop, avail, func(u *uiState) { st = u }, widget, marked)
+			screen.paintSplit(cv, w, contentTop, paneAvail, usePane, widget, marked)
+			if dockH > 0 {
+				screen.paintDock(cv, w, contentTop+paneAvail, dockH, usePane, widget, marked)
+			}
 			st = screen.uiAt(screen.focus)
 			it, _ := current()
 			hints := withSplitHints(footerHints(st.editing != nil, screen.Hints, it))
@@ -1052,7 +1080,8 @@ func (screen *Screen) bind() {
 			return
 		}
 		screen.bands = nil
-		st.page = avail
+		st = screen.uiAt(0)
+		st.page = paneAvail
 		items := st.flatten(screen.Sections, w, screen.SectionSpacing)
 		st.items = items
 		sel := selectable(items)
@@ -1062,8 +1091,8 @@ func (screen *Screen) bind() {
 			selItem = sel[st.row-1]
 		}
 		if selItem != 0 {
-			if selItem-st.scroll > avail-1 {
-				st.scroll = selItem - avail + 1
+			if selItem-st.scroll > paneAvail-1 {
+				st.scroll = selItem - paneAvail + 1
 			}
 			if selItem-st.scroll < 1 {
 				st.scroll = selItem - 1
@@ -1072,16 +1101,16 @@ func (screen *Screen) bind() {
 		if st.scroll < 0 {
 			st.scroll = 0
 		}
-		if maxScroll := max(0, len(items)-avail); st.scroll > maxScroll {
+		if maxScroll := max(0, len(items)-paneAvail); st.scroll > maxScroll {
 			st.scroll = maxScroll
 		}
 		st.hit = map[int]hitEntry{}
 		const left = 3
-		for _, pl := range layoutContent(items, st.scroll, contentTop, avail) {
+		for _, pl := range layoutContent(items, st.scroll, contentTop, paneAvail) {
 			i := pl.index + 1
 			it := &items[pl.index]
 			r := pl.row
-			selected := i == selItem
+			selected := screen.focus == 0 && i == selItem
 			switch {
 			case it.kind == "section" && it.collapsible:
 				arrow := "▾"
@@ -1191,18 +1220,22 @@ func (screen *Screen) bind() {
 			}
 		}
 		st.sb = nil
-		if total := len(items); total > avail {
+		if total := len(items); total > paneAvail {
 			sbx := w - 1
-			thumb := max(1, floorf(float64(avail*avail)/float64(total)+0.5))
-			maxoff := total - avail
-			maxtop := avail - thumb
+			thumb := max(1, floorf(float64(paneAvail*paneAvail)/float64(total)+0.5))
+			maxoff := total - paneAvail
+			maxtop := paneAvail - thumb
 			tpos := 0
 			if maxoff > 0 {
 				tpos = floorf(float64(st.scroll)/float64(maxoff)*float64(maxtop) + 0.5)
 			}
-			st.sb = &scrollInfo{col: sbx, top: contentTop, rows: avail, maxoff: maxoff}
-			cv.scrollbar(sbx, contentTop, avail, thumb, tpos)
+			st.sb = &scrollInfo{col: sbx, top: contentTop, rows: paneAvail, maxoff: maxoff}
+			cv.scrollbar(sbx, contentTop, paneAvail, thumb, tpos)
 		}
+		if dockH > 0 {
+			screen.paintDock(cv, w, contentTop+paneAvail, dockH, usePane, widget, marked)
+		}
+		st = screen.uiAt(screen.focus)
 		it, _ := current()
 		hints := footerHints(st.editing != nil, screen.Hints, it)
 		badges := status()
@@ -1215,17 +1248,24 @@ func (screen *Screen) bind() {
 	screen.onKey = func(k *Key, h, w, sc *int) (*screenResult, bool) {
 		dirty := false
 		consumed := false
-		if len(screen.Panes) > 0 {
+		if screen.focusCount() > 1 {
 			st = screen.uiAt(screen.focus)
 		}
-		if len(screen.Panes) > 0 && k != nil && k.Mouse != nil {
-			if idx, ok := screen.bandIndex(k.Mouse.Row); ok {
-				screen.focus = idx
-				st = screen.uiAt(idx)
+		if k != nil && k.Mouse != nil && (len(screen.Panes) > 0 || len(screen.Dock) > 0) {
+			switch {
+			case screen.dockRows > 0 && k.Mouse.Row >= screen.dockTop && k.Mouse.Row < screen.dockTop+screen.dockRows:
+				screen.focus = screen.paneCount()
+				st = screen.uiAt(screen.focus)
 				dirty = true
+			default:
+				if idx, ok := screen.bandIndex(k.Mouse.Row); ok {
+					screen.focus = idx
+					st = screen.uiAt(idx)
+					dirty = true
+				}
 			}
 		}
-		if len(screen.Panes) > 0 && k != nil && (k.Name == "\t" || k.Name == "btab") {
+		if screen.focusCount() > 1 && k != nil && (k.Name == "\t" || k.Name == "btab") {
 			if st.editing != nil {
 				commitEdit()
 			}
@@ -1386,7 +1426,7 @@ func (screen *Screen) bind() {
 			return &screenResult{op: "back"}, false
 		case k.Name == "q" || k.Name == "\x03":
 			return &screenResult{op: "quit"}, false
-		case len(screen.Panes) > 0 && st.editing == nil && (k.Name == "[" || k.Name == "]" || k.Name == "|"):
+		case len(screen.Panes) > 0 && screen.focus < screen.paneCount() && st.editing == nil && (k.Name == "[" || k.Name == "]" || k.Name == "|"):
 			switch k.Name {
 			case "[":
 				screen.nudgeFocus(-1)
@@ -1411,6 +1451,15 @@ func (screen *Screen) renderFrame(h, w int) string {
 	screen.redraw(h, w)
 	screen.frameBuf = nil
 	return b.String()
+}
+
+// FrameText draws the screen at h rows by w columns, including colour
+// sequences, without a real terminal. Screenshots and tests use it.
+func (s *Screen) FrameText(h, w int) string {
+	if s == nil {
+		return ""
+	}
+	return s.renderFrame(h, w)
 }
 
 func (screen *Screen) pressKey(k *Key, h, w int) {
