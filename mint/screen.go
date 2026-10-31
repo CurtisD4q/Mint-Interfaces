@@ -1054,21 +1054,27 @@ func (screen *Screen) bind() {
 		dockH := 0
 		if len(screen.Dock) > 0 {
 			dockH = screen.dockHeight(w)
-			// Leave the panes enough rows to keep their minimum.
-			if keep := avail - paneMinRows; dockH > keep {
+			// Reserve one extra row for the separator above the dock, while
+			// leaving the panes enough rows to keep their minimum.
+			if keep := avail - paneMinRows - 1; dockH > keep {
 				dockH = keep
 			}
 			if dockH < 2 {
 				dockH = 0
 			}
 		}
-		paneAvail := avail - dockH
+		dockRule := 0
+		if dockH > 0 {
+			dockRule = 1
+		}
+		paneAvail := avail - dockH - dockRule
 		screen.viewTop, screen.viewAvail, screen.viewWidth = contentTop, paneAvail, w
 		usePane := func(u *uiState) { st = u }
 		if len(screen.Panes) > 0 {
 			screen.paintSplit(cv, w, contentTop, paneAvail, usePane, widget, marked)
 			if dockH > 0 {
-				screen.paintDock(cv, w, contentTop+paneAvail, dockH, usePane, widget, marked)
+				paintRule(cv, contentTop+paneAvail, w)
+				screen.paintDock(cv, w, contentTop+paneAvail+dockRule, dockH, usePane, widget, marked)
 			}
 			st = screen.uiAt(screen.focus)
 			it, _ := current()
