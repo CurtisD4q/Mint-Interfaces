@@ -591,9 +591,15 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 				args = append(args, f.Flag)
 			}
 		default:
-			// A value left at its default is not passed. A slider sitting
-			// at 0 would otherwise send "--months 0", which the tool reads
-			// as a real limit, and the flag could then never be dropped.
+			// A number left at its default, or at zero, is not passed. A
+			// slider sitting at 0 would otherwise send "-n 0", which the
+			// tool reads as a real limit, and the flag could then never be
+			// dropped: months and a year could not be asked for at once.
+			if f.Kind == FlagInt && (val == "" || val == "0") {
+				continue
+			}
+			// A value left at its declared default is not passed either: it
+			// is what the tool would use anyway.
 			if f.Default != "" && val == strings.TrimSpace(f.Default) {
 				continue
 			}
