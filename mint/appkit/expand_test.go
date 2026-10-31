@@ -327,5 +327,12 @@ func rowByID(scr *mint.Screen, id string) (mint.Row, bool) {
 			}
 		}
 	}
+	for _, s := range scr.Dock {
+		for _, r := range s.Rows {
+			if rowField(r, "id") == id {
+				return r, true
+			}
+		}
+	}
 	return mint.Row{}, false
 }

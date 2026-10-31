@@ -1,114 +1,139 @@
 package appkit
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// maxPaneSections is how many sections one pane may hold. Further sections
-// spill into another pane with the same title.
-const maxPaneSections = 10
+// The 13 archetypes keep ordinary options and advanced options in separate
+// panes. Every other archetype keeps both in the one Basic Options pane.
+const (
+	titleBasic    = "Basic Options"
+	titleAdvanced = "Advanced + Additional"
+	titleOutput   = "Output"
+)
 
-func takePane(sections []mint.Section) (head, rest []mint.Section) {
-	if len(sections) <= maxPaneSections {
-		return sections, nil
-	}
-	return append([]mint.Section(nil), sections[:maxPaneSections]...), append([]mint.Section(nil), sections[maxPaneSections:]...)
-}
-
-// chunkedPanes splits sections into panes of at most maxPaneSections.
-// An empty list becomes one pane with a short note, so the title stays.
-func chunkedPanes(title string, sections []mint.Section) []*mint.Pane {
-	if len(sections) == 0 {
-		sections = []mint.Section{{Name: title, Rows: []mint.Row{mint.Note("  No further options.")}}}
-	}
-	var out []*mint.Pane
-	for len(sections) > 0 {
-		var head []mint.Section
-		head, sections = takePane(sections)
-		out = append(out, &mint.Pane{Title: title, Sections: head})
-	}
-	return out
-}
-
-// splitOptionSections divides the option sections into the ones that come
-// before any advanced option and the ones after it, so each half can go in
-// its own pane. A section that holds only advanced options belongs to the
-// second half. When every section is on one side, the second half is empty
-// and the caller keeps its single pane.
-func splitOptionSections(sections []mint.Section) (first, second []mint.Section) {
-	cut := -1
-	for i, sec := range sections {
-		if holdsAdvanced(sec) {
-			cut = i
-			break
-		}
-	}
-	if cut < 0 {
-		return sections, nil
-	}
-	return append([]mint.Section(nil), sections[:cut]...), append([]mint.Section(nil), sections[cut:]...)
-}
-
-// holdsAdvanced reports whether a section is nothing but the advanced
-// options of one heading, which flagSections marks "(Advanced)".
-func holdsAdvanced(sec mint.Section) bool {
-	return strings.HasSuffix(sec.Name, "(Advanced)")
-}
-
-// optionsPanes puts the option sections in two panes: the ordinary options,
-// then the advanced ones. With nothing advanced it is the one pane it was.
-func (a *ToolApp) optionsPanes(sections []mint.Section) []*mint.Pane {
-	first, second := splitOptionSections(sections)
-	panes := chunkedPanes("Options", first)
-	if len(second) > 0 {
-		panes = append(panes, chunkedPanes("More Options", second)...)
-	}
-	return panes
-}
-
-func splitTableArchetype(id string) bool {
+func advancedInOwnPane(id string) bool {
 	switch id {
-	case "list", "records", "search":
+	case "inspect", "read", "probe", "audit", "convert", "toolkit", "transfer",
+		"mirror", "edit-files", "rules", "control", "history", "measure":
 		return true
 	default:
 		return false
 	}
 }
 
-func (a *ToolApp) chromeSections(mode execMode, canPoll bool, interval time.Duration) []mint.Section {
+func (a *ToolApp) advancedInOwnPane() bool {
+	return a != nil && advancedInOwnPane(a.Spec.ArchetypeID)
+}
+
+func (a *ToolApp) hasAdvancedOptions() bool {
+	for _, f := range a.Spec.Flags {
+		if f.Advanced {
+			return true
+		}
+	}
+	return false
+}
+
+// dropEmpty hides sections that have no rows, so a pane is never padded
+// with a blank heading.
+func dropEmpty(sections []mint.Section) []mint.Section {
+	out := make([]mint.Section, 0, len(sections))
+	for _, s := range sections {
+		if len(s.Rows) == 0 {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// onePane is one scrolling pane. An empty list is no pane: the same kind
+// of content is never repeated to fill a slot, and a pane is never blank.
+func onePane(title string, sections []mint.Section) *mint.Pane {
+	sections = dropEmpty(sections)
+	if title == "" || len(sections) == 0 {
+		return nil
+	}
+	return &mint.Pane{Title: title, Sections: sections}
+}
+
+func appendPane(panes []*mint.Pane, p *mint.Pane) []*mint.Pane {
+	if p == nil {
+		return panes
+	}
+	return append(panes, p)
+}
+
+// layoutMain stacks Basic Options, then at most one Advanced + Additional
+// pane for the 13, then any pane whose job is neither options nor output,
+// then Output. The run command is docked under Output.
+func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
+	basic, advanced := a.optionSections()
+	var panes []*mint.Pane
+	if a.advancedInOwnPane() && a.hasAdvancedOptions() {
+		panes = appendPane(panes, onePane(titleAdvanced, advanced))
+	}
+	panes = append(panes, a.rolePanes()...)
+	title := a.outputSectionName(a.outputFallback(mode))
+	panes = appendPane(panes, onePane(titleOutput, []mint.Section{a.buildOutputDisplaySection(title)}))
+
+	scr.TopTitle = titleBasic
+	scr.Sections = basic
+	scr.SetPanes(panes)
+	scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, canPoll, interval)})
+}
+
+// optionSections is the ordinary options, and the advanced ones when the
+// 13 put those in their own pane. With nothing advanced, the second list
+// is empty and Extra arguments stay with the ordinary options.
+func (a *ToolApp) optionSections() (basic, advanced []mint.Section) {
+	split := a.advancedInOwnPane() && a.hasAdvancedOptions()
+	var flags, adv []mint.Section
+	if split {
+		flags, adv = a.splitFlagSections()
+	} else {
+		flags = a.flagSections()
+	}
+	basic = a.inputAndFlags(flags, !split)
+	basic = a.withFileAndRoot(basic)
+	basic = dropEmpty(basic)
+	if !split {
+		return basic, nil
+	}
+	// Extra arguments are additional options, so they travel with the
+	// advanced pane. If that would leave Basic Options empty, they stay.
+	if len(basic) == 0 {
+		basic = dropEmpty([]mint.Section{a.extraArgsSection()})
+		return basic, dropEmpty(adv)
+	}
+	adv = append(adv, a.extraArgsSection())
+	return basic, dropEmpty(adv)
+}
+
+func (a *ToolApp) inputAndFlags(flags []mint.Section, includeExtra bool) []mint.Section {
 	var sections []mint.Section
-	sections = append(sections, a.inputZone())
-	if a.Spec.OutputsFile {
-		sections = append(sections, a.outputFileSection())
+	if in := a.inputSection(includeExtra); len(in.Rows) > 0 {
+		sections = append(sections, in)
 	}
-	if root := a.rootAuthSection(); root != nil {
-		sections = append(sections, *root)
-	}
-	sections = append(sections, a.executionZone(mode, canPoll, interval))
+	sections = append(sections, flags...)
 	return sections
 }
 
-// formSections is the single-column screen: chrome, flag headings, and
-// inline output when this archetype shows it there.
-func (a *ToolApp) formSections(mode execMode, canPoll bool, interval time.Duration, output bool) []mint.Section {
-	var sections []mint.Section
-	sections = append(sections, a.inputZone())
-	sections = append(sections, a.flagSections()...)
+func (a *ToolApp) withFileAndRoot(sections []mint.Section) []mint.Section {
 	if a.Spec.OutputsFile {
 		sections = append(sections, a.outputFileSection())
 	}
-	if root := a.rootAuthSection(); root != nil {
+	if root := a.rootAuthSection(); root != nil && len(root.Rows) > 0 {
 		sections = append(sections, *root)
 	}
-	sections = append(sections, a.executionZone(mode, canPoll, interval))
-	if output {
-		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName(a.outputFallback(mode))))
-	}
 	return sections
+}
+
+func (a *ToolApp) extraArgsSection() mint.Section {
+	return mint.Section{Name: "Extra arguments", Rows: []mint.Row{a.extraArgsRow()}}
 }
 
 func (a *ToolApp) helpPrefix() []string {
@@ -118,290 +143,30 @@ func (a *ToolApp) helpPrefix() []string {
 	return nil
 }
 
-func (a *ToolApp) outputBlocks() []mint.Section {
-	lines := a.ActiveLines()
-	title := a.outputSectionName(a.outputFallback(a.executionMode()))
-	if len(lines) == 0 {
-		return []mint.Section{{Name: title, Rows: []mint.Row{mint.Note("  No output captured yet.")}}}
-	}
-	return splitBlockSections(lines, a.Spec.ChunkSize, title)
-}
-
-// splitBlockSections is SplitSections as one section per heading block.
-func splitBlockSections(lines []string, chunkSize int, fallback string) []mint.Section {
-	if chunkSize <= 0 {
-		chunkSize = 100
-	}
-	if fallback == "" {
-		fallback = "Output"
-	}
-	type secGroup struct {
-		title string
-		lines []string
-	}
-	var groups []secGroup
-	var cur *secGroup
-	for _, raw := range lines {
-		cleaned := mint.CleanLine(raw)
-		trimmed := strings.TrimSpace(cleaned)
-		if len(cleaned) > 0 && cleaned[0] != ' ' && cleaned[0] != '\t' && sectionHeadingRe.MatchString(trimmed) && len(trimmed) >= 2 {
-			groups = append(groups, secGroup{title: strings.TrimSuffix(trimmed, ":")})
-			cur = &groups[len(groups)-1]
-			continue
-		}
-		if cur == nil {
-			groups = append(groups, secGroup{title: fallback})
-			cur = &groups[len(groups)-1]
-		}
-		cur.lines = append(cur.lines, cleaned)
-	}
-	if len(groups) < 2 {
-		copied := append([]string(nil), lines...)
-		return []mint.Section{{
-			Name: fallback,
-			Rows: []mint.Row{mint.Collapsible(mint.CollapsibleOpts{
-				ID: "output:main", Title: fallback, Badge: fmt.Sprintf("%d lines", len(copied)),
-				Collapsed: false, Lines: func() []string { return copied }, ChunkSize: chunkSize,
-			})},
-		}}
-	}
-	var out []mint.Section
-	for i, g := range groups {
-		body := append([]string(nil), g.lines...)
-		title := g.title
-		out = append(out, mint.Section{
-			Name: title,
-			Rows: []mint.Row{mint.Collapsible(mint.CollapsibleOpts{
-				ID: "sec:" + title, Title: title,
-				Badge:     fmt.Sprintf("%d lines", len(body)),
-				Collapsed: i != 0,
-				Lines:     func() []string { return body },
-				ChunkSize: chunkSize,
-			})},
-		})
-	}
-	return out
-}
-
-func (a *ToolApp) tableOnlySection(title string) (mint.Section, bool) {
-	if !a.Spec.TableOutput {
-		return mint.Section{}, false
-	}
-	lines := a.ActiveLines()
-	if len(lines) == 0 {
-		return mint.Section{}, false
-	}
-	headers, rows := mint.ParseTable(lines)
-	if len(a.Spec.TableColumns) > 0 && len(headers) == 0 {
-		headers = a.Spec.TableColumns
-	}
-	if len(headers) == 0 || len(rows) == 0 {
-		return mint.Section{}, false
-	}
-	hdr, body := append([]string(nil), headers...), append([][]string(nil), rows...)
-	return mint.Section{Name: title, Rows: []mint.Row{
-		mint.Table(mint.TableOpts{
-			ID: "tbl:" + a.Spec.Name, Headers: hdr, Rows: body, MaxHeight: 20,
-			Viewer: wideTableViewer(a.Spec.ArchetypeID),
-			OnSelect: func(c *mint.Ctx, rowIdx int, row []string) {
-				a.handleTableRowSelect(c, rowIdx, hdr, row)
-			},
-		}),
-	}}, true
-}
-
-// layoutMain chooses the stacked panes for this archetype. Screens that
-// are not listed keep the single column, or the panes they already had.
-func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
+// rolePanes are the panes that do a different job from options and from
+// the output log: findings, or a preview of what will change. A report,
+// a page or a table of targets is the output, so it stays in that pane.
+func (a *ToolApp) rolePanes() []*mint.Pane {
+	var panes []*mint.Pane
 	switch a.Spec.ArchetypeID {
-	case "inspect":
-		a.layoutInspect(scr, mode, canPoll, interval)
-	case "read":
-		a.layoutRead(scr, mode, canPoll, interval)
-	case "probe":
-		a.layoutProbe(scr, mode, canPoll, interval)
 	case "audit":
-		a.layoutAudit(scr, mode, canPoll, interval)
-	case "convert":
-		a.layoutConvert(scr, mode, canPoll, interval)
-	case "toolkit":
-		a.layoutToolkit(scr, mode, canPoll, interval)
-	case "transfer":
-		a.layoutTransfer(scr, mode, canPoll, interval)
-	case "mirror":
-		a.layoutMirror(scr, mode, canPoll, interval)
-	case "measure":
-		a.layoutMeasure(scr, mode, canPoll, interval)
-	case "control", "history":
-		a.layoutDetailsOnly(scr, mode, canPoll, interval)
-	default:
-		a.layoutDefault(scr, mode, canPoll, interval)
+		panes = appendPane(panes, onePane("Findings", a.findingsSections()))
+	case "mirror", "edit-files":
+		panes = appendPane(panes, onePane("What will change", a.changePreviewSections()))
 	}
+	return panes
 }
 
-func (a *ToolApp) layoutDefault(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	splitTable := splitTableArchetype(a.Spec.ArchetypeID)
-	splitDiff := (a.Spec.TwoInputs || a.Spec.Diff != nil) && !splitTable
-	var panes []*mint.Pane
-	if splitTable {
-		// A table opens its row itself; there is no Details or Actions pane
-		// to keep in step with the selection.
-	} else if splitDiff {
-		title := a.outputSectionName(a.outputFallback(mode))
-		panes = []*mint.Pane{{
-			Title: title,
-			Refresh: func(p *mint.Pane) {
-				if a.showsInlineResults() {
-					p.Sections = []mint.Section{a.buildOutputDisplaySection(title)}
-				}
-			},
-		}}
+// changePreviewSections is the preview of a mirror or an edit, without the
+// output log. No preview means no pane.
+func (a *ToolApp) changePreviewSections() []mint.Section {
+	if a.Spec.Preview == nil {
+		return nil
 	}
-	scr.Sections = a.formSections(mode, canPoll, interval, a.showsInlineResults() && !splitDiff)
-	scr.SetPanes(panes)
-	for _, p := range scr.Panes {
-		if p != nil && p.Refresh != nil {
-			p.Refresh(p)
-		}
+	plan, err := a.MakePlan()
+	if err != nil {
+		return []mint.Section{{Name: "Preview", Rows: []mint.Row{mint.Note(err.Error())}}}
 	}
-}
-
-func (a *ToolApp) layoutDetailsOnly(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	sections := a.formSections(mode, canPoll, interval, true)
-	top, rest := takePane(sections)
-	var panes []*mint.Pane
-	if len(rest) > 0 {
-		panes = append(panes, a.optionsPanes(rest)...)
-	}
-
-	scr.Sections = top
-	scr.SetPanes(panes)
-	for _, p := range scr.Panes {
-		if p != nil && p.Refresh != nil {
-			p.Refresh(p)
-		}
-	}
-}
-
-// packFirst puts chrome and then option headings into the top pane until
-// it holds 10 sections. The rest are Options panes.
-func (a *ToolApp) packFirst(chrome, flags []mint.Section) (top []mint.Section, options []*mint.Pane) {
-	all := append(append([]mint.Section{}, chrome...), flags...)
-	top, rest := takePane(all)
-	if len(rest) > 0 {
-		options = a.optionsPanes(rest)
-	}
-	return top, options
-}
-
-func (a *ToolApp) layoutInspect(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	chrome := a.chromeSections(mode, canPoll, interval)
-	if table, ok := a.tableOnlySection(a.outputSectionName("Report")); ok {
-		chrome = append(chrome, table)
-	}
-	top, options := a.packFirst(chrome, a.flagSections())
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, chunkedPanes("Report", a.outputBlocks())...)
-	scr.Sections = top
-	scr.SetPanes(panes)
-	for _, p := range scr.Panes {
-		if p != nil && p.Refresh != nil {
-			p.Refresh(p)
-		}
-	}
-}
-
-func (a *ToolApp) layoutRead(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, chunkedPanes("Page", a.outputBlocks())...)
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) layoutProbe(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	title := a.outputSectionName("Discovered Targets")
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, &mint.Pane{Title: "Discovered targets", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) layoutAudit(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, chunkedPanes("Findings", a.findingsSections())...)
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) layoutConvert(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	scr.Sections = top
-	scr.SetPanes(options)
-}
-
-func (a *ToolApp) layoutToolkit(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	title := a.outputSectionName("Output")
-	panes = append(panes, &mint.Pane{Title: "Output", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) layoutTransfer(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	title := a.outputSectionName("Progress")
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, &mint.Pane{Title: "Progress", Sections: []mint.Section{a.buildOutputDisplaySection(title)}})
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) layoutMirror(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
-	var panes []*mint.Pane
-	panes = append(panes, options...)
-	panes = append(panes, chunkedPanes("What will change", a.mirrorChangeSections())...)
-	scr.Sections = top
-	scr.SetPanes(panes)
-}
-
-func (a *ToolApp) mirrorChangeSections() []mint.Section {
-	var sections []mint.Section
-	if a.Spec.Preview != nil {
-		plan, err := a.MakePlan()
-		if err != nil {
-			sections = append(sections, mint.Section{Name: "Preview", Rows: []mint.Row{mint.Note(err.Error())}})
-		} else {
-			head, files := a.previewParts(plan)
-			sections = append(sections, head...)
-			sections = append(sections, files...)
-		}
-	}
-	sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Changes")))
-	return sections
-}
-
-func (a *ToolApp) layoutMeasure(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	chrome := a.chromeSections(mode, canPoll, interval)
-	// The stats table stays with the run. Option headings that still fit
-	// stay here too; the rest are the Options pane.
-	if a.showsInlineResults() {
-		chrome = append(chrome, a.buildOutputDisplaySection(a.outputSectionName(a.outputFallback(mode))))
-	}
-	top, options := a.packFirst(chrome, a.flagSections())
-	if len(options) == 0 {
-		options = chunkedPanes("Options", nil)
-	}
-	scr.Sections = top
-	scr.SetPanes(options)
+	head, files := a.previewParts(plan)
+	return dropEmpty(append(head, files...))
 }

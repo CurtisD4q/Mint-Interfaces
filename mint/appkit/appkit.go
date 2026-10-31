@@ -1425,53 +1425,86 @@ func (a *ToolApp) targetRows(idPrefix string) []mint.Row {
 		boxTarget, nil)}
 }
 
-func (a *ToolApp) flagSections() []mint.Section {
-	var sections []mint.Section
-	sectionOrder := []string{}
-	primary := map[string][]mint.Row{}
-	advanced := map[string][]mint.Row{}
+type flagGroups struct {
+	order    []string
+	primary  map[string][]mint.Row
+	advanced map[string][]mint.Row
+}
 
+func (a *ToolApp) flagGroups() flagGroups {
+	g := flagGroups{primary: map[string][]mint.Row{}, advanced: map[string][]mint.Row{}}
 	for _, f := range a.Spec.Flags {
 		secName := f.Section
 		if secName == "" {
 			secName = "Options"
 		}
-		if _, seen := primary[secName]; !seen {
-			if _, seenAdv := advanced[secName]; !seenAdv {
-				sectionOrder = append(sectionOrder, secName)
+		if _, seen := g.primary[secName]; !seen {
+			if _, seenAdv := g.advanced[secName]; !seenAdv {
+				g.order = append(g.order, secName)
 			}
 		}
 		row := a.flagRow(f)
 		if f.Advanced {
-			advanced[secName] = append(advanced[secName], row)
+			g.advanced[secName] = append(g.advanced[secName], row)
 		} else {
-			primary[secName] = append(primary[secName], row)
+			g.primary[secName] = append(g.primary[secName], row)
 		}
 	}
+	return g
+}
 
-	for _, secName := range sectionOrder {
-		pRows := primary[secName]
-		aRows := advanced[secName]
+func moreOptionsRow(secName string, rows []mint.Row) mint.Row {
+	return mint.Collapsible(mint.CollapsibleOpts{
+		ID:        "adv:" + secName,
+		Title:     "More Options",
+		Badge:     fmt.Sprintf("%d options", len(rows)),
+		Collapsed: true,
+		Rows:      rows,
+	})
+}
+
+func (a *ToolApp) flagSections() []mint.Section {
+	g := a.flagGroups()
+	var sections []mint.Section
+	for _, secName := range g.order {
+		pRows := g.primary[secName]
+		aRows := g.advanced[secName]
 		if len(pRows) == 0 && len(aRows) > 0 {
 			sections = append(sections, mint.CollapsibleSection(secName+" (Advanced)", true, aRows...))
 			continue
 		}
 		rows := append([]mint.Row(nil), pRows...)
 		if len(aRows) > 0 {
-			rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
-				ID:        "adv:" + secName,
-				Title:     "More Options",
-				Badge:     fmt.Sprintf("%d options", len(aRows)),
-				Collapsed: true,
-				Rows:      aRows,
-			}))
+			rows = append(rows, moreOptionsRow(secName, aRows))
 		}
-		sections = append(sections, mint.Section{
-			Name: secName,
-			Rows: rows,
-		})
+		if len(rows) == 0 {
+			continue
+		}
+		sections = append(sections, mint.Section{Name: secName, Rows: rows})
 	}
 	return sections
+}
+
+// splitFlagSections keeps ordinary rows in the first list. Advanced-only
+// headings and the More Options collapsibles go in the second, so the 13
+// can put them in one pane.
+func (a *ToolApp) splitFlagSections() (basic, advanced []mint.Section) {
+	g := a.flagGroups()
+	for _, secName := range g.order {
+		pRows := g.primary[secName]
+		aRows := g.advanced[secName]
+		if len(pRows) == 0 && len(aRows) > 0 {
+			advanced = append(advanced, mint.CollapsibleSection(secName+" (Advanced)", true, aRows...))
+			continue
+		}
+		if len(pRows) > 0 {
+			basic = append(basic, mint.Section{Name: secName, Rows: append([]mint.Row(nil), pRows...)})
+		}
+		if len(aRows) > 0 {
+			advanced = append(advanced, mint.Section{Name: secName, Rows: []mint.Row{moreOptionsRow(secName, aRows)}})
+		}
+	}
+	return basic, advanced
 }
 
 func (a *ToolApp) outputFileSection() mint.Section {
@@ -1906,11 +1939,6 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			return job != nil && job.Changed()
 		},
 	}
-	s.Panes = []*mint.Pane{
-		{Title: "Live output", Refresh: func(p *mint.Pane) {
-			p.Sections = a.liveOutputSections()
-		}},
-	}
 	s.Refresh = func(scr *mint.Screen) {
 		mode := a.executionMode()
 		if mode == execPoll {
@@ -1918,28 +1946,40 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			// so an option can be changed and run again without leaving.
 			mode = execOnce
 		}
-		var sections []mint.Section
 		// No input zone: this screen exists to run the same command again
 		// and to read what the runs produced. The target, profile and extra
 		// arguments were settled on the screen that opened it, and the runs
 		// are listed under the output.
-		sections = append(sections, a.flagSections()...)
-		if a.Spec.OutputsFile {
-			sections = append(sections, a.outputFileSection())
-		}
-		if root := a.rootAuthSection(); root != nil {
-			sections = append(sections, *root)
-		}
-		sections = append(sections, a.executionZone(mode, false, 0))
-		// The output is the Live output pane; the recorded runs are listed
-		// there too. A second output section here would show the same runs
-		// again, one screen away from the main screen that shows them.
-		scr.Sections = sections
-		for _, p := range scr.Panes {
-			if p != nil && p.Refresh != nil {
-				p.Refresh(p)
+		var options []mint.Section
+		var panes []*mint.Pane
+		if a.advancedInOwnPane() && a.hasAdvancedOptions() {
+			basic, adv := a.splitFlagSections()
+			options = basic
+			if len(dropEmpty(options)) > 0 {
+				panes = appendPane(panes, onePane(titleAdvanced, adv))
+			} else {
+				options = append(options, adv...)
 			}
+		} else {
+			options = a.flagSections()
 		}
+		options = a.withFileAndRoot(options)
+		options = dropEmpty(options)
+		live := a.liveOutputSections()
+		if len(options) == 0 && len(panes) == 0 {
+			// Nothing to put above the output, so the output is the screen
+			// and there is no empty options pane beside it.
+			scr.TopTitle = ""
+			scr.Sections = live
+			scr.SetPanes(nil)
+		} else {
+			scr.TopTitle = titleBasic
+			scr.Sections = options
+			panes = append(panes, &mint.Pane{Title: "Live output", Sections: live})
+			scr.SetPanes(panes)
+		}
+		// The run command stays under the output, not above it.
+		scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, false, 0)})
 	}
 	s.Refresh(s)
 	return s

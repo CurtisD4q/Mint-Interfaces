@@ -448,31 +448,35 @@ func textTail(s string) string {
 }
 
 func TestSplitScreensForArchetypes(t *testing.T) {
-	// A table opens its own row in a screen of its own, so these archetypes
-	// have no Details or Actions pane.
+	// A table opens its own row in a screen of its own. These are in the
+	// 22, so the options stay in one pane and the output is the last pane.
 	for _, id := range []string{"list", "records", "search"} {
 		s := newTestApp(t, ToolSpec{Name: id, Bin: "echo", ArchetypeID: id}).MainScreen()
-		if len(s.Panes) != 0 {
-			t.Fatalf("%s panes %v, want none", id, paneTitles(s))
+		got := orderedPaneTitles(s)
+		if len(got) != 2 || got[0] != titleBasic || got[1] != titleOutput {
+			t.Fatalf("%s panes %v, want Basic Options then Output", id, got)
 		}
 	}
 	cmp := newTestApp(t, ToolSpec{Name: "cmp", Bin: "echo", ArchetypeID: "compare"})
 	cs := cmp.MainScreen()
-	if len(cs.Panes) != 1 || cs.Panes[0].Title != "Differences" {
-		t.Fatalf("compare panes %v", paneTitles(cs))
+	if got := orderedPaneTitles(cs); len(got) != 2 || got[0] != titleBasic || got[1] != titleOutput {
+		t.Fatalf("compare panes %v", got)
 	}
 	if !hasSection(cs, "Inputs") || !hasSection(cs, "Differences") {
 		t.Fatalf("compare sections %v", sectionNames(cs))
 	}
-	// The run screen keeps only the live output; the recorded runs are
-	// listed in the results section instead of a pane of their own.
+	// No options on this run screen, so the live output is the screen
+	// itself. The recorded runs are listed there, not in a second pane.
 	run := newTestApp(t, ToolSpec{Name: "ps", Bin: "ps", ArchetypeID: "list"}).RunScreen()
-	if len(run.Panes) != 1 || run.Panes[0].Title != "Live output" {
-		t.Fatalf("run panes %v", paneTitles(run))
+	if len(run.Panes) != 0 {
+		t.Fatalf("run panes %v, want the output on the screen", paneTitles(run))
+	}
+	if !hasSection(run, "Captured Output") {
+		t.Fatalf("run sections %v", sectionNames(run))
 	}
 	plain := newTestApp(t, ToolSpec{Name: "x", Bin: "echo"}).MainScreen()
-	if len(plain.Panes) != 0 {
-		t.Fatalf("plain screen gained panes %v", paneTitles(plain))
+	if got := orderedPaneTitles(plain); len(got) != 2 || got[0] != titleBasic || got[1] != titleOutput {
+		t.Fatalf("plain panes %v", got)
 	}
 }
 

@@ -886,9 +886,17 @@ func (a *ToolApp) outputFallback(mode execMode) string {
 	}
 }
 
-// inputZone is the top of the screen: subcommand tabs, then the target
-// box or the two-input pair, then presets when the spec has any.
-func (a *ToolApp) inputZone() mint.Section {
+func (a *ToolApp) extraArgsRow() mint.Row {
+	return a.textInput("extra_args", "Extra arguments", "optional CLI flags",
+		func() string { return a.ExtraArgs },
+		func(v string) { a.ExtraArgs = v },
+		boxExtra, nil)
+}
+
+// inputSection is the top of the options: subcommand tabs, then the target
+// box or the two-input pair, then presets. Extra arguments stay here unless
+// the advanced pane is carrying them.
+func (a *ToolApp) inputSection(includeExtra bool) mint.Section {
 	var rows []mint.Row
 	if subs := a.Spec.Subcommands; len(subs) > 0 {
 		names := make([]string, len(subs))
@@ -931,10 +939,12 @@ func (a *ToolApp) inputZone() mint.Section {
 			Set:     func(v string) { a.ApplyProfile(v) },
 		}))
 	}
-	rows = append(rows, a.textInput("extra_args", "Extra arguments", "optional CLI flags",
-		func() string { return a.ExtraArgs },
-		func(v string) { a.ExtraArgs = v },
-		boxExtra, nil))
+	if includeExtra {
+		rows = append(rows, a.extraArgsRow())
+	}
+	if len(rows) == 0 {
+		return mint.Section{}
+	}
 	name := a.inputSectionName(a.inputFallback())
 	if len(a.Spec.Subcommands) > 0 {
 		if l, ok := a.screenWording(); ok && l.Title != "" {

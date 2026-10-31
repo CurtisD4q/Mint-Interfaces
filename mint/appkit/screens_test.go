@@ -17,47 +17,58 @@ func rowField(r mint.Row, name string) string {
 	return v.String()
 }
 
-func screenRowIDs(scr *mint.Screen) []string {
-	var out []string
-	for _, s := range scr.Sections {
-		for _, r := range s.Rows {
-			if id := rowField(r, "id"); id != "" {
-				out = append(out, id)
-			}
-		}
+func eachSection(scr *mint.Screen, fn func(mint.Section)) {
+	if scr == nil {
+		return
 	}
-	return out
-}
-
-func screenLabels(scr *mint.Screen) []string {
-	var out []string
 	for _, s := range scr.Sections {
-		for _, r := range s.Rows {
-			if l := rowField(r, "label"); l != "" {
-				out = append(out, l)
-			}
-		}
-	}
-	return out
-}
-
-func hasSection(scr *mint.Screen, name string) bool {
-	for _, s := range scr.Sections {
-		if s.Name == name {
-			return true
-		}
+		fn(s)
 	}
 	for _, p := range scr.Panes {
 		if p == nil {
 			continue
 		}
 		for _, s := range p.Sections {
-			if s.Name == name {
-				return true
-			}
+			fn(s)
 		}
 	}
-	return false
+	for _, s := range scr.Dock {
+		fn(s)
+	}
+}
+
+func screenRowIDs(scr *mint.Screen) []string {
+	var out []string
+	eachSection(scr, func(s mint.Section) {
+		for _, r := range s.Rows {
+			if id := rowField(r, "id"); id != "" {
+				out = append(out, id)
+			}
+		}
+	})
+	return out
+}
+
+func screenLabels(scr *mint.Screen) []string {
+	var out []string
+	eachSection(scr, func(s mint.Section) {
+		for _, r := range s.Rows {
+			if l := rowField(r, "label"); l != "" {
+				out = append(out, l)
+			}
+		}
+	})
+	return out
+}
+
+func hasSection(scr *mint.Screen, name string) bool {
+	found := false
+	eachSection(scr, func(s mint.Section) {
+		if s.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func TestLayoutAliasesAndJSON(t *testing.T) {
@@ -331,17 +342,9 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 
 func sectionNames(scr *mint.Screen) []string {
 	var out []string
-	for _, s := range scr.Sections {
+	eachSection(scr, func(s mint.Section) {
 		out = append(out, s.Name)
-	}
-	for _, p := range scr.Panes {
-		if p == nil {
-			continue
-		}
-		for _, s := range p.Sections {
-			out = append(out, s.Name)
-		}
-	}
+	})
 	return out
 }
 
