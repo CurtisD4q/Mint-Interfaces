@@ -186,8 +186,8 @@ func (s *Screen) dockState() *uiState {
 }
 
 // dockHeight is the rows the docked command bar needs. Zero means the
-// screen has no dock. The bar is not a pane, so it draws no divider of
-// its own; the rules stay between the stacked panes.
+// screen has no dock. The dock is not a pane; Screen draws a separate rule
+// above it to distinguish it from the final stacked pane.
 func (s *Screen) dockHeight(w int) int {
 	if s == nil || len(s.Dock) == 0 || w < 4 {
 		return 0
