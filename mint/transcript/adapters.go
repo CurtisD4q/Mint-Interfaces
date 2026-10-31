@@ -24,6 +24,9 @@ type Adapter struct {
 	// Partial SQL must never be sent: psql runs a following \echo before
 	// an unfinished statement, so the end marker would come first.
 	Complete func(text string) bool
+	// Dollar enables PostgreSQL $tag$...$tag$ quoting for the scanner that
+	// Complete and EndsInLineComment share.
+	Dollar bool
 	// Escape returns why line reaches outside the program (runs a shell,
 	// pipes to one, loads code), or "".
 	Escape func(line string) string
@@ -70,6 +73,7 @@ var Adapters = map[string]Adapter{
 			return `\echo ` + t, `\warn ` + t // \warn: psql 13 and later
 		},
 		Complete: func(s string) bool { return sqlComplete(s, true) },
+		Dollar:   true,
 		Escape: matchFirst(
 			rule(`^\s*\\!`, "runs a shell command"),
 			rule(`^\s*\\(o|out|g|gx|w|write)\s*\|`, "sends output to a shell command"),
@@ -223,17 +227,34 @@ func sqlComplete(text string, dollar bool) bool {
 	if IsClientCommand(t) {
 		return true // \d, .tables: one line, run at once
 	}
+	state, _, lastSemi := scanSQL(t, dollar)
+	return (state == sqlNormal || state == sqlLineComment) && lastSemi
+}
+
+// sqlScanState is where a scan of SQL text ended.
+const (
+	sqlNormal = iota
+	sqlSingle
+	sqlDouble
+	sqlLineComment
+	sqlBlockComment
+	sqlDollarQuote
+)
+
+// scanSQL walks text the way a SQL client does and reports the state it
+// finished in, the open comment depth, and whether the last character that
+// was not whitespace is a semicolon.
+func scanSQL(t string, dollar bool) (state, depth int, lastSemi bool) {
 	const (
-		normal = iota
-		single
-		double
-		lineComment
-		blockComment
-		dollarQuote
+		normal       = sqlNormal
+		single       = sqlSingle
+		double       = sqlDouble
+		lineComment  = sqlLineComment
+		blockComment = sqlBlockComment
+		dollarQuote  = sqlDollarQuote
 	)
-	state, depth := normal, 0
+	state, depth = normal, 0
 	tag := ""
-	lastSemi := false
 	for i := 0; i < len(t); i++ {
 		c := t[i]
 		switch state {
@@ -296,7 +317,16 @@ func sqlComplete(text string, dollar bool) bool {
 			}
 		}
 	}
-	return (state == normal || state == lineComment) && lastSemi
+	return state, depth, lastSemi
+}
+
+// EndsInLineComment reports whether text ends inside a "--" comment: the
+// comment runs to the end of the text, so anything appended after it on the
+// same line becomes part of the comment. A program that is sent a closing
+// marker on such a line swallows it.
+func EndsInLineComment(text string, dollar bool) bool {
+	state, _, _ := scanSQL(text, dollar)
+	return state == sqlLineComment
 }
 
 func validTag(s string) bool {

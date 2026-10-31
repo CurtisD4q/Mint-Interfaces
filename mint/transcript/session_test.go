@@ -460,3 +460,59 @@ func TestEndsWithMark(t *testing.T) {
 	}
 	_ = mint.LogLine{}
 }
+
+// A command that ends inside a "--" comment must not swallow the marker:
+// the comment runs to the end of the text, so a marker on the next line
+// becomes part of it. EndsInLineComment is how the session knows.
+func TestEndsInLineComment(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want bool
+	}{
+		{"select 1;", false},
+		{"select 1; -- note", true},
+		{"select 1 -- note", true},
+		{"select 1 -- note\n", false},
+		{"select '-- not a comment';", false},
+		{"select 1; /* block */", false},
+		{"select 1; -- /* unterminated", true},
+		{"select 'create user a identified by ''pw''' as x; -- identified by 'hunter2'", true},
+	} {
+		if got := EndsInLineComment(tc.in, false); got != tc.want {
+			t.Errorf("EndsInLineComment(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+	// The shared scanner must leave sqlComplete exactly as it was.
+	for _, tc := range []struct {
+		in   string
+		want bool
+	}{
+		{"select 1;", true},
+		{"select 1", false},
+		{"select 'a;b';", true},
+		{"select 'create user a identified by ''pw''' as x; -- c", true},
+		{".tables", true},
+		{"-- only a comment", false},
+	} {
+		if got := sqlComplete(tc.in, false); got != tc.want {
+			t.Errorf("sqlComplete(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The session closes a "--" comment with a semicolon before the marker, so
+// the marker is not read into the comment.
+func TestPayloadClosesAnOpenComment(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		want string
+	}{
+		{"select 1;", "select 1;\n.print TOK\n"},
+		{"select 1; -- note", "select 1; -- note\n;\n.print TOK\n"},
+	} {
+		got := sessionPayload(Adapters["sqlite3"], tc.cmd, "TOK")
+		if got != tc.want {
+			t.Errorf("payload for %q =\n%q\nwant\n%q", tc.cmd, got, tc.want)
+		}
+	}
+}
