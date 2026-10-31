@@ -208,10 +208,8 @@ func (a *ToolApp) layoutDefault(scr *mint.Screen, mode execMode, canPoll bool, i
 	splitDiff := (a.Spec.TwoInputs || a.Spec.Diff != nil) && !splitTable
 	var panes []*mint.Pane
 	if splitTable {
-		panes = []*mint.Pane{
-			{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(scr) }},
-			{Title: "Actions", Refresh: func(p *mint.Pane) { p.Sections = a.actionPane(scr) }},
-		}
+		// A table opens its row itself; there is no Details or Actions pane
+		// to keep in step with the selection.
 	} else if splitDiff {
 		title := a.outputSectionName(a.outputFallback(mode))
 		panes = []*mint.Pane{{
@@ -239,7 +237,7 @@ func (a *ToolApp) layoutDetailsOnly(scr *mint.Screen, mode execMode, canPoll boo
 	if len(rest) > 0 {
 		panes = append(panes, chunkedPanes("Options", rest)...)
 	}
-	panes = append(panes, &mint.Pane{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(scr) }})
+
 	scr.Sections = top
 	scr.SetPanes(panes)
 	for _, p := range scr.Panes {
@@ -269,10 +267,6 @@ func (a *ToolApp) layoutInspect(scr *mint.Screen, mode execMode, canPoll bool, i
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Report", a.outputBlocks())...)
-	panes = append(panes,
-		&mint.Pane{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(scr) }},
-		&mint.Pane{Title: "Actions", Refresh: func(p *mint.Pane) { p.Sections = a.actionPane(scr) }},
-	)
 	scr.Sections = top
 	scr.SetPanes(panes)
 	for _, p := range scr.Panes {

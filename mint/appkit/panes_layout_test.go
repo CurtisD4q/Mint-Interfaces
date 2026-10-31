@@ -53,7 +53,7 @@ func TestArchetypePaneLayouts(t *testing.T) {
 		spec ToolSpec
 		want []string
 	}{
-		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{"Report", "Details", "Actions"}},
+		{"inspect", ToolSpec{Name: "file", Bin: "echo", ArchetypeID: "inspect"}, []string{"Report"}},
 		{"read", ToolSpec{Name: "man", Bin: "echo", ArchetypeID: "read"}, []string{"Page"}},
 		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{"Discovered targets"}},
 		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{"Findings"}},
@@ -62,8 +62,9 @@ func TestArchetypePaneLayouts(t *testing.T) {
 		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{"Progress"}},
 		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{"What will change"}},
 		{"measure", ToolSpec{Name: "fio", Bin: "echo", ArchetypeID: "measure"}, []string{"Options"}},
-		{"control", ToolSpec{Name: "systemctl", Bin: "echo", ArchetypeID: "control"}, []string{"Details"}},
-		{"history", ToolSpec{Name: "git", Bin: "echo", ArchetypeID: "history"}, []string{"Details"}},
+		// A table opens its own row, so no Details or Actions pane.
+		{"control", ToolSpec{Name: "systemctl", Bin: "echo", ArchetypeID: "control"}, nil},
+		{"history", ToolSpec{Name: "git", Bin: "echo", ArchetypeID: "history"}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
