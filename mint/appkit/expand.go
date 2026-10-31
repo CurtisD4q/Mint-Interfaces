@@ -41,25 +41,37 @@ const (
 
 // expWord is one word after quote removal and expansion.
 type expWord struct {
-	Text    string
-	FromVar bool // a $VAR or ${VAR} in this word was expanded, or left as typed
+	Text    string // what the program gets: ~ and $VAR expanded
+	FromVar bool   // a $VAR or ${VAR} in this word was expanded, or left as typed
+	// Shown is the word for showing and recording (previews, history):
+	// ~ expanded, $VAR as typed, quotes removed. A variable's value may be
+	// a token, so it is never shown or written down.
+	Shown string
+	// Box is the word as the box keeps it: ~ expanded, $VAR as typed, and
+	// literal text quoted again where it would otherwise change when the
+	// box is read for a run ('$HOME' stays '$HOME', a space stays inside
+	// its word).
+	Box string
 }
 
 // expandInput rewrites s the way Enter does. Quoting and word splitting
-// follow splitShellWords: quotes are removed, and a word that contains a
-// space is quoted again. A leading unquoted ~ or ~/ becomes the home
-// directory, including after "=" (--output=~/x). $VAR and ${VAR} expand
-// from the environment in unquoted text and in double quotes; nothing
-// expands inside single quotes, and ~ is not expanded inside quotes.
-// An unset variable is left as typed and named in unset. | ; && $(...)
-// backticks and globs stay literal text. Nothing is executed.
+// follow splitShellWords: quotes are removed, and literal text that needs
+// them is quoted again. A leading unquoted ~ or ~/ becomes the home
+// directory, including after "=" (--output=~/x). $VAR and ${VAR} are kept
+// as typed in display, so a token in the environment never appears in the
+// box or in the settings saved from it; they are expanded from the
+// environment, in unquoted text and in double quotes, only when the command
+// runs (expandArgWords). words carry the expanded values, for checking
+// paths. Nothing expands inside single quotes, and ~ is not expanded inside
+// quotes. An unset variable is named in unset. | ; && $(...) backticks and
+// globs stay literal text. Nothing is executed.
 func expandInput(s string) (display string, words []expWord, unset []string) {
 	words, unset = scanExpand(s)
-	texts := make([]string, len(words))
+	boxes := make([]string, len(words))
 	for i, w := range words {
-		texts[i] = w.Text
+		boxes[i] = w.Box
 	}
-	return joinShellWords(texts), words, unset
+	return strings.Join(boxes, " "), words, unset
 }
 
 // expandArgWords is the run-time form of expandInput: the words that
@@ -73,24 +85,68 @@ func expandArgWords(s string) []string {
 	return out
 }
 
+// shownArgWords are the words of s for a preview or the run history: like
+// expandArgWords, but $VAR stays as typed.
+func shownArgWords(s string) []string {
+	words, _ := scanExpand(s)
+	out := make([]string, len(words))
+	for i, w := range words {
+		out[i] = w.Shown
+	}
+	return out
+}
+
 // expandArgValue expands one flag value. The value stays a single argument
 // even when it contains spaces; only ~ and $VAR change.
 func expandArgValue(s string) string {
 	return strings.Join(expandArgWords(s), " ")
 }
 
+// shownArgValue is expandArgValue for a preview or the run history: $VAR
+// stays as typed.
+func shownArgValue(s string) string {
+	return strings.Join(shownArgWords(s), " ")
+}
+
 func scanExpand(s string) (words []expWord, unset []string) {
-	var cur strings.Builder
+	var cur, shown, box, lit strings.Builder
 	fromVar := false
 	quote := rune(0)
 	atStart := true
 	afterEq := false
 
+	// flushLit moves pending literal text to the box form, quoted when
+	// reading it back would change it.
+	flushLit := func() {
+		if lit.Len() == 0 {
+			return
+		}
+		t := lit.String()
+		if literalNeedsQuotes(t, box.Len() == 0) {
+			t = "'" + strings.ReplaceAll(t, "'", `'"'"'`) + "'"
+		}
+		box.WriteString(t)
+		lit.Reset()
+	}
+	literal := func(t string) {
+		cur.WriteString(t)
+		shown.WriteString(t)
+		lit.WriteString(t)
+	}
+	variable := func(name, raw string) {
+		writeVar(&cur, &fromVar, &unset, name, raw)
+		shown.WriteString(raw)
+		flushLit()
+		box.WriteString(raw)
+	}
 	flush := func() {
+		flushLit()
 		if cur.Len() > 0 {
-			words = append(words, expWord{Text: cur.String(), FromVar: fromVar})
+			words = append(words, expWord{Text: cur.String(), FromVar: fromVar, Shown: shown.String(), Box: box.String()})
 		}
 		cur.Reset()
+		shown.Reset()
+		box.Reset()
 		fromVar = false
 		atStart = true
 		afterEq = false
@@ -106,7 +162,7 @@ func scanExpand(s string) (words []expWord, unset []string) {
 			}
 			if quote == '"' && c == '$' {
 				if n, name, raw, ok := takeVar(s[i:]); ok {
-					writeVar(&cur, &fromVar, &unset, name, raw)
+					variable(name, raw)
 					atStart = false
 					afterEq = false
 					i += n
@@ -114,7 +170,7 @@ func scanExpand(s string) (words []expWord, unset []string) {
 				}
 			}
 			r, size := utf8.DecodeRuneInString(s[i:])
-			cur.WriteRune(r)
+			literal(string(r))
 			atStart = false
 			afterEq = false
 			i += size
@@ -130,32 +186,32 @@ func scanExpand(s string) (words []expWord, unset []string) {
 		case '~':
 			if (atStart && cur.Len() == 0) || afterEq {
 				if rep, n, ok := takeTilde(s[i:]); ok {
-					cur.WriteString(rep)
+					literal(rep)
 					atStart = false
 					afterEq = false
 					i += n
 					continue
 				}
 			}
-			cur.WriteByte(c)
+			literal("~")
 			atStart = false
 			afterEq = false
 			i++
 		case '$':
 			if n, name, raw, ok := takeVar(s[i:]); ok {
-				writeVar(&cur, &fromVar, &unset, name, raw)
+				variable(name, raw)
 				atStart = false
 				afterEq = false
 				i += n
 				continue
 			}
-			cur.WriteByte(c)
+			literal("$")
 			atStart = false
 			afterEq = false
 			i++
 		default:
 			r, size := utf8.DecodeRuneInString(s[i:])
-			cur.WriteRune(r)
+			literal(string(r))
 			atStart = false
 			afterEq = r == '='
 			i += size
@@ -163,6 +219,31 @@ func scanExpand(s string) (words []expWord, unset []string) {
 	}
 	flush()
 	return words, unset
+}
+
+// literalNeedsQuotes reports whether literal text t would read back
+// differently unquoted: a space or quote would split or be removed, a
+// "$NAME" would expand, and so would a leading "~" (or one after "=").
+// wordStart says t starts its word.
+func literalNeedsQuotes(t string, wordStart bool) bool {
+	if strings.ContainsAny(t, " \t\"'\\") {
+		return true
+	}
+	for i := 0; i < len(t); i++ {
+		switch t[i] {
+		case '$':
+			if _, _, _, ok := takeVar(t[i:]); ok {
+				return true
+			}
+		case '~':
+			if (i == 0 && wordStart) || (i > 0 && t[i-1] == '=') {
+				if _, _, ok := takeTilde(t[i:]); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func writeVar(cur *strings.Builder, fromVar *bool, unset *[]string, name, raw string) {

@@ -17,47 +17,90 @@ func TestExpandTildeVarAndQuotes(t *testing.T) {
 	t.Setenv("MINT_SP", "a b")
 	os.Unsetenv("MINT_NOT_SET_ZZ")
 
+	// box is what Enter leaves in the box: ~ expanded, $VAR as typed,
+	// literal text quoted where reading it back would change it. run is
+	// what the program gets (words joined by "|").
 	cases := []struct {
-		in, want string
-		unset    bool
+		in, box, run string
+		unset        bool
 	}{
-		{"~", home, false},
-		{"~/x", filepath.Join(home, "x"), false},
-		{"$HOME", home, false},
-		{"${MINT_VAR}", "hello", false},
-		{"$MINT_NOT_SET_ZZ", "$MINT_NOT_SET_ZZ", true},
-		{"'~'", "~", false},
-		{"'$HOME'", "$HOME", false},
-		{`"$HOME"`, home, false},
-		{`"~/x"`, "~/x", false},
-		{"$MINT_SP", "'a b'", false},
-		{"~user", "~user", false},
-		{"*.log", "*.log", false},
-		{"foo && bar", "foo && bar", false},
-		{"foo;bar", "foo;bar", false},
-		{"echo | cat", "echo | cat", false},
-		{"$(echo hi)", "$(echo hi)", false},
-		{"`id`", "`id`", false},
-		{"--output=~/report.txt", "--output=" + filepath.Join(home, "report.txt"), false},
+		{"~", home, home, false},
+		{"~/x", filepath.Join(home, "x"), filepath.Join(home, "x"), false},
+		{"$HOME", "$HOME", home, false},
+		{"${MINT_VAR}", "${MINT_VAR}", "hello", false},
+		{"$MINT_NOT_SET_ZZ", "$MINT_NOT_SET_ZZ", "$MINT_NOT_SET_ZZ", true},
+		{"'~'", "'~'", "~", false},
+		{"'$HOME'", "'$HOME'", "$HOME", false},
+		{`"$HOME"`, "$HOME", home, false},
+		{`"~/x"`, "'~/x'", "~/x", false},
+		{"$MINT_SP", "$MINT_SP", "a b", false},
+		{"'a b'", "'a b'", "a b", false},
+		{"pre$MINT_VAR'post x'", "pre$MINT_VAR'post x'", "prehellopost x", false},
+		{"~user", "~user", "~user", false},
+		{"*.log", "*.log", "*.log", false},
+		{"foo && bar", "foo && bar", "foo|&&|bar", false},
+		{"foo;bar", "foo;bar", "foo;bar", false},
+		{"echo | cat", "echo | cat", "echo|||cat", false},
+		{"$(echo hi)", "$(echo hi)", "$(echo|hi)", false},
+		{"`id`", "`id`", "`id`", false},
+		{"--output=~/report.txt", "--output=" + filepath.Join(home, "report.txt"), "--output=" + filepath.Join(home, "report.txt"), false},
 	}
 	for _, c := range cases {
 		got, _, unset := expandInput(c.in)
-		if got != c.want {
-			t.Errorf("expand %q = %q, want %q", c.in, got, c.want)
+		if got != c.box {
+			t.Errorf("box %q = %q, want %q", c.in, got, c.box)
 		}
 		if c.unset != (len(unset) > 0) {
 			t.Errorf("expand %q unset %v, want %v", c.in, unset, c.unset)
 		}
-	}
-	if words := splitShellWords(expandInputMust(t, "$MINT_SP")); len(words) != 1 || words[0] != "a b" {
-		t.Fatalf("re-quoted word splits to %q", words)
+		if run := strings.Join(expandArgWords(c.in), "|"); run != c.run {
+			t.Errorf("run %q = %q, want %q", c.in, run, c.run)
+		}
+		// The box, read for a run, gives the same words as what was typed.
+		if again := strings.Join(expandArgWords(got), "|"); again != c.run {
+			t.Errorf("box %q read back = %q, want %q", got, again, c.run)
+		}
 	}
 }
 
-func expandInputMust(t *testing.T, s string) string {
-	t.Helper()
-	got, _, _ := expandInput(s)
-	return got
+// A token in the environment is never put in the box, the preview, the
+// run history or the saved settings; only the program gets its value.
+func TestVariableValuesStayOutOfBoxPreviewAndSettings(t *testing.T) {
+	const token = "ghp_zzSECRETzz0123456789"
+	t.Setenv("MINT_ZZ_TOKEN", token)
+	a := newTestApp(t, ToolSpec{Name: "echo", Bin: "echo",
+		Flags: []FlagSpec{{Flag: "--header", Kind: FlagText, Label: "Header"}}})
+	a.Target = a.acceptText("target", "$MINT_ZZ_TOKEN", boxTarget, nil)
+	a.ExtraArgs = a.acceptText("extra_args", "--auth=${MINT_ZZ_TOKEN}", boxExtra, nil)
+	a.Values["--header"] = a.acceptText("flag:--header", `"Authorization: Bearer $MINT_ZZ_TOKEN"`, boxFlag, &a.Spec.Flags[0])
+	for name, box := range map[string]string{"target": a.Target, "extra": a.ExtraArgs, "flag": a.Values["--header"]} {
+		if strings.Contains(box, token) {
+			t.Errorf("%s box holds the value: %q", name, box)
+		}
+	}
+	if p := a.CommandPreview(); strings.Contains(p, token) || !strings.Contains(p, "$MINT_ZZ_TOKEN") {
+		t.Errorf("preview %q", p)
+	}
+	if shown, _, _ := a.buildArgs(true); strings.Contains(strings.Join(shown, " "), token) {
+		t.Errorf("recorded args %q", shown)
+	}
+	args, _ := a.BuildArgs()
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--auth=" + token, "Authorization: Bearer " + token, token} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("run args %q lack %q", joined, want)
+		}
+	}
+	if err := a.SaveSettings(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(a.settingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), token) {
+		t.Errorf("settings hold the value:\n%s", b)
+	}
 }
 
 func TestExpandDoesNotRunAnything(t *testing.T) {
@@ -229,7 +272,9 @@ func TestRuntimeExpandsWithoutEnter(t *testing.T) {
 		t.Fatalf("args %q", args)
 	}
 	preview := a.CommandPreview()
-	if !strings.Contains(preview, want) || strings.Contains(preview, "~/") || strings.Contains(preview, "$HOME") {
+	// ~ is expanded in the preview; $HOME is shown as typed, since a
+	// variable's value may be a token.
+	if !strings.Contains(preview, want) || strings.Contains(preview, "~/") || !strings.Contains(preview, "$HOME/Downloads") {
 		t.Fatalf("preview %q", preview)
 	}
 	if !a.ApplyProfile("Home") {
