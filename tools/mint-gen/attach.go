@@ -229,12 +229,16 @@ func flagsLookDestructive(flags []appkit.FlagSpec) bool {
 	return false
 }
 
-// readOnlyArchetype is a pure observer shape: watch, list, inspect, look-up,
-// or any other answer-once tool that can run with no positional target.
+// readOnlyArchetype is a pure observer shape: watch, list, inspect, or any
+// other answer-once tool that can run with no positional target. Look-ups
+// are not: they ask other computers (DNS, whois), which is not reading this
+// computer's state.
 func readOnlyArchetype(spec *appkit.ToolSpec, lines []string) bool {
 	switch spec.ArchetypeID {
-	case "watch", "list", "inspect", "look-up":
+	case "watch", "list", "inspect":
 		return true
+	case "look-up":
+		return false
 	}
 	def, ok := appkit.LookupArchetype(spec.ArchetypeID)
 	if !ok || def.Group != appkit.GroupAnswer {
@@ -284,10 +288,28 @@ func inferReadOnly(spec *appkit.ToolSpec, lines []string) {
 	if !readOnlyArchetype(spec, lines) || !runnableWithoutTarget(spec, lines) {
 		return
 	}
-	if flagsLookDestructive(spec.Flags) || hasMutatingSubcommand(lines) {
+	if flagsLookDestructive(spec.Flags) || hasMutatingSubcommand(lines) || helpNamesChangingOption(lines) {
 		return
 	}
 	spec.ReadOnly = true
+}
+
+// reChangingOption is an option, anywhere in the help, whose name says it
+// changes things: xrdb's -load and -merge, faillock's --reset, find's
+// -delete and -exec. Options mint-gen did not parse (find's actions,
+// faillock's) are caught too.
+var reChangingOption = regexp.MustCompile(`(?i)(?:^|[\s\[,|(])--?(?:[a-z0-9]+-)*(?:reset|load|merge|remove|clear|delete|set|write|kill|flush|apply|import|purge|wipe|erase|unlock|lock|replace|install|uninstall|update|upgrade|edit|modify|create|add|exec|execdir|ok|okdir|fix|repair|restore|rename|move|truncate|format|mount|umount|unmount|enable|disable|start|stop|restart|reload|signal|send|commit|push|apply)\b`)
+
+// helpNamesChangingOption reports whether the help lists an option that
+// changes things. Such a tool is not guessed to be read-only, so Mint never
+// runs it unasked.
+func helpNamesChangingOption(lines []string) bool {
+	for _, l := range lines {
+		if reChangingOption.MatchString(l) {
+			return true
+		}
+	}
+	return false
 }
 
 func namedStateArchetype(id string) bool {

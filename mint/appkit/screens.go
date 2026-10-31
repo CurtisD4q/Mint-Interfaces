@@ -143,19 +143,22 @@ var ErrNoStatusCommand = errors.New("no read-only status command is set for this
 // statusArgs returns the arguments of the command that only reads state:
 // StatusArgs (plus the view flags and target for monitors; a config tool's
 // flags are changes, so they are left out), or the tool's own command line
-// when the tool is ReadOnly. ok is false when there is no such command, and
+// when the tool is ReadOnly. Neither includes the extra-arguments box or an
+// option that looks destructive. ok is false when there is no such command, and
 // then nothing may run without the user asking.
 func (a *ToolApp) statusArgs() (args []string, ok bool) {
 	switch {
 	case len(a.Spec.StatusArgs) > 0:
 		args = append(args, a.Spec.StatusArgs...)
 		if !a.isStateEditor() {
-			flagArgs, _ := a.buildFlagAndTargetArgs()
+			flagArgs, _, _ := a.composeArgs(argMode{status: true})
 			args = append(args, flagArgs...)
 		}
 		return args, true
 	case a.Spec.ReadOnly:
-		args, _ = a.BuildArgs()
+		// The tool's own command line, without the extra-arguments box
+		// or options that look destructive (see argMode.status).
+		args, _, _ = a.buildArgsFor(argMode{status: true})
 		return args, true
 	}
 	return nil, false

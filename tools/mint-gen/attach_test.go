@@ -197,7 +197,13 @@ func TestInferReadOnlyFromHelp(t *testing.T) {
 		{"fileinfo", "inspect", "Usage: fileinfo FILE\n", nil, false, false},
 		{"lscpu", "inspect", "Usage: lscpu [options]\n", nil, false, true},
 		{"whois9", "look-up", "Usage: whois9 NAME\n", nil, false, false},
-		{"whois9", "look-up", "Usage: whois9 [NAME]\n", nil, false, true},
+		// A look-up asks other computers, so it is never guessed read-only.
+		{"whois9", "look-up", "Usage: whois9 [NAME]\n", nil, false, false},
+		// Options that change things, parsed or not, rule the guess out.
+		{"xres9", "search", "Usage: xres9 [-options ...] [filename]\n  -load    load resources into the server\n  -merge   merge resources\n", nil, false, false},
+		{"fails9", "list", "Usage: fails9 [--user USER] [--reset]\n", nil, false, false},
+		{"finder9", "search", "Usage: finder9 [path...] [expression]\nACTIONS\n  -delete  Delete files\n  -exec command ;\n", nil, false, false},
+		{"lister", "list", "Usage: lister [options]\n  --charset NAME  output character set\n  --offset N  skip N items\n", nil, false, true},
 		{"sampler", "watch", "Usage: sampler DEVICE\n", nil, false, false},
 		{"sampler", "watch", "Usage: sampler [options]\n", []appkit.FlagSpec{boolFlag("--force", "Force overwrite")}, false, false},
 		{"lister", "list", "Usage: lister [options]\nCommands:\n  list    List the items\n  delete  Delete an item\n", nil, false, false},
