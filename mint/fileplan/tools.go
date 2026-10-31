@@ -180,24 +180,11 @@ func (pl *planner) rm(o opts) {
 			pl.warn(true, "%s is %s", op, why)
 		}
 		switch {
-		case fi.Mode()&os.ModeSymlink != 0 && strings.HasSuffix(op, "/") && recursive:
-			// "rm -r link/" follows the link: it empties the folder the
-			// link points to and leaves the link and the folder.
-			target, err := filepath.EvalSymlinks(p)
-			tfi, serr := os.Stat(p)
-			if err != nil || serr != nil || !tfi.IsDir() {
-				pl.add(Effect{Kind: Fail, Path: p, Note: "a link with a trailing /, to something that isn't a folder"})
-				continue
-			}
-			pl.warn(true, "%s ends with /, so rm follows the link and deletes everything inside %s. Without the / only the link is removed.", op, target)
-			if why := pl.dangerous(target); why != "" {
-				pl.warn(true, "%s points to %s", op, why)
-			}
-			pl.walk(target, func(path string, fi fs.FileInfo) {
-				if path != target {
-					pl.add(Effect{Kind: Delete, Path: path, IsDir: fi.IsDir(), Size: size(fi), Note: "inside " + target + ", through " + op})
-				}
-			})
+		case fi.Mode()&os.ModeSymlink != 0:
+			// A trailing slash does not make rm follow the link: coreutils
+			// removes the link itself, exactly as it does without the slash.
+			// (Checked against coreutils 9.12.)
+			pl.add(Effect{Kind: Delete, Path: p, Note: "a symbolic link: only the link is removed"})
 		case fi.Mode()&os.ModeSymlink != 0:
 			pl.add(Effect{Kind: Delete, Path: p, Note: "a symbolic link: only the link is removed"})
 		case !fi.IsDir():
