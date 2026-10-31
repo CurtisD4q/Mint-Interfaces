@@ -34,6 +34,42 @@ func chunkedPanes(title string, sections []mint.Section) []*mint.Pane {
 	return out
 }
 
+// splitOptionSections divides the option sections into the ones that come
+// before any advanced option and the ones after it, so each half can go in
+// its own pane. A section that holds only advanced options belongs to the
+// second half. When every section is on one side, the second half is empty
+// and the caller keeps its single pane.
+func splitOptionSections(sections []mint.Section) (first, second []mint.Section) {
+	cut := -1
+	for i, sec := range sections {
+		if holdsAdvanced(sec) {
+			cut = i
+			break
+		}
+	}
+	if cut < 0 {
+		return sections, nil
+	}
+	return append([]mint.Section(nil), sections[:cut]...), append([]mint.Section(nil), sections[cut:]...)
+}
+
+// holdsAdvanced reports whether a section is nothing but the advanced
+// options of one heading, which flagSections marks "(Advanced)".
+func holdsAdvanced(sec mint.Section) bool {
+	return strings.HasSuffix(sec.Name, "(Advanced)")
+}
+
+// optionsPanes puts the option sections in two panes: the ordinary options,
+// then the advanced ones. With nothing advanced it is the one pane it was.
+func (a *ToolApp) optionsPanes(sections []mint.Section) []*mint.Pane {
+	first, second := splitOptionSections(sections)
+	panes := chunkedPanes("Options", first)
+	if len(second) > 0 {
+		panes = append(panes, chunkedPanes("More Options", second)...)
+	}
+	return panes
+}
+
 func splitTableArchetype(id string) bool {
 	switch id {
 	case "list", "records", "search":
@@ -235,7 +271,7 @@ func (a *ToolApp) layoutDetailsOnly(scr *mint.Screen, mode execMode, canPoll boo
 	top, rest := takePane(sections)
 	var panes []*mint.Pane
 	if len(rest) > 0 {
-		panes = append(panes, chunkedPanes("Options", rest)...)
+		panes = append(panes, a.optionsPanes(rest)...)
 	}
 
 	scr.Sections = top
@@ -249,11 +285,11 @@ func (a *ToolApp) layoutDetailsOnly(scr *mint.Screen, mode execMode, canPoll boo
 
 // packFirst puts chrome and then option headings into the top pane until
 // it holds 10 sections. The rest are Options panes.
-func packFirst(chrome, flags []mint.Section) (top []mint.Section, options []*mint.Pane) {
+func (a *ToolApp) packFirst(chrome, flags []mint.Section) (top []mint.Section, options []*mint.Pane) {
 	all := append(append([]mint.Section{}, chrome...), flags...)
 	top, rest := takePane(all)
 	if len(rest) > 0 {
-		options = chunkedPanes("Options", rest)
+		options = a.optionsPanes(rest)
 	}
 	return top, options
 }
@@ -263,7 +299,7 @@ func (a *ToolApp) layoutInspect(scr *mint.Screen, mode execMode, canPoll bool, i
 	if table, ok := a.tableOnlySection(a.outputSectionName("Report")); ok {
 		chrome = append(chrome, table)
 	}
-	top, options := packFirst(chrome, a.flagSections())
+	top, options := a.packFirst(chrome, a.flagSections())
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Report", a.outputBlocks())...)
@@ -277,7 +313,7 @@ func (a *ToolApp) layoutInspect(scr *mint.Screen, mode execMode, canPoll bool, i
 }
 
 func (a *ToolApp) layoutRead(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Page", a.outputBlocks())...)
@@ -286,7 +322,7 @@ func (a *ToolApp) layoutRead(scr *mint.Screen, mode execMode, canPoll bool, inte
 }
 
 func (a *ToolApp) layoutProbe(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	title := a.outputSectionName("Discovered Targets")
 	var panes []*mint.Pane
 	panes = append(panes, options...)
@@ -296,7 +332,7 @@ func (a *ToolApp) layoutProbe(scr *mint.Screen, mode execMode, canPoll bool, int
 }
 
 func (a *ToolApp) layoutAudit(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("Findings", a.findingsSections())...)
@@ -305,13 +341,13 @@ func (a *ToolApp) layoutAudit(scr *mint.Screen, mode execMode, canPoll bool, int
 }
 
 func (a *ToolApp) layoutConvert(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	scr.Sections = top
 	scr.SetPanes(options)
 }
 
 func (a *ToolApp) layoutToolkit(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	title := a.outputSectionName("Output")
@@ -321,7 +357,7 @@ func (a *ToolApp) layoutToolkit(scr *mint.Screen, mode execMode, canPoll bool, i
 }
 
 func (a *ToolApp) layoutTransfer(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	title := a.outputSectionName("Progress")
 	var panes []*mint.Pane
 	panes = append(panes, options...)
@@ -331,7 +367,7 @@ func (a *ToolApp) layoutTransfer(scr *mint.Screen, mode execMode, canPoll bool, 
 }
 
 func (a *ToolApp) layoutMirror(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
-	top, options := packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
+	top, options := a.packFirst(a.chromeSections(mode, canPoll, interval), a.flagSections())
 	var panes []*mint.Pane
 	panes = append(panes, options...)
 	panes = append(panes, chunkedPanes("What will change", a.mirrorChangeSections())...)
@@ -362,7 +398,7 @@ func (a *ToolApp) layoutMeasure(scr *mint.Screen, mode execMode, canPoll bool, i
 	if a.showsInlineResults() {
 		chrome = append(chrome, a.buildOutputDisplaySection(a.outputSectionName(a.outputFallback(mode))))
 	}
-	top, options := packFirst(chrome, a.flagSections())
+	top, options := a.packFirst(chrome, a.flagSections())
 	if len(options) == 0 {
 		options = chunkedPanes("Options", nil)
 	}
