@@ -1037,13 +1037,12 @@ func (screen *Screen) bind() {
 		}
 		cv.chromeTitle(w, title, screen.Breadcrumb)
 		cv.titleRule(w)
-		// The rule occupies the blank row under the title. A banner moves
-		// to the next row, and content starts after that, so the body
-		// height is the rows that remain.
-		contentTop := 4
+		// Leave one blank row below the title rule. A banner occupies
+		// the first row below the rule, so leave the blank row after it.
+		contentTop := 5
 		if screen.Banner != "" {
 			cv.put(4, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
-			contentTop = 5
+			contentTop = 6
 		}
 		contentBottom := h - 2
 		avail := contentBottom - contentTop + 1
@@ -1239,7 +1238,8 @@ func (screen *Screen) bind() {
 			cv.scrollbar(sbx, contentTop, paneAvail, thumb, tpos)
 		}
 		if dockH > 0 {
-			screen.paintDock(cv, w, contentTop+paneAvail, dockH, usePane, widget, marked)
+			paintRule(cv, contentTop+paneAvail, w)
+			screen.paintDock(cv, w, contentTop+paneAvail+dockRule+dockGap, dockH, usePane, widget, marked)
 		}
 		st = screen.uiAt(screen.focus)
 		it, _ := current()
