@@ -1931,7 +1931,9 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			sections = append(sections, *root)
 		}
 		sections = append(sections, a.executionZone(mode, false, 0))
-		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Output")))
+		// The output is the Live output pane; the recorded runs are listed
+		// there too. A second output section here would show the same runs
+		// again, one screen away from the main screen that shows them.
 		scr.Sections = sections
 		for _, p := range scr.Panes {
 			if p != nil && p.Refresh != nil {
