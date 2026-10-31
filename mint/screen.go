@@ -1238,7 +1238,8 @@ func (screen *Screen) bind() {
 			cv.scrollbar(sbx, contentTop, paneAvail, thumb, tpos)
 		}
 		if dockH > 0 {
-			screen.paintDock(cv, w, contentTop+paneAvail, dockH, usePane, widget, marked)
+			paintRule(cv, contentTop+paneAvail, w)
+			screen.paintDock(cv, w, contentTop+paneAvail+dockRule+dockGap, dockH, usePane, widget, marked)
 		}
 		st = screen.uiAt(screen.focus)
 		it, _ := current()
