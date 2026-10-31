@@ -114,3 +114,32 @@ func TestRunScreenHasNoInputSection(t *testing.T) {
 		t.Error("run screen lost its Run section")
 	}
 }
+
+// The recorded runs belong to the output. The main screen lists them at the
+// bottom of its output section, and the run screen's Live output pane shows
+// them under Captured Output — but the run screen must not also carry a
+// second output section of its own, or the list appears twice.
+func TestRunsAreListedOnce(t *testing.T) {
+	a := newTestApp(t, ToolSpec{Name: "tree", Bin: "echo", ArchetypeID: "list"})
+	a.history = []RunRecord{
+		{ID: "1", Time: time.Now(), CmdLine: "tree --prune", State: "done", LineCount: 137, Lines: []string{"x"}},
+	}
+	scr := a.RunScreen()
+	for _, sec := range scr.Sections {
+		if strings.Contains(sec.Name, "Output") || sec.Name == "Items" {
+			t.Errorf("run screen carries its own output section %q; the Live output pane has it", sec.Name)
+		}
+	}
+	// The pane still has it.
+	found := false
+	for _, p := range scr.Panes {
+		for _, sec := range p.Sections {
+			if sec.Name == "Captured Output" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("run screen lost its Captured Output section")
+	}
+}
