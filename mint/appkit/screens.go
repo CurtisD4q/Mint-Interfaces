@@ -469,15 +469,6 @@ func (a *ToolApp) invokeRowAction(c *mint.Ctx, act RowActionSpec, target, summar
 	}
 }
 
-func splitTableArchetype(id string) bool {
-	switch id {
-	case "list", "inspect", "records", "search":
-		return true
-	default:
-		return false
-	}
-}
-
 func (a *ToolApp) detailPane(s *mint.Screen) []mint.Section {
 	headers, cells, _, ok := s.SelectedTableRow()
 	if !ok || len(cells) == 0 {
@@ -823,8 +814,6 @@ func (a *ToolApp) MainScreen() *mint.Screen {
 	}
 	canPoll := mode == execPoll && a.Spec.CanReadState()
 	var lastPoll time.Time
-	splitTable := splitTableArchetype(a.Spec.ArchetypeID)
-	splitDiff := (a.Spec.TwoInputs || a.Spec.Diff != nil) && !splitTable
 
 	s := &mint.Screen{
 		Icon:  icon,
@@ -858,42 +847,8 @@ func (a *ToolApp) MainScreen() *mint.Screen {
 			return a.takeRefreshed()
 		},
 	}
-	if splitTable {
-		s.Panes = []*mint.Pane{
-			{Title: "Details", Refresh: func(p *mint.Pane) { p.Sections = a.detailPane(s) }},
-			{Title: "Actions", Refresh: func(p *mint.Pane) { p.Sections = a.actionPane(s) }},
-		}
-	} else if splitDiff {
-		title := a.outputSectionName(a.outputFallback(mode))
-		s.Panes = []*mint.Pane{{
-			Title: title,
-			Refresh: func(p *mint.Pane) {
-				if a.showsInlineResults() {
-					p.Sections = []mint.Section{a.buildOutputDisplaySection(title)}
-				}
-			},
-		}}
-	}
 	s.Refresh = func(scr *mint.Screen) {
-		var sections []mint.Section
-		sections = append(sections, a.inputZone())
-		sections = append(sections, a.flagSections()...)
-		if a.Spec.OutputsFile {
-			sections = append(sections, a.outputFileSection())
-		}
-		if rootSec := a.rootAuthSection(); rootSec != nil {
-			sections = append(sections, *rootSec)
-		}
-		sections = append(sections, a.executionZone(mode, canPoll, interval))
-		if a.showsInlineResults() && !splitDiff {
-			sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName(a.outputFallback(mode))))
-		}
-		scr.Sections = sections
-		for _, p := range scr.Panes {
-			if p != nil && p.Refresh != nil {
-				p.Refresh(p)
-			}
-		}
+		a.layoutMain(scr, mode, canPoll, interval)
 	}
 	s.Refresh(s)
 	return s

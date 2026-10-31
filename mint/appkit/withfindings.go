@@ -340,104 +340,108 @@ func (a *ToolApp) readFindings(job *runner.Job, run findingsRun) {
 
 // FindingsScreen lists the last run's findings in groups.
 func (a *ToolApp) FindingsScreen() *mint.Screen {
-	groupNames := []string{"severity", "file", "rule"}
-	sevNames := []string{"info", "low", "medium", "high", "critical"}
 	s := &mint.Screen{
 		Icon:   "⚑",
 		Title:  a.Spec.Name + " — findings",
 		Status: a.statusBadges,
 	}
 	s.Refresh = func(scr *mint.Screen) {
-		a.mu.Lock()
-		rep := a.findings
-		a.mu.Unlock()
-		if rep == nil {
-			scr.Sections = []mint.Section{{Rows: []mint.Row{mint.Note("No findings yet.")}}}
-			return
-		}
-		all := rep.res.Findings
-		controls := []mint.Row{
-			mint.Value(mint.ValueOpts{Label: "Found", Get: func() string { return countsSummary(all) }}),
-			mint.Value(mint.ValueOpts{Label: "Since the last run", Get: func() string { return sinceLastRun(rep) }}),
-			mint.Picker(mint.PickerOpts{ID: "findings:group", Label: "Group by", Options: groupNames,
-				Get: func() string { return groupNames[rep.groupBy] },
-				Set: func(v string) {
-					for i, n := range groupNames {
-						if n == v {
-							a.mu.Lock()
-							rep.groupBy = findings.GroupBy(i)
-							a.mu.Unlock()
-						}
-					}
-				}}),
-			mint.Picker(mint.PickerOpts{ID: "findings:min", Label: "Show at least", Options: sevNames,
-				Get: func() string { return rep.minimum.String() },
-				Set: func(v string) {
-					if sev, ok := findings.ParseSeverity(v); ok {
-						a.mu.Lock()
-						rep.minimum = sev
-						a.mu.Unlock()
-					}
-				}}),
-		}
-		if !rep.first {
-			controls = append(controls, mint.Toggle(mint.ToggleOpts{ID: "findings:new", Label: "Only new findings",
-				Get: func() bool { return rep.newOnly },
-				Set: func(v bool) { a.mu.Lock(); rep.newOnly = v; a.mu.Unlock() }}))
-		}
-		if rep.res.Capped {
-			controls = append(controls, mint.Label(mint.StyleCaption, fmt.Sprintf("Showing the first %d findings; the report has more.", findings.MaxFindings)))
-		}
-		sections := []mint.Section{{Name: "Findings", Rows: controls}}
-		shown := all
-		if rep.newOnly && !rep.first {
-			shown = nil
-			for _, f := range all {
-				if rep.isNew[f.Fingerprint()] {
-					shown = append(shown, f)
-				}
-			}
-		}
-		groups := findings.GroupFindings(shown, rep.groupBy, rep.minimum)
-		if len(groups) == 0 {
-			msg := "No findings."
-			switch {
-			case rep.newOnly && len(all) > 0:
-				msg = "No new findings at this level or above."
-			case len(all) > 0:
-				msg = "No findings at this level or above."
-			}
-			sections = append(sections, mint.Section{Rows: []mint.Row{mint.Note(msg)}})
-		}
-		for gi, g := range groups {
-			var rows []mint.Row
-			for _, f := range g.Findings {
-				f := f
-				label := findingLabel(f, rep.groupBy)
-				hint := f.Severity.String()
-				if rep.isNew[f.Fingerprint()] {
-					hint = "new · " + hint
-				}
-				rows = append(rows, mint.Action(mint.ActionOpts{
-					Label: label,
-					Hint:  hint,
-					OnActivate: func(c *mint.Ctx) {
-						c.Push(a.findingDetail(f, rep.scope))
-					},
-				}))
-			}
-			title := mint.CleanLineVisible(g.Key)
-			if rep.groupBy != findings.BySeverity {
-				title += " · worst " + g.Worst.String()
-			}
-			// Open the worst groups; fold the rest when there are many.
-			collapsed := gi > 0 && len(all) > 40
-			sections = append(sections, mint.CollapsibleSection(fmt.Sprintf("%s (%d)", title, len(g.Findings)), collapsed, rows...))
-		}
-		scr.Sections = sections
+		scr.Sections = a.findingsSections()
 	}
 	s.Refresh(s)
 	return s
+}
+
+// findingsSections is the findings view: the controls, then one section per group.
+func (a *ToolApp) findingsSections() []mint.Section {
+	groupNames := []string{"severity", "file", "rule"}
+	sevNames := []string{"info", "low", "medium", "high", "critical"}
+	a.mu.Lock()
+	rep := a.findings
+	a.mu.Unlock()
+	if rep == nil {
+		return []mint.Section{{Name: "Findings", Rows: []mint.Row{mint.Note("No findings yet.")}}}
+	}
+	all := rep.res.Findings
+	controls := []mint.Row{
+		mint.Value(mint.ValueOpts{Label: "Found", Get: func() string { return countsSummary(all) }}),
+		mint.Value(mint.ValueOpts{Label: "Since the last run", Get: func() string { return sinceLastRun(rep) }}),
+		mint.Picker(mint.PickerOpts{ID: "findings:group", Label: "Group by", Options: groupNames,
+			Get: func() string { return groupNames[rep.groupBy] },
+			Set: func(v string) {
+				for i, n := range groupNames {
+					if n == v {
+						a.mu.Lock()
+						rep.groupBy = findings.GroupBy(i)
+						a.mu.Unlock()
+					}
+				}
+			}}),
+		mint.Picker(mint.PickerOpts{ID: "findings:min", Label: "Show at least", Options: sevNames,
+			Get: func() string { return rep.minimum.String() },
+			Set: func(v string) {
+				if sev, ok := findings.ParseSeverity(v); ok {
+					a.mu.Lock()
+					rep.minimum = sev
+					a.mu.Unlock()
+				}
+			}}),
+	}
+	if !rep.first {
+		controls = append(controls, mint.Toggle(mint.ToggleOpts{ID: "findings:new", Label: "Only new findings",
+			Get: func() bool { return rep.newOnly },
+			Set: func(v bool) { a.mu.Lock(); rep.newOnly = v; a.mu.Unlock() }}))
+	}
+	if rep.res.Capped {
+		controls = append(controls, mint.Label(mint.StyleCaption, fmt.Sprintf("Showing the first %d findings; the report has more.", findings.MaxFindings)))
+	}
+	sections := []mint.Section{{Name: "Findings", Rows: controls}}
+	shown := all
+	if rep.newOnly && !rep.first {
+		shown = nil
+		for _, f := range all {
+			if rep.isNew[f.Fingerprint()] {
+				shown = append(shown, f)
+			}
+		}
+	}
+	groups := findings.GroupFindings(shown, rep.groupBy, rep.minimum)
+	if len(groups) == 0 {
+		msg := "No findings."
+		switch {
+		case rep.newOnly && len(all) > 0:
+			msg = "No new findings at this level or above."
+		case len(all) > 0:
+			msg = "No findings at this level or above."
+		}
+		sections = append(sections, mint.Section{Rows: []mint.Row{mint.Note(msg)}})
+	}
+	for gi, g := range groups {
+		var rows []mint.Row
+		for _, f := range g.Findings {
+			f := f
+			label := findingLabel(f, rep.groupBy)
+			hint := f.Severity.String()
+			if rep.isNew[f.Fingerprint()] {
+				hint = "new · " + hint
+			}
+			rows = append(rows, mint.Action(mint.ActionOpts{
+				Label: label,
+				Hint:  hint,
+				OnActivate: func(c *mint.Ctx) {
+					c.Push(a.findingDetail(f, rep.scope))
+				},
+			}))
+		}
+		title := mint.CleanLineVisible(g.Key)
+		if rep.groupBy != findings.BySeverity {
+			title += " · worst " + g.Worst.String()
+		}
+		// Open the worst groups; fold the rest when there are many.
+		collapsed := gi > 0 && len(all) > 40
+		sections = append(sections, mint.CollapsibleSection(fmt.Sprintf("%s (%d)", title, len(g.Findings)), collapsed, rows...))
+	}
+	return sections
 }
 
 // findingLabel is one finding as a row: a short location first (so it

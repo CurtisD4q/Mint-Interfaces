@@ -233,9 +233,9 @@ func TestSplitScreensForArchetypes(t *testing.T) {
 	if len(scr.Panes) != 2 || scr.Panes[0].Title != "Details" || scr.Panes[1].Title != "Actions" {
 		t.Fatalf("list panes %+v", paneTitles(scr))
 	}
-	for _, id := range []string{"inspect", "records", "search"} {
+	for _, id := range []string{"records", "search"} {
 		s := newTestApp(t, ToolSpec{Name: id, Bin: "echo", ArchetypeID: id}).MainScreen()
-		if len(s.Panes) != 2 {
+		if len(s.Panes) != 2 || s.Panes[0].Title != "Details" || s.Panes[1].Title != "Actions" {
 			t.Fatalf("%s panes %v", id, paneTitles(s))
 		}
 	}

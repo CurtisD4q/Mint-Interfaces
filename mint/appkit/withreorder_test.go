@@ -236,8 +236,12 @@ func TestReorderScreenBuilds(t *testing.T) {
 	for _, s := range scr.Sections {
 		names = append(names, s.Name)
 	}
-	if strings.Join(names, ",") != "Chain,Rules, first to last (4),Apply" {
+	if strings.Join(names, ",") != "Chain,Apply" {
 		t.Fatalf("sections %q", names)
+	}
+	if len(scr.Panes) != 1 || scr.Panes[0].Title != "Rules" || len(scr.Panes[0].Sections) != 1 ||
+		!strings.HasPrefix(scr.Panes[0].Sections[0].Name, "Rules, first to last") {
+		t.Fatalf("rules pane %+v", scr.Panes)
 	}
 	a.reorderApply(context.Background())
 	scr.Refresh(scr)

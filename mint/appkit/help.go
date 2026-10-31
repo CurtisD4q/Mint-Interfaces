@@ -173,9 +173,21 @@ func helpCrashed(text string) bool {
 	return false
 }
 
+// helpHit is one captured manual.
+type helpHit struct {
+	text, how string
+}
+
 // captureToolHelp reads the tool's man page, or its --help, falling back
 // to -h when --help prints nothing or crashes. how is "man", "--help" or "-h".
 func captureToolHelp(bin string) (text, how string) {
+	return captureToolHelpArgs(bin, nil)
+}
+
+// captureToolHelpArgs is captureToolHelp for a subcommand. prefix is the
+// words before --help (the selected subcommand). The manual page is only
+// read when prefix is empty.
+func captureToolHelpArgs(bin string, prefix []string) (text, how string) {
 	name := filepath.Base(strings.TrimSpace(bin))
 	h, cleanup, err := newHelpCapture()
 	if err != nil {
@@ -183,7 +195,7 @@ func captureToolHelp(bin string) (text, how string) {
 	}
 	defer cleanup()
 
-	if !strings.HasPrefix(name, "-") {
+	if len(prefix) == 0 && !strings.HasPrefix(name, "-") {
 		if page, _, _ := h.runSeparate("man", "-P", "cat", name); helpLooksLikeMan(page) {
 			return page, "man"
 		}
@@ -194,18 +206,82 @@ func captureToolHelp(bin string) (text, how string) {
 			path = p
 		}
 	}
-	help, _ := h.run(path, "--help")
-	if strings.TrimSpace(help) == "" || helpCrashed(help) {
-		alt, _ := h.run(path, "-h")
-		if strings.TrimSpace(alt) != "" && !helpCrashed(alt) {
-			return alt, "-h"
+	try := func(args []string) (string, string, bool) {
+		help, _ := h.run(path, args...)
+		switch {
+		case strings.TrimSpace(help) == "" || helpCrashed(help):
+			return "", "", false
+		case len(args) > 0 && args[len(args)-1] == "-h":
+			return help, "-h", true
+		default:
+			return help, "--help", true
 		}
-		if strings.TrimSpace(help) != "" && !helpCrashed(help) {
-			return help, "--help"
-		}
-		return "", ""
 	}
-	return help, "--help"
+	if len(prefix) > 0 {
+		if text, how, ok := try(append(append([]string{}, prefix...), "--help")); ok {
+			return text, how
+		}
+		if text, how, ok := try(append(append([]string{}, prefix...), "-h")); ok {
+			return text, how
+		}
+	}
+	if text, how, ok := try([]string{"--help"}); ok {
+		return text, how
+	}
+	if text, how, ok := try([]string{"-h"}); ok {
+		return text, how
+	}
+	return "", ""
+}
+
+func (a *ToolApp) cachedHelp(prefix []string) (string, string) {
+	key := a.Spec.BinaryName() + "\x00" + strings.Join(prefix, "\x00")
+	a.mu.Lock()
+	if a.helpCache != nil {
+		if hit, ok := a.helpCache[key]; ok {
+			a.mu.Unlock()
+			return hit.text, hit.how
+		}
+	}
+	a.mu.Unlock()
+	text, how := captureToolHelpArgs(a.Spec.BinaryName(), prefix)
+	a.mu.Lock()
+	if a.helpCache == nil {
+		a.helpCache = map[string]helpHit{}
+	}
+	a.helpCache[key] = helpHit{text: text, how: how}
+	a.mu.Unlock()
+	return text, how
+}
+
+// helpPaneSections is the manual as pane sections, plus a way into the
+// full log viewer. ViewLog takes over the screen, so the text itself is
+// what the pane shows.
+func (a *ToolApp) helpPaneSections(prefix []string) []mint.Section {
+	text, how := a.cachedHelp(prefix)
+	title := "Help"
+	if how != "" {
+		title = how
+	}
+	if strings.TrimSpace(text) == "" {
+		text = "No manual page or help text was found for " + a.Spec.Name + "."
+	}
+	raw := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	lines := make([]mint.LogLine, len(raw))
+	rows := make([]mint.Row, 0, len(raw)+1)
+	for i, l := range raw {
+		lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
+		rows = append(rows, mint.Note(mint.CleanLine(l)))
+	}
+	frozen := lines
+	rows = append(rows, mint.Action(mint.ActionOpts{
+		Label: "Open in the log viewer…",
+		Hint:  "help",
+		OnActivate: func(c *mint.Ctx) {
+			c.Push(mint.ViewLog(a.Spec.Name+" — "+title, func() []mint.LogLine { return frozen }))
+		},
+	}))
+	return []mint.Section{{Name: title, Rows: rows}}
 }
 
 // runSeparate is run, but standard error is dropped. man prints the page
