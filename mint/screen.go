@@ -396,6 +396,23 @@ func dividerLine(ch string, n int) string {
 	return b.String()
 }
 
+// alertPrefix is red and bold. On a monochrome terminal Err is bold only;
+// the row's label text still states the warning.
+func alertPrefix(selected bool) string {
+	col := C.Amber + C.Bold
+	if C.Err != "" {
+		col = C.Err + C.Bold
+	}
+	if selected {
+		return C.SelBg + col
+	}
+	return col
+}
+
+func paintAlert(styled string, selected bool) string {
+	return alertPrefix(selected) + sgrSeq.ReplaceAllString(styled, "") + Reset
+}
+
 func labelStyle(s Style) string {
 	switch s {
 	case StyleTitle:
@@ -1136,6 +1153,17 @@ func (screen *Screen) bind() {
 					st.hit[r] = entry
 				}
 				switch {
+				case it.alert && selected:
+					cv.selBar(r, w)
+					cv.put(r, left, alertPrefix(true)+"▸ "+label+Reset)
+					if wv > 0 {
+						cv.put(r, wx, paintAlert(wt, true))
+					}
+				case it.alert:
+					cv.put(r, left+2, alertPrefix(false)+label+Reset)
+					if wv > 0 {
+						cv.put(r, wx, paintAlert(wt, false))
+					}
 				case selected && mark != "":
 					cv.selBar(r, w)
 					cv.put(r, left, C.SelBg+C.Accent+C.Bold+"▸ "+Reset+C.SelBg+markCol+mark+" "+

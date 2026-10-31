@@ -405,15 +405,15 @@ func (a *ToolApp) ServiceScreen() *mint.Screen {
 			status = append(status, mint.Label(mint.StyleCaption, "⚠ Open to every network this computer is on."))
 		}
 		settings := []mint.Row{
-			mint.Text(mint.TextOpts{ID: "svc:port", Label: "Port", Get: func() string { return strconv.Itoa(a.svcPort()) },
-				Set: func(val string) {
+			a.textInput("svc:port", "Port", "", func() string { return strconv.Itoa(a.svcPort()) },
+				func(val string) {
 					p, err := strconv.Atoi(strings.TrimSpace(val))
 					if err != nil || p < 0 || p > 65535 {
 						mint.ToastError("A port is a number from 0 to 65535")
 						return
 					}
 					a.Values[svcPortKey] = strconv.Itoa(p)
-				}}),
+				}, boxPlain, nil),
 			mint.Picker(mint.PickerOpts{ID: "svc:bind", Label: "Who can connect", Options: labels,
 				Get: func() string {
 					if l, ok := bindLabel[a.svcBind()]; ok {
@@ -430,14 +430,18 @@ func (a *ToolApp) ServiceScreen() *mint.Screen {
 				}}),
 		}
 		if v.ServesDir {
-			settings = append(settings, mint.Text(mint.TextOpts{ID: "svc:dir", Label: "Folder served",
-				Get: a.svcDir,
-				Set: func(val string) {
-					if val = strings.TrimSpace(val); val != "" {
-						abs, _ := filepath.Abs(expandHome(val))
-						a.Values[svcDirKey] = abs
+			settings = append(settings, a.textInput("svc:dir", "Folder served", "",
+				a.svcDir,
+				func(val string) {
+					if val == "" {
+						return
 					}
-				}}))
+					abs, err := filepath.Abs(val)
+					if err != nil {
+						abs = val
+					}
+					a.Values[svcDirKey] = abs
+				}, boxPathInput, nil))
 		}
 		if running {
 			settings = append(settings, mint.Label(mint.StyleCaption, "Changes apply when the server restarts."))
@@ -528,13 +532,4 @@ func (a *ToolApp) serviceBadges() []mint.Badge {
 		data = append(data, d)
 	}
 	return append(data, b)
-}
-
-func expandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if h, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(h, strings.TrimPrefix(p, "~"))
-		}
-	}
-	return p
 }

@@ -94,6 +94,10 @@ type Row struct {
 	// H L resize its columns. Nil for everything else.
 	table *Row
 
+	// alert paints the whole row red and bold. The label text carries the
+	// same warning, so it still reads when the terminal has no colour.
+	alert bool
+
 	// cells is the raw column values of a tablerow, with cellHead the
 	// headers and cellIdx the row index in the table. A split detail pane
 	// reads them as the cursor moves.
@@ -296,6 +300,7 @@ type ActionOpts struct {
 	ID         string
 	Label      string
 	Hint       string
+	Alert      bool
 	Get        func() string
 	OnActivate func(*Ctx)
 }
@@ -308,6 +313,7 @@ func Action(opts ActionOpts) Row {
 		id:         opts.ID,
 		label:      opts.Label,
 		hint:       opts.Hint,
+		alert:      opts.Alert,
 		getStr:     opts.Get,
 		onActivate: opts.OnActivate,
 	}
@@ -511,6 +517,7 @@ type TextOpts struct {
 	Label       string
 	Placeholder string
 	Value       string
+	Alert       bool
 	Get         func() string
 	Set         func(string)
 }
@@ -525,6 +532,7 @@ func Text(opts TextOpts) Row {
 		placeholder: opts.Placeholder,
 		value:       opts.Value,
 		hasValue:    opts.Value != "",
+		alert:       opts.Alert,
 		getStr:      opts.Get,
 		setStr:      opts.Set,
 	}

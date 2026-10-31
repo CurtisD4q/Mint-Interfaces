@@ -40,6 +40,10 @@ func TestParseSynopsis(t *testing.T) {
 			t.Errorf("%s:\n got  %q\n want %q", c.tool, got, c.want)
 		}
 	}
+	spec := ParseManAndHelp("cp", "", "Usage: cp SOURCE DEST\n")
+	if len(spec.PositionalRoles) != 2 || spec.PositionalRoles[0] != appkit.RoleInputFile || spec.PositionalRoles[1] != appkit.RoleOutputFile {
+		t.Fatalf("cp roles %v", spec.PositionalRoles)
+	}
 	s := ParseSynopsis("ffmpeg", nil, cleanLines("usage: ffmpeg [options] {[outfile options] outfile}..."))
 	if p, _, ok := s.OutputPositional(); !ok || p.Name != "outfile" || p.Role != appkit.RoleOutputFile || !p.Repeat {
 		t.Fatalf("ffmpeg output positional: %+v %v", p, ok)

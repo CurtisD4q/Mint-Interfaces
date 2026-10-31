@@ -471,6 +471,17 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 				st.hit[r] = entry
 			}
 			switch {
+			case it.alert && selected:
+				cv.selBar(r, w)
+				cv.put(r, left, alertPrefix(true)+"▸ "+label+Reset)
+				if wv > 0 {
+					cv.put(r, wx, paintAlert(wt, true))
+				}
+			case it.alert:
+				cv.put(r, left+2, alertPrefix(false)+label+Reset)
+				if wv > 0 {
+					cv.put(r, wx, paintAlert(wt, false))
+				}
 			case selected && mark != "":
 				cv.selBar(r, w)
 				cv.put(r, left, C.SelBg+C.Accent+C.Bold+"▸ "+Reset+C.SelBg+markCol+mark+" "+

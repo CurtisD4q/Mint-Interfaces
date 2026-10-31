@@ -193,6 +193,16 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.TwoInputs {
 		buf.WriteString("\t\tTwoInputs:         true,\n")
 	}
+	if len(spec.PositionalRoles) > 0 {
+		buf.WriteString("\t\tPositionalRoles:   []appkit.ArgRole{")
+		for i, r := range spec.PositionalRoles {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "appkit.%s", roleGoName(r))
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.OutputsFile {
 		buf.WriteString("\t\tOutputsFile:       true,\n")
 	}
@@ -558,6 +568,19 @@ func elispDocDesc(desc string) string {
 		line += len(w)
 	}
 	return b.String()
+}
+
+// roleGoName is roleIdent, and RoleValue, which roleIdent omits so a flag
+// with no role is not written out. Positional lists need the empty role
+// so later arguments keep their place.
+func roleGoName(r appkit.ArgRole) string {
+	if r == appkit.RoleValue {
+		return "RoleValue"
+	}
+	if id := roleIdent(r); id != "" {
+		return id
+	}
+	return "RoleValue"
 }
 
 // roleIdent is the Go name of a role, from a fixed list, so nothing from a
