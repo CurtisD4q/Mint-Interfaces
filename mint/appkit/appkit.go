@@ -591,6 +591,12 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 				args = append(args, f.Flag)
 			}
 		default:
+			// A value left at its default is not passed. A slider sitting
+			// at 0 would otherwise send "--months 0", which the tool reads
+			// as a real limit, and the flag could then never be dropped.
+			if f.Default != "" && val == strings.TrimSpace(f.Default) {
+				continue
+			}
 			if val != "" {
 				parts := []string{val}
 				if strings.Contains(val, "\n") {
