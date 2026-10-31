@@ -1460,7 +1460,7 @@ func (a *ToolApp) flagSections() []mint.Section {
 		if len(aRows) > 0 {
 			rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
 				ID:        "adv:" + secName,
-				Title:     "More " + secName + " options",
+				Title:     "More Options",
 				Badge:     fmt.Sprintf("%d options", len(aRows)),
 				Collapsed: true,
 				Rows:      aRows,
