@@ -9,9 +9,10 @@ import (
 	"time"
 )
 
-// The results pane folds the runs before this one under the output, so a
-// reader comparing two runs finds both in the same place.
-func TestEarlierRunsAreFoldedUnderTheOutput(t *testing.T) {
+// The results pane lists the recorded runs, newest first, so one can be
+// reopened without leaving the output. The current run is in the list too:
+// it is the one the pane is already showing above.
+func TestRecentRunsAreListedUnderTheOutput(t *testing.T) {
 	a := newTestApp(t, ToolSpec{Name: "x"})
 	now := time.Now()
 	a.history = []RunRecord{
@@ -19,17 +20,12 @@ func TestEarlierRunsAreFoldedUnderTheOutput(t *testing.T) {
 		{ID: "2", Time: now.Add(-time.Minute), CmdLine: "x -b", State: "done", LineCount: 2, Lines: []string{"b1", "b2"}},
 		{ID: "1", Time: now.Add(-2 * time.Minute), CmdLine: "x -a", State: "done", LineCount: 1, Lines: []string{"a1"}},
 	}
-	if got := len(a.earlierRunRows()); got != 2 {
-		t.Errorf("got %d folded runs, want 2 (the current one is not repeated)", got)
+	if got := len(a.recentRunRows()); got != 3 {
+		t.Errorf("got %d rows, want 3 (every recorded run)", got)
 	}
-
-	// None with nothing earlier: the pane is the output alone.
-	a.history = a.history[:1]
-	if got := len(a.earlierRunRows()); got != 0 {
-		t.Errorf("one run gave %d folded rows, want 0", got)
-	}
-	if rows := (&ToolApp{}).earlierRunRows(); len(rows) != 0 {
-		t.Errorf("no history gave %d rows", len(rows))
+	// No history: nothing to list, and no "no runs" note in the output pane.
+	if got := (&ToolApp{}).recentRunRows(); len(got) != 0 {
+		t.Errorf("no history gave %d rows, want none", len(got))
 	}
 }
 

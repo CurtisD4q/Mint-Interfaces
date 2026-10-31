@@ -342,6 +342,8 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 		}
 	}
 
+	rows = append(rows, a.recentRunRows()...)
+
 	rows = append(rows, mint.Action(mint.ActionOpts{
 		Label: "Open full output viewer (search / scroll / save)…",
 		Hint:  "view",
@@ -357,37 +359,36 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 		},
 	}))
 
-	// The runs before this one, folded away under the results. They are
-	// here rather than in a pane of their own so that a reader who wants
-	// to compare two runs finds both in the same place.
-	rows = append(rows, a.earlierRunRows()...)
-
 	return mint.Section{
 		Name: title,
 		Rows: rows,
 	}
 }
 
-// earlierRunRows folds the output of the runs before the current one under
-// the results, newest first. A run with no lines kept (an old entry, or one
-// whose output was saved to a file) still opens: its file is read on demand.
-func (a *ToolApp) earlierRunRows() []mint.Row {
+// recentRunRows lists the recorded runs under the output, newest first, so
+// a run can be reopened without leaving the results. It is the same list the
+// run screen's own pane used to show.
+func (a *ToolApp) recentRunRows() []mint.Row {
 	hist := a.History()
-	if len(hist) < 2 {
+	if len(hist) == 0 {
 		return nil
 	}
 	var rows []mint.Row
-	for _, rec := range hist[1:] {
+	for _, rec := range hist {
 		r := rec
-		title := fmt.Sprintf("%s · %s", r.Time.Format("15:04:05"), r.CmdLine)
-		badge := fmt.Sprintf("%s · %d lines", r.State, r.LineCount)
-		rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
-			ID:        "run:" + r.ID,
-			Title:     title,
-			Badge:     badge,
-			Collapsed: true,
-			Lines:     func() []string { return a.runLines(r) },
-			ChunkSize: a.Spec.ChunkSize,
+		rows = append(rows, mint.Action(mint.ActionOpts{
+			Label: fmt.Sprintf("[%s] %s", r.Time.Format("15:04:05"), r.CmdLine),
+			Hint:  fmt.Sprintf("%s · %d lines", r.State, r.LineCount),
+			OnActivate: func(c *mint.Ctx) {
+				c.Push(mint.ViewLog(a.Spec.Name+" output", func() []mint.LogLine {
+					out := a.runLines(r)
+					ll := make([]mint.LogLine, len(out))
+					for i, l := range out {
+						ll[i] = mint.LogLine{Text: mint.CleanLine(l)}
+					}
+					return ll
+				}))
+			},
 		}))
 	}
 	return rows

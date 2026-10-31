@@ -464,8 +464,10 @@ func TestSplitScreensForArchetypes(t *testing.T) {
 	if !hasSection(cs, "Inputs") || !hasSection(cs, "Differences") {
 		t.Fatalf("compare sections %v", sectionNames(cs))
 	}
+	// The run screen keeps only the live output; the recorded runs are
+	// listed in the results section instead of a pane of their own.
 	run := newTestApp(t, ToolSpec{Name: "ps", Bin: "ps", ArchetypeID: "list"}).RunScreen()
-	if len(run.Panes) != 2 || run.Panes[0].Title != "Live output" || run.Panes[1].Title != "Recent runs" {
+	if len(run.Panes) != 1 || run.Panes[0].Title != "Live output" {
 		t.Fatalf("run panes %v", paneTitles(run))
 	}
 	plain := newTestApp(t, ToolSpec{Name: "x", Bin: "echo"}).MainScreen()

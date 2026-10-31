@@ -1910,9 +1910,6 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 		{Title: "Live output", Refresh: func(p *mint.Pane) {
 			p.Sections = a.liveOutputSections()
 		}},
-		{Title: "Recent runs", Refresh: func(p *mint.Pane) {
-			p.Sections = []mint.Section{{Name: "Recent runs", Rows: a.historyRows()}}
-		}},
 	}
 	s.Refresh = func(scr *mint.Screen) {
 		mode := a.executionMode()
@@ -1931,6 +1928,7 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 			sections = append(sections, *root)
 		}
 		sections = append(sections, a.executionZone(mode, false, 0))
+		sections = append(sections, a.buildOutputDisplaySection(a.outputSectionName("Output")))
 		scr.Sections = sections
 		for _, p := range scr.Panes {
 			if p != nil && p.Refresh != nil {
