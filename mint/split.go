@@ -11,6 +11,7 @@ import (
 type paneBand struct {
 	index     int
 	divRow    int
+	lead      int // blank rows reserved immediately above divRow
 	top       int
 	rows      int
 	collapsed bool
@@ -425,6 +426,8 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 			cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
 		case it.wtype == "divider":
 			cv.put(r, left, C.Dim+dividerLine(it.divChar, max(0, w-4))+Reset)
+		case it.wtype == "rule":
+			paintRule(cv, r, w)
 		case it.wtype == "logline":
 			cv.logLine(r, w, it)
 		case it.wtype == "spacer":
@@ -556,8 +559,18 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 		}
 		pst := s.uiAt(b.index)
 		use(pst)
-		items := preparePane(pst, s.sectionsAt(b.index), w, sp, b.rows)
-		paintRows(cv, pst, items, b.top, b.rows, w, b.index == s.focus, widget, marked)
+		preparePane(pst, s.sectionsAt(b.index), w, sp, b.rows)
+	}
+	// Gap rules sit on blank rows. Paint them before pane bodies so a
+	// scrollbar drawn with the body keeps the right-hand column.
+	s.paintGapRules(cv, s.bands, w)
+	for _, b := range s.bands {
+		if b.rows <= 0 {
+			continue
+		}
+		pst := s.uiAt(b.index)
+		use(pst)
+		paintRows(cv, pst, pst.items, b.top, b.rows, w, b.index == s.focus, widget, marked)
 	}
 }
 
@@ -586,6 +599,80 @@ func (s *Screen) selSig() string {
 		return s.selRow.label
 	}
 	return fmt.Sprintf("%d\x00%s", idx, strings.Join(cells, "\x00"))
+}
+
+// paintGapRules turns the first line of a two-line gap above a pane title
+// into a dim rule. The second line stays blank, so the rule never sits on
+// the title. When the gap is already between two titles (a collapsed pane,
+// or two titles with only that gap between them), both lines stay blank:
+// each one touches a title, and a rule there would stack on it.
+func (s *Screen) paintGapRules(cv *canvas, bands []paneBand, w int) {
+	divAt := map[int]bool{}
+	for _, b := range bands {
+		if b.divRow > 0 {
+			divAt[b.divRow] = true
+		}
+	}
+	var prev *paneBand
+	for i := range bands {
+		b := &bands[i]
+		if b.divRow > 0 {
+			trail := 0
+			if prev != nil {
+				trail = s.trailingPad(prev)
+			}
+			gap := b.lead + trail
+			if gap > paneGapLines {
+				gap = paneGapLines
+			}
+			if gap >= 2 {
+				ruleRow := b.divRow - gap
+				if ruleRow >= 1 && !divAt[ruleRow-1] && !s.slotIsRule(prev, ruleRow-1) {
+					paintRule(cv, ruleRow, w)
+				}
+			}
+		}
+		if b.divRow > 0 || b.rows > 0 {
+			cp := *b
+			prev = &cp
+		}
+	}
+}
+
+// trailingPad is the blank rows at the bottom of a pane whose content is
+// shorter than the band. They are the start of the gap above the next title.
+func (s *Screen) trailingPad(b *paneBand) int {
+	if s == nil || b == nil || b.rows <= 0 {
+		return 0
+	}
+	st := s.uiAt(b.index)
+	if st == nil {
+		return 0
+	}
+	vis := len(st.items) - st.scroll
+	if vis < 0 {
+		vis = 0
+	}
+	if vis >= b.rows {
+		return 0
+	}
+	return b.rows - vis
+}
+
+// slotIsRule reports whether row, inside b, is showing a section-gap rule.
+func (s *Screen) slotIsRule(b *paneBand, row int) bool {
+	if s == nil || b == nil || b.rows <= 0 || row < b.top || row >= b.top+b.rows {
+		return false
+	}
+	st := s.uiAt(b.index)
+	if st == nil {
+		return false
+	}
+	idx := st.scroll + (row - b.top)
+	if idx < 0 || idx >= len(st.items) {
+		return false
+	}
+	return st.items[idx].wtype == "rule"
 }
 
 func paintDivider(cv *canvas, row, w int, title string, focused bool) {

@@ -526,6 +526,7 @@ func placeBands(s *Screen, plans []panePlan, rows []int, content []bool, leads [
 			if room := limit - row; lead > room {
 				lead = room
 			}
+			b.lead = lead
 			row += lead
 			if row < limit {
 				b.divRow = row

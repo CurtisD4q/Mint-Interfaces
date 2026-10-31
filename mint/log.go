@@ -397,6 +397,7 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 		}
 		crumb := strings.Join(crumbs, " · ")
 		cv.chromeTitle(w, screen.Title, crumb)
+		cv.titleRule(w)
 
 		lineWidth := max(4, w-6)
 		qLower := strings.ToLower(query)

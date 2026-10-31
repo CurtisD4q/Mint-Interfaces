@@ -328,8 +328,19 @@ func (st *uiState) flatten(sections []Section, width, spacing int) []Row {
 		}
 		if sec.Name != "" {
 			if spacing > 0 && len(items) > 0 {
-				for i := 0; i < spacing; i++ {
-					items = append(items, Spacer())
+				// A two-line gap keeps its height: the first line is a
+				// dim rule and the second stays blank. A one-line gap
+				// stays blank, so screens that asked for a single line
+				// do not grow a rule.
+				if spacing >= paneGapLines {
+					items = append(items, gapRule())
+					for i := 1; i < spacing; i++ {
+						items = append(items, Spacer())
+					}
+				} else {
+					for i := 0; i < spacing; i++ {
+						items = append(items, Spacer())
+					}
 				}
 			}
 			if sec.Collapsible {
@@ -382,6 +393,9 @@ func clampInt(v, lo, hi int) int {
 	}
 	return v
 }
+
+// gapRule is the first line of a two-line section gap.
+func gapRule() Row { return Row{kind: "row", wtype: "rule"} }
 
 // dividerLine repeats ch to exactly n cells.
 func dividerLine(ch string, n int) string {
@@ -1022,9 +1036,13 @@ func (screen *Screen) bind() {
 			title = screen.Icon + " " + title
 		}
 		cv.chromeTitle(w, title, screen.Breadcrumb)
+		cv.titleRule(w)
+		// The rule occupies the blank row under the title. A banner moves
+		// to the next row, and content starts after that, so the body
+		// height is the rows that remain.
 		contentTop := 4
 		if screen.Banner != "" {
-			cv.put(3, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
+			cv.put(4, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
 			contentTop = 5
 		}
 		contentBottom := h - 2
@@ -1107,6 +1125,8 @@ func (screen *Screen) bind() {
 				cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
 			case it.wtype == "divider":
 				cv.put(r, left, C.Dim+dividerLine(it.divChar, max(0, w-4))+Reset)
+			case it.wtype == "rule":
+				paintRule(cv, r, w)
 			case it.wtype == "logline":
 				cv.logLine(r, w, it)
 			case it.wtype == "spacer":

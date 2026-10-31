@@ -101,6 +101,23 @@ func (c *canvas) frame(h, w int) {
 	c.put(h, 1, C.Accent+"╰"+horiz+"╯"+Reset)
 }
 
+// titleRule is the plain divider directly under the title bar. It uses the
+// same dim rule as the gaps between sections.
+func (c *canvas) titleRule(w int) { paintRule(c, 3, w) }
+
+// paintRule draws a dim, full-width line of ─ across the content width
+// (inside the frame, stopping before the scrollbar column).
+func paintRule(c *canvas, row, w int) {
+	if c == nil || w < 4 || row < 1 {
+		return
+	}
+	n := w - 3
+	if n < 1 {
+		return
+	}
+	c.put(row, 2, C.Dim+dividerLine("─", n)+Reset)
+}
+
 func (c *canvas) chromeTitle(w int, title, crumb string) {
 	room := w - 6 - VLen(crumb)
 	if room < 4 {

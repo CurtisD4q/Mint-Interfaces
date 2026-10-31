@@ -22,6 +22,7 @@ func Message(title, body string) {
 		cv := begin(h, w)
 		cv.frame(h, w)
 		cv.chromeTitle(w, title, "")
+		cv.titleRule(w)
 		row := 4
 		for _, line := range wrapLines(body, max(10, w-6)) {
 			if row >= h-3 {
@@ -66,6 +67,7 @@ func Confirm(title, warning string) bool {
 		cv := begin(h, w)
 		cv.frame(h, w)
 		cv.chromeTitle(w, title, "")
+		cv.titleRule(w)
 		hits = hits[:0]
 		row := 4
 		for _, line := range wrapLines(warning, max(10, w-6)) {
@@ -198,7 +200,12 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 		if sel < 1 {
 			sel = 1
 		}
-		const listTop = 5
+		// The title rule is row 3. A subtitle moves the filter and the
+		// list down one row, and the list height is what remains.
+		listTop := 5
+		if subtitle != "" {
+			listTop = 6
+		}
 		listH := max(1, h-listTop-2)
 		page = listH
 		if sel < top {
@@ -217,14 +224,17 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 			crumb = fmt.Sprintf("%d/%d", total, len(items))
 		}
 		cv.chromeTitle(w, title, crumb)
+		cv.titleRule(w)
+		filterRow := 4
 		if subtitle != "" {
-			cv.put(3, 3, C.Muted+Truncate(subtitle, w-6)+Reset)
+			cv.put(4, 3, C.Muted+Truncate(subtitle, w-6)+Reset)
+			filterRow = 5
 		}
 		filter := filterBuf.String()
 		if filter != "" {
-			cv.put(4, 3, C.Bright+"filter: "+filterBuf.renderViewport(max(8, w-14), "")+Reset)
+			cv.put(filterRow, 3, C.Bright+"filter: "+filterBuf.renderViewport(max(8, w-14), "")+Reset)
 		} else {
-			cv.put(4, 3, C.Dim+"type to filter"+Reset)
+			cv.put(filterRow, 3, C.Dim+"type to filter"+Reset)
 		}
 		hit = map[int]int{}
 		if total == 0 {
@@ -406,6 +416,7 @@ func editLoop(o editOpts) (string, bool) {
 		cv := begin(h, w)
 		cv.frame(h, w)
 		cv.chromeTitle(w, o.title, "")
+		cv.titleRule(w)
 		if o.subtitle != "" {
 			cv.put(4, 3, C.Muted+Truncate(o.subtitle, w-6)+Reset)
 		}
@@ -507,6 +518,7 @@ func TypeToConfirm(title, warning, phrase string) bool {
 		cv := begin(h, w)
 		cv.frame(h, w)
 		cv.chromeTitle(w, title, "")
+		cv.titleRule(w)
 		row := 4
 		for _, line := range wrapLines(warning, max(10, w-6)) {
 			if row >= h-6 {
