@@ -6,23 +6,18 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// The 13 archetypes keep ordinary options and advanced options in separate
-// panes. Every other archetype keeps both in the one Basic Options pane.
+// Every archetype keeps ordinary options and advanced options in separate
+// panes: Basic Options, then Advanced + Additional, then Output.
 const (
 	titleBasic    = "Basic Options"
 	titleAdvanced = "Advanced + Additional"
 	titleOutput   = "Output"
 )
 
-func advancedInOwnPane(id string) bool {
-	switch id {
-	case "inspect", "read", "probe", "audit", "convert", "toolkit", "transfer",
-		"mirror", "edit-files", "rules", "control", "history", "measure":
-		return true
-	default:
-		return false
-	}
-}
+// advancedInOwnPane reports whether an archetype puts its advanced options
+// in their own pane. Every archetype does; the pane only appears when a
+// tool has advanced options.
+func advancedInOwnPane(id string) bool { return true }
 
 func (a *ToolApp) advancedInOwnPane() bool {
 	return a != nil && advancedInOwnPane(a.Spec.ArchetypeID)
@@ -68,7 +63,7 @@ func appendPane(panes []*mint.Pane, p *mint.Pane) []*mint.Pane {
 }
 
 // layoutMain stacks Basic Options, then at most one Advanced + Additional
-// pane for the 13, then any pane whose job is neither options nor output,
+// pane, then any pane whose job is neither options nor output,
 // then Output. The run command is docked under Output.
 func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
 	basic, advanced := a.optionSections()
@@ -86,8 +81,8 @@ func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, inte
 	scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, canPoll, interval)})
 }
 
-// optionSections is the ordinary options, and the advanced ones when the
-// 13 put those in their own pane. With nothing advanced, the second list
+// optionSections is the ordinary options, and the advanced ones for their
+// own pane. With nothing advanced, the second list
 // is empty and Extra arguments stay with the ordinary options.
 func (a *ToolApp) optionSections() (basic, advanced []mint.Section) {
 	split := a.advancedInOwnPane() && a.hasAdvancedOptions()

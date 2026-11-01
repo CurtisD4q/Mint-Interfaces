@@ -7,7 +7,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// The 13 keep advanced options in their own pane. The other 22 do not.
+// Every archetype keeps advanced options in their own pane.
 func TestEveryArchetypeFollowsItsPaneRule(t *testing.T) {
 	if n := len(AllArchetypeDefs()); n != 35 {
 		t.Fatalf("%d archetypes, want 35", n)
@@ -26,8 +26,8 @@ func TestEveryArchetypeFollowsItsPaneRule(t *testing.T) {
 			assertPaneRule(t, def, with, true)
 		})
 	}
-	if split != 13 || rest != 22 {
-		t.Fatalf("groups: %d in the 13, %d in the 22", split, rest)
+	if split != 35 || rest != 0 {
+		t.Fatalf("%d archetypes split advanced options, %d do not; want all 35", split, rest)
 	}
 }
 
