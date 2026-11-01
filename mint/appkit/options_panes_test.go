@@ -7,7 +7,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// The 13 put ordinary options in Basic Options and everything advanced in
+// Every archetype puts ordinary options in Basic Options and everything advanced in
 // one Advanced + Additional pane, including Extra arguments.
 func TestOptionsSplitForTheThirteen(t *testing.T) {
 	spec := ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert", Flags: []FlagSpec{
@@ -59,20 +59,28 @@ func TestThirteenSkipAdvancedPane(t *testing.T) {
 	}
 }
 
-// The other 22 keep advanced options as headings inside Basic Options.
-func TestTwentyTwoKeepAdvancedInsideBasic(t *testing.T) {
-	spec := ToolSpec{Name: "g", Bin: "echo", ArchetypeID: "filter", Flags: []FlagSpec{
-		{Flag: "--a", Kind: FlagBool, Label: "A", Section: "Options"},
-		{Flag: "--z", Kind: FlagBool, Label: "Hidden", Section: "Options", Advanced: true},
-		{Flag: "--q", Kind: FlagBool, Label: "Quality", Section: "Quality", Advanced: true},
-	}}
-	s := newTestApp(t, spec).MainScreen()
-	got := orderedPaneTitles(s)
-	if len(got) != 2 || got[0] != titleBasic || got[1] != titleOutput {
-		t.Fatalf("got %v", got)
-	}
-	if !sectionIn(s.Sections, "Options") || !sectionIn(s.Sections, "Quality (Advanced)") {
-		t.Fatalf("basic sections %v", namesOf(s.Sections))
+// Archetypes that used to keep advanced options inside Basic Options
+// (tshark's record, filter) now give them their own pane, as nmap does.
+func TestAdvancedOptionsGetTheirOwnPaneEverywhere(t *testing.T) {
+	for _, id := range []string{"record", "filter"} {
+		spec := ToolSpec{Name: "g", Bin: "echo", ArchetypeID: id, Flags: []FlagSpec{
+			{Flag: "--a", Kind: FlagBool, Label: "A", Section: "Options"},
+			{Flag: "--z", Kind: FlagBool, Label: "Hidden", Section: "Options", Advanced: true},
+			{Flag: "--q", Kind: FlagBool, Label: "Quality", Section: "Quality", Advanced: true},
+		}}
+		s := newTestApp(t, spec).MainScreen()
+		got := orderedPaneTitles(s)
+		if len(got) != 3 || got[0] != titleBasic || got[1] != titleAdvanced || got[2] != titleOutput {
+			t.Fatalf("%s: got %v, want Basic Options, Advanced + Additional, Output", id, got)
+		}
+		if !sectionIn(s.Sections, "Options") || sectionIn(s.Sections, "Quality (Advanced)") {
+			t.Fatalf("%s: basic sections %v", id, namesOf(s.Sections))
+		}
+		for _, sec := range s.Sections {
+			if sec.Name == "Options" && len(sec.Rows) != 1 {
+				t.Fatalf("%s: Basic Options still holds the advanced rows (%d rows)", id, len(sec.Rows))
+			}
+		}
 	}
 }
 

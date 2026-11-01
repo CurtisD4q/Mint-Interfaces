@@ -1543,8 +1543,8 @@ func (a *ToolApp) flagSections() []mint.Section {
 }
 
 // splitFlagSections keeps ordinary rows in the first list. Advanced-only
-// headings and the More Options collapsibles go in the second, so the 13
-// can put them in one pane.
+// headings and the More Options collapsibles go in the second, so they
+// can go in their own pane.
 func (a *ToolApp) splitFlagSections() (basic, advanced []mint.Section) {
 	g := a.flagGroups()
 	for _, secName := range g.order {
