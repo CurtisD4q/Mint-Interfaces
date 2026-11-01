@@ -32,6 +32,13 @@ import (
 var screenQuestions = []appkit.Question{appkit.QKeepsRunning, appkit.QChangesThings, appkit.QTarget, appkit.QSubcommands, appkit.QFullScreen}
 
 // screenOf reads back what a built spec's screen does, as answers.
+//
+// Keeps running: a live refresh, a follow or a service screen. In answers
+// mode a program that runs until stopped without a table to redraw gets a
+// long-run screen (progress); an archetype's progress only means a long
+// job (a conversion), so it does not count there. Changes things: the
+// read-edit-apply screen. Asking before running is a safety extra, scored
+// on its own (askFirst).
 func screenOf(spec appkit.ToolSpec) map[appkit.Question]bool {
 	var b appkit.Blueprint
 	if spec.Features != nil {
@@ -40,8 +47,8 @@ func screenOf(spec appkit.ToolSpec) map[appkit.Question]bool {
 		b = def.Blueprint()
 	}
 	return map[appkit.Question]bool{
-		appkit.QKeepsRunning:  b.Has(appkit.FeatLiveRefresh) || b.Has(appkit.FeatProgress) || b.Has(appkit.FeatFollow) || b.Has(appkit.FeatService) || spec.Follow != nil || spec.Service != nil,
-		appkit.QChangesThings: b.Has(appkit.FeatStateEdit) || spec.ConfirmRun || spec.Irreversible,
+		appkit.QKeepsRunning:  b.Has(appkit.FeatLiveRefresh) || b.Has(appkit.FeatFollow) || b.Has(appkit.FeatService) || spec.Follow != nil || spec.Service != nil || (spec.Features != nil && b.Has(appkit.FeatProgress)),
+		appkit.QChangesThings: b.Has(appkit.FeatStateEdit),
 		appkit.QTarget:        spec.WantTarget,
 		appkit.QSubcommands:   len(spec.Subcommands) > 0,
 		appkit.QFullScreen:    spec.FullScreen,
@@ -261,4 +268,98 @@ func answersOf(m map[appkit.Question]bool) appkit.Answers {
 		a[q] = appkit.Answer{Yes: m[q], Sure: appkit.SureStrong}
 	}
 	return a
+}
+
+// The labelled-screen benchmark: on the 351 tunable programs, blind (lists
+// off), how often each way gives the screen that the program's labelled
+// archetype gives. It favours the archetype way, whose screens are the
+// same kind as the yardstick:
+//
+//	MINT_ARCHETYPE_BENCH=interface-labels go test -run TestInterfaceLabelBenchmark -v .
+func TestInterfaceLabelBenchmark(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "interface-labels" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=interface-labels")
+	}
+	oldMode, oldBlind := interfaceMode, parseBlind
+	defer func() { interfaceMode, parseBlind = oldMode, oldBlind }()
+	parseBlind = true
+	// Labels cannot judge full-screen (no archetype has it): it is left out.
+	labelScreen := []appkit.Question{appkit.QKeepsRunning, appkit.QChangesThings, appkit.QTarget, appkit.QSubcommands}
+	qs := append(append([]appkit.Question{}, labelScreen...), appkit.QWritesFile, appkit.QTable, appkit.QNeedsRoot)
+	type tally struct {
+		screen, archRight, ask int
+		perQ                   map[appkit.Question]int
+		wrongQs                int
+	}
+	newT := func() *tally { return &tally{perQ: map[appkit.Question]int{}} }
+	arch, ans := newT(), newT()
+	bySet := map[string][2]int{}
+	byConf := map[string]int{}
+	confN := map[string]int{}
+	n := 0
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		label, _ := appkit.LookupArchetype(string(c.Want))
+		interfaceMode = InterfaceArchetype
+		before, model := ParseManAndHelpIO(c.Name, man, help)
+		conf := model.Archetype.Confidence
+		want := before
+		applyChosenArchetype(&want, label, man+"\n"+help)
+		interfaceMode = InterfaceAnswers
+		after := ParseManAndHelp(c.Name, man, help)
+		w := screenOf(want)
+		for _, x := range []struct {
+			t    *tally
+			spec appkit.ToolSpec
+			k    int
+		}{{arch, before, 0}, {ans, after, 1}} {
+			got := screenOf(x.spec)
+			all := true
+			for _, q := range qs {
+				if got[q] == w[q] {
+					x.t.perQ[q]++
+				} else if containsQ(labelScreen, q) {
+					all = false
+					x.t.wrongQs++
+				}
+			}
+			if (x.spec.ConfirmRun || x.spec.Irreversible) == (want.ConfirmRun || want.Irreversible) {
+				x.t.ask++
+			}
+			if all {
+				x.t.screen++
+				byConf[conf+"/"+[]string{"archetype", "answers"}[x.k]]++
+				v := bySet[c.Set]
+				v[x.k]++
+				bySet[c.Set] = v
+			}
+		}
+		confN[conf]++
+		if before.ArchetypeID == string(c.Want) {
+			arch.archRight++
+		}
+		n++
+	}
+	pc := func(k int) string { return fmt.Sprintf("%3d (%3.0f%%)", k, 100*float64(k)/float64(n)) }
+	t.Logf("%d programs, blind; yardstick: the screen of each program's labelled archetype", n)
+	t.Logf("archetype picked right (archetype way): %s", pc(arch.archRight))
+	t.Logf("%-22s %-14s %-14s", "", "archetype way", "answers way")
+	t.Logf("%-22s %-14s %-14s", "screen right (4 of 4)", pc(arch.screen), pc(ans.screen))
+	t.Logf("%-22s %-14.2f %-14.2f", "screen answers wrong", float64(arch.wrongQs)/float64(n), float64(ans.wrongQs)/float64(n))
+	for _, q := range qs {
+		t.Logf("  %-20s %-14s %-14s", q, pc(arch.perQ[q]), pc(ans.perQ[q]))
+	}
+	t.Logf("  %-20s %-14s %-14s", "asks first", pc(arch.ask), pc(ans.ask))
+	for _, c := range []string{ConfidenceClear, ConfidenceClose} {
+		t.Logf("screen right when the archetype choice is %s (%d): archetype %d, answers %d", c, confN[c], byConf[c+"/archetype"], byConf[c+"/answers"])
+	}
+	for _, s := range []string{"listed", "bench"} {
+		t.Logf("screen right, %s: archetype %d, answers %d", s, bySet[s][0], bySet[s][1])
+	}
 }

@@ -25,14 +25,16 @@ const (
 var interfaceMode = InterfaceArchetype
 
 var (
-	ifKeepsRunning = regexp.MustCompile(`(?i)\b(until (it is )?(interrupted|killed|stopped)|until you (quit|press|exit)|press (q|ctrl-c|control-c)\b|ctrl-c|real[- ]time|refresh(es|ed)? (every|the display|rate|interval)|update interval|every \d+ seconds?|continuously|keeps? running|runs? in the foreground|as a daemon|daemoni[sz]e|listen(s|ing)? (on|for)\b|output appended data as the file grows|wait for (new|more) (data|input|events))`)
+	ifKeepsRunning = regexp.MustCompile(`(?i)\b(until (it is )?(interrupted|killed|stopped)|until you (quit|press|exit)|press (q|ctrl-c|control-c)\b|ctrl-c|real[- ]time|refresh(es|ed)? (every|the display)|every \d+ seconds?|continuously|keeps? running|runs? in the foreground|as a daemon|daemoni[sz]e|listen(s|ing)? (on|for)\b|output appended data as the file grows|wait for (new|more) (data|input|events))`)
 	ifMonitorWord  = regexp.MustCompile(`(?i)\b(monitor(s|ing)?|watch(es|ing)?|live|dashboard|top-like)\b`)
-	ifRunOption    = regexp.MustCompile(`^(interval|delay|refresh|refresh-rate|rate|period|tick|tick-rate|update|update-interval|follow|watch|daemon|foreground|listen|bind|port|serve)$`)
+	ifRunOption    = regexp.MustCompile(`^(interval|delay|refresh-rate|refresh-interval|period|tick|tick-rate|update-interval|follow|watch|daemon|foreground|listen|serve)$`)
 	ifFullScreen   = regexp.MustCompile(`(?i)\b(n?curses|tui|terminal user interface|text[- ]based user interface|full[- ]screen|interactive (terminal|text|console) (ui|interface|application|program|browser|client|viewer|editor)|key ?bindings?|keyboard shortcuts|vi-like|vim-like|emacs-like|terminal ui|text user interface)\b`)
-	ifChanges      = regexp.MustCompile(`(?i)\b(configure[sd]?|change[sd]?|modif(y|ies)|set(s)? (the|a|up|or)|enable[sd]?|disable[sd]?|install(s|ed)?|uninstall|remove[sd]?|add(s)? (a|an|or|new)|delete[sd]?|start(s)? (and|or|the)|stop(s)? (and|or|the)|mount(s)?|unmount|kill(s)?|manage[sd]?|creates? (a|an|new)|update[sd]? (the|a)|apply|applies|edit(s|or)?|rename[sd]?|move[sd]?|cop(y|ies)|format(s)? (a|the) (disk|partition|device))\b`)
+	ifChanges      = regexp.MustCompile(`(?i)\b(configure[sd]?|change[sd]?|modif(y|ies)|set(s)? (the|a|up|or)|enable[sd]?|disable[sd]?|install(s|ed)?|uninstall|(remove[sd]?|delete[sd]?) (files?|directories|packages?|users?|groups?|rules?|modules?|services?|devices?|partitions?|containers?|images?|keys?|entries)|add(s)? (a|an|or|new)|control(s|ling)? (the|a|an|system)|start(s)? (and|or|the)|stop(s)? (and|or|the)|mount(s)?|unmount|kill(s)?|manage[sd]?|creates? (a|an|new)|update[sd]? (the|a)|apply|applies|edit(s|or)?|rename[sd]?|move[sd]?|cop(y|ies)|format(s)? (a|the) (disk|partition|device))\b`)
 	ifTable        = regexp.MustCompile(`(?i)\b(columns?|tabular|in a table|table (format|output|view)|no[- ]headers?|header (line|row)s?|omit (the )?header|fields? (to|separated)|--output[= ](wide|table)|output fields|csv|tsv)\b`)
 	ifRoot         = regexp.MustCompile(`(?i)\b(must be root|must be run as root|run (it )?as root|requires? (root|superuser|administrator)|root (privileges?|permissions?|access)|superuser (privileges?|access)?|only (the )?root|cap_net_(raw|admin)|cap_sys_\w+|privileged (user|operation|mode)|needs? to be root|as the root user)\b`)
 	ifDestroys     = regexp.MustCompile(`(?i)\b(delete[sd]?|remove[sd]? (files?|directories|the|all|packages?|entries)|erase[sd]?|wipe[sd]?|shred|destroy(s|ed)?|overwrite[sd]?|truncate[sd]?|kill(s)? (processes|a process|the)|format(s)? (a|the) (disk|partition|device|filesystem)|purge[sd]?)\b`)
+	// A usage word that names the subcommand or its options, not a target.
+	ifCommandWord = regexp.MustCompile(`(?i)^(sub-?)?(command|cmd|commands|operation|object|action|global|options?|opts|subcommand|verb|group|args?|arguments?|parameters?|flags?)s?(\.\.\.)?$`)
 	// Two inputs come in pairs: FILE1 FILE2, OLD NEW, LEFT RIGHT.
 	ifPairNumbered = regexp.MustCompile(`(?i)^(.*?)[-_]?1$`)
 	ifPairWords    = map[string]string{"old": "new", "left": "right", "first": "second", "a": "b", "this": "that", "base": "head"}
@@ -99,6 +101,9 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 		for _, ps := range syn.Forms[0].Positionals {
 			if ps.Role == appkit.RoleOutputFile || ps.Role == appkit.RoleOutputDir {
 				continue
+			}
+			if ifCommandWord.MatchString(ps.Name) {
+				continue // "COMMAND", "[global]": the subcommand, not a target
 			}
 			inputs = append(inputs, ps)
 		}

@@ -191,6 +191,13 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	spec.Flags = flags
 	text := programTextFrom(name, manText, helpText)
 	choice := chooseArchetype(name, manText, helpText)
+	if parseBlind {
+		// Benchmarks: classify from the help alone, as for a program no
+		// list knows.
+		bp := programTextFrom(name, manText, helpText)
+		bp.Related = nil
+		choice = chooseArchetypeFor(bp)
+	}
 	def, _ := appkit.LookupArchetype(string(choice.ID))
 	// In interface mode an unlisted program's screen comes from its
 	// answers (see interface.go); the archetype then only words it.
@@ -276,6 +283,10 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec, model
 }
+
+// parseBlind makes ParseManAndHelpIO ignore the archetype lists, so a
+// benchmark sees every program as an unlisted one. Never set outside tests.
+var parseBlind bool
 
 var (
 	// reEnvName finds an environment variable name, with or without $ or
