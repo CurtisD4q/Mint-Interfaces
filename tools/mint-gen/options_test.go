@@ -85,7 +85,9 @@ OPTIONS
 	for _, f := range spec.Flags {
 		kinds[f.Flag] = f.Kind
 	}
-	want := map[string]appkit.FlagKind{"-i": appkit.FlagFile, "-p": appkit.FlagText, "-oX": appkit.FlagFile, "-oG": appkit.FlagFile, "-v": appkit.FlagBool}
+	// "-p port" (one port) is a number; nmap's real "-p <port ranges>"
+	// stays text.
+	want := map[string]appkit.FlagKind{"-i": appkit.FlagFile, "-p": appkit.FlagInt, "-oX": appkit.FlagFile, "-oG": appkit.FlagFile, "-v": appkit.FlagBool}
 	for flag, k := range want {
 		if kinds[flag] != k {
 			t.Errorf("%s: kind %q, want %q (all: %v)", flag, kinds[flag], k, kinds)

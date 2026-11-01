@@ -114,7 +114,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	}
 	addFlags := func(parsed []appkit.FlagSpec, optional map[string]bool) {
 		for _, f := range parsed {
-			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" {
+			if f.Flag == "" || f.Flag == "--help" || f.Flag == "-h" || f.Flag == "--version" || f.Flag == "-help" || f.Flag == "-version" || f.Flag == "--usage" {
 				continue
 			}
 			f.Role, _ = ClassifyArg(name, f)
@@ -147,6 +147,16 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	}
 	if len(manLines) > 0 {
 		addFlags(parseFlagLines(manLines, true))
+	}
+	// find's numeric tests take "+n" (more than n) and "-n" (less than n),
+	// which a number stepper cannot give: when the help explains them, its
+	// "n" options stay text.
+	if reSignedN.MatchString(manText) || reSignedN.MatchString(helpText) {
+		for i := range flags {
+			if flags[i].Kind == appkit.FlagInt && ParsePlaceholder(flags[i].Hint).Word == "n" {
+				flags[i].Kind, flags[i].Min, flags[i].Max = appkit.FlagText, 0, 0
+			}
+		}
 	}
 	// The known-tools list names this tool's output option, but the help
 	// did not show it (a short --help, an unusual man page): the list is
@@ -320,7 +330,10 @@ func attachEnvSecrets(spec *appkit.ToolSpec, names []string) {
 		class := secretClass(name)
 		match := -1
 		for i, f := range spec.Flags {
-			if f.Kind == appkit.FlagSecret && f.SecretRoute() == appkit.RouteArgument &&
+			// lftp's "-u user[,pass]" holds a user name too: the
+			// variable (the password alone) stays a separate entry.
+			combined := strings.Contains(strings.ToLower(f.Hint), "user") || strings.ContainsAny(f.Hint, ",:@")
+			if f.Kind == appkit.FlagSecret && f.SecretRoute() == appkit.RouteArgument && !combined &&
 				class != "" && secretClass(f.Flag+" "+f.Label) == class {
 				if match >= 0 {
 					match = -2 // more than one: don't guess
@@ -368,6 +381,12 @@ func markSecretFlags(flags []appkit.FlagSpec) {
 		case f.Kind == appkit.FlagBool && strings.HasSuffix(f.Flag, "-stdin"):
 			f.Kind, f.SecretStdin = appkit.FlagSecret, true
 		case f.Kind == appkit.FlagText || f.Kind == appkit.FlagInt:
+			f.Kind, f.Choices, f.Min, f.Max = appkit.FlagSecret, nil, 0, 0
+		// "-upw <string>  user password (for encrypted files)": the
+		// description's "files" made it a file, but its value is the
+		// password itself. A password file keeps a path placeholder
+		// (--password-file FILE) and stays a file.
+		case (f.Kind == appkit.FlagFile || f.Kind == appkit.FlagDir) && !ParsePlaceholder(f.Hint).IsFile():
 			f.Kind, f.Choices, f.Min, f.Max = appkit.FlagSecret, nil, 0, 0
 		}
 	}
@@ -837,7 +856,10 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	// NMERGE, CHANGES or LABEL next to "…files" is not a file.
 	// Whole words only: "direction", "redirect", "profile", "filesystem"
 	// and "account" are not folders, files or counts.
-	if !ph.IsNotFile() && !ph.Specific() {
+	// A one-letter placeholder ("-type c", "-n n") is almost never a path,
+	// whatever the description says ("File is of type c"); F is
+	// (--files0-from=F).
+	if !ph.IsNotFile() && !ph.Specific() && (len(ph.Word) != 1 || ph.Word == "f") {
 		if reDescDir.MatchString(combined) {
 			return appkit.FlagDir, nil, 0, 0
 		}
@@ -848,11 +870,68 @@ func classifyFlag(flag, argPart, desc string) (appkit.FlagKind, []appkit.Choice,
 	if strings.Contains(argClean, "0-5") {
 		return appkit.FlagInt, nil, 0, 5
 	}
-	if reDescNumber.MatchString(combined) {
-		return appkit.FlagInt, nil, 0, 100
+	// A value with a unit suffix ("10K", "5M", "1.5") is not a whole
+	// number, whatever the placeholder says (shred -s N).
+	if reUnitSuffix.MatchString(desc) {
+		return appkit.FlagText, nil, 0, 0
+	}
+	// A placeholder that names a number (N, NUM, COUNT, SECONDS, PORT, #)
+	// is a number, whatever the description says. Its range is open: a
+	// count, a port or a timeout is not limited to 0-100.
+	if numericPlaceholder(ph.Word) {
+		return appkit.FlagInt, nil, 0, 0
+	}
+	// The description decides otherwise ("number of requests", "timeout"),
+	// unless the placeholder names something that is not a plain number:
+	// fd's "-S size" takes "10k", skopeo's "duration" takes "30s", and
+	// "-x command" is a command.
+	if reDescNumber.MatchString(combined) && !notNumberWords[ph.Word] && !notNumberWords[lastWordPart(ph.Word)] && !strings.ContainsAny(argClean, "{}") {
+		return appkit.FlagInt, nil, 0, 0
 	}
 
 	return appkit.FlagText, nil, 0, 0
+}
+
+// numericWords name a whole number: a count, a time in whole units, a size
+// in lines, a port. "size", "time", "limit" and "max" are left out: they
+// often take "10M", "5m" or "50%" (xz --memlimit).
+var numericWords = map[string]bool{
+	"n": true, "num": true, "number": true, "int": true, "integer": true, "count": true, "cnt": true,
+	"sec": true, "secs": true, "second": true, "seconds": true, "ms": true, "msec": true, "msecs": true,
+	"millis": true, "milliseconds": true, "usec": true, "usecs": true, "minutes": true, "mins": true,
+	"hours": true, "days": true, "lines": true, "depth": true, "port": true, "width": true, "height": true,
+	"rows": true, "retries": true, "tries": true, "threads": true, "jobs": true,
+	"workers": true, "percent": true, "pct": true, "#": true, "#n": true, "digits": true, "times": true,
+	"int64": true, "uint64": true, "uint32": true,
+	"iterations": true, "runs": true, "concurrency": true,
+}
+
+// reSignedN is a help explaining "+n" or "-n" values: "+n  for greater
+// than n" (find).
+var reSignedN = regexp.MustCompile(`(?im)^\s*[+-]n\b.*\b(?:greater|more|less|fewer)\b`)
+
+// reUnitSuffix is a description saying the value takes a unit suffix or a
+// fraction: "suffixes like K, M, G", "may be followed by a unit", "a
+// floating-point number".
+var reUnitSuffix = regexp.MustCompile(`(?i)\bsuffix(?:es)?\b|\b[kmg]\s*,\s*[mgt]\b|\b(?:kib|mib|gib|kb|mb|gb)\b|\bfollowed by (?:a |an )?(?:unit|multiplier|suffix)|\bfloat(?:ing[- ]point)?\b|\bdecimal (?:number|fraction)\b`)
+
+// notNumberWords name values that are not plain whole numbers, though the
+// description may talk of counts or times: sizes ("10M"), durations
+// ("30s"), commands, names, patterns, formats.
+var notNumberWords = map[string]bool{
+	"size": true, "sizes": true, "duration": true, "time": true, "command": true, "cmd": true,
+	"program": true, "format": true, "fmt": true, "name": true, "string": true, "str": true, "text": true,
+	"pattern": true, "regex": true, "regexp": true, "url": true, "uri": true, "host": true, "hostname": true,
+	"list": true, "type": true, "mode": true, "user": true, "key": true, "id": true, "label": true,
+	"template": true, "expr": true, "expression": true, "script": true, "glob": true, "method": true,
+	"signal": true, "policy": true, "style": true, "algorithm": true, "cipher": true, "action": true,
+	"date": true, "charset": true, "encoding": true, "locale": true, "lang": true, "when": true, "local": true,
+}
+
+// numericPlaceholder reports whether a placeholder word names a number:
+// "num", "count", or a compound ending in one ("max-count", "line_count").
+func numericPlaceholder(w string) bool {
+	return w != "" && (numericWords[w] || numericWords[lastWordPart(w)])
 }
 
 var (

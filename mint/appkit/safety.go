@@ -228,7 +228,7 @@ func (s ToolSpec) CanReadState() bool {
 }
 
 // secretWords mark an option whose value is a password, token or key.
-var secretWords = []string{"password", "passwd", "passphrase", "secret", "token", "api key", "api-key", "apikey", "credential"}
+var secretWords = []string{"password", "passwd", "passphrase", "pass phrase", "secret", "token", "api key", "api-key", "apikey", "credential"}
 
 // LooksSecret reports whether a flag, its label or hint names a secret value.
 // mint-gen uses it to turn such flags into FlagSecret.
