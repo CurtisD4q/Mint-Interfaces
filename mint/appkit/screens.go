@@ -390,14 +390,8 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 		Label: "Open full output viewer (search / scroll / save)…",
 		Hint:  "view",
 		OnActivate: func(c *mint.Ctx) {
-			cur := a.ActiveLines()
-			c.Push(mint.ViewLog(a.Spec.Name+" output", func() []mint.LogLine {
-				ll := make([]mint.LogLine, len(cur))
-				for i, s := range cur {
-					ll[i] = mint.LogLine{Text: s}
-				}
-				return ll
-			}))
+			cur := a.ActiveLogLines()
+			c.Push(mint.ViewLog(a.Spec.Name+" output", func() []mint.LogLine { return cur }))
 		},
 	}))
 

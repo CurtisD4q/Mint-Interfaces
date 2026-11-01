@@ -10,6 +10,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/CurtisD4q/Mint-Interfaces/mint/theme"
 )
 
 // Version of the library.
@@ -57,6 +59,12 @@ type App struct {
 	// --version, --mint-info, --screen), for apps that parse their
 	// arguments themselves.
 	NoFlags bool
+
+	// NoThemeItem leaves out the Theme item Mint adds at the end of the
+	// home list (see ThemeScreen).
+	NoThemeItem bool
+
+	all []HomeItem // Items plus the Theme item, set by Run
 }
 
 const homeBlock = 3
@@ -269,12 +277,22 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 	}
 }
 
+// homeItems is the home list Run shows: the app's items and the Theme
+// item.
+func (a *App) homeItems() []HomeItem {
+	if a.all != nil {
+		return a.all
+	}
+	return a.items()
+}
+
 // Run takes over the terminal until the user quits. A panic anywhere in the
 // app restores the terminal, prints the error and exits with status 1.
 //
 // Unless NoFlags is set, the first command-line argument may be one of
 // Mint's flags: --help (-h), --man, --version (-v), --mint-info, or
-// --screen NAME, which opens that home item straight away. --help prints
+// --screen NAME, which opens that home item straight away. --theme NAME
+// may come before any of them and uses that theme for this run only. --help prints
 // usage. --man opens the Manual screen, which is the full manual viewer.
 func (a *App) Run() {
 	title := a.Title
@@ -289,6 +307,7 @@ func (a *App) Run() {
 		crumb = "App"
 	}
 	note := a.homeNote()
+	a.all = a.items()
 
 	if a.Keys != "" {
 		SetKeyProfile(a.Keys)
@@ -321,7 +340,7 @@ func (a *App) Run() {
 		sel := 1
 		open := func(choice int) {
 			sel = choice
-			if item := a.Items[choice-1]; item.Open != nil {
+			if item := a.all[choice-1]; item.Open != nil {
 				var scr *Screen
 				if p := withLoading("Loading "+item.Label+"…", func() { scr = item.Open() }); p != nil {
 					panic(p)
@@ -336,7 +355,7 @@ func (a *App) Run() {
 		}
 		for {
 			if len(stack) == 0 {
-				choice, ok := runHome(a.Items, sel, title, "Home", note, HomeHints, a.Status)
+				choice, ok := runHome(a.all, sel, title, "Home", note, HomeHints, a.Status)
 				if !ok {
 					return ""
 				}
@@ -359,6 +378,9 @@ func (a *App) Run() {
 			case "quit":
 				return ""
 			case "back":
+				if scr.onLeave != nil {
+					scr.onLeave()
+				}
 				stack = stack[:len(stack)-1]
 			case "push":
 				if res.screen != nil {
@@ -408,7 +430,7 @@ func (a *App) homeNote() string {
 // (ignoring case and surrounding space), or 0.
 func (a *App) findItem(name string) int {
 	name = strings.TrimSpace(name)
-	for i, it := range a.Items {
+	for i, it := range a.homeItems() {
 		if strings.EqualFold(strings.TrimSpace(it.Label), name) {
 			return i + 1
 		}
@@ -420,8 +442,28 @@ func (a *App) findItem(name string) int {
 // a flag printed something and the app should exit, or the home item that
 // --screen asked for.
 func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
+	return a.handleArgs(os.Args[1:], title, crumb, note)
+}
+
+// handleArgs is handleFlags for args (the arguments after the program
+// name). --theme NAME may come first, before one of the other flags.
+func (a *App) handleArgs(args []string, title, crumb, note string) (done bool, item int) {
 	prog := filepath.Base(os.Args[0])
-	switch arg := os.Args[1]; {
+	if name, rest, ok := themeFlag(args); ok {
+		if !applyTheme(name) {
+			if name == "" {
+				fmt.Fprintf(os.Stderr, "%s: --theme needs a name. Themes: %s\n", prog, strings.Join(theme.Names, ", "))
+			} else {
+				fmt.Fprintf(os.Stderr, "%s: no theme named %q. Themes: %s\n", prog, name, strings.Join(theme.Names, ", "))
+			}
+			os.Exit(2)
+		}
+		args = rest
+	}
+	if len(args) == 0 {
+		return false, 0
+	}
+	switch arg := args[0]; {
 	case arg == "-v" || arg == "--version":
 		if a.Version != "" {
 			fmt.Printf("%s %s (Mint-Interfaces %s)\n", crumb, a.Version, Version)
@@ -438,14 +480,15 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 		fmt.Println("Usage:")
 		fmt.Printf("  %-28s open the interface\n", prog)
 		fmt.Printf("  %-28s open one screen directly\n", prog+" --screen NAME")
+		fmt.Printf("  %-28s use a theme for this run (%s)\n", prog+" --theme NAME", strings.Join(theme.Names, ", "))
 		fmt.Printf("  %-28s print the version\n", prog+" --version")
 		fmt.Printf("  %-28s print a description as JSON, for launchers\n", prog+" --mint-info")
 		fmt.Printf("  %-28s show this help\n", prog+" --help")
 		fmt.Printf("  %-28s open the manual\n", prog+" --man")
-		if len(a.Items) > 0 {
+		if len(a.homeItems()) > 0 {
 			fmt.Println()
 			fmt.Println("Screens:")
-			for _, it := range a.Items {
+			for _, it := range a.homeItems() {
 				fmt.Printf("  %-26s %s\n", it.Label, it.Desc)
 			}
 		}
@@ -458,7 +501,7 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 			return false, i
 		}
 		fmt.Fprintf(os.Stderr, "%s: no Manual screen. Screens:", prog)
-		for _, it := range a.Items {
+		for _, it := range a.homeItems() {
 			fmt.Fprintf(os.Stderr, " %q", it.Label)
 		}
 		fmt.Fprintln(os.Stderr)
@@ -469,8 +512,8 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 			Label string `json:"label"`
 			Desc  string `json:"desc,omitempty"`
 		}
-		items := make([]itemInfo, len(a.Items))
-		for i, it := range a.Items {
+		items := make([]itemInfo, len(a.homeItems()))
+		for i, it := range a.homeItems() {
 			items[i] = itemInfo{Icon: it.Icon, Label: it.Label, Desc: it.Desc}
 		}
 		info := struct {
@@ -489,14 +532,14 @@ func (a *App) handleFlags(title, crumb, note string) (done bool, item int) {
 		return true, 0
 	case arg == "--screen" || strings.HasPrefix(arg, "--screen="):
 		name := strings.TrimPrefix(strings.TrimPrefix(arg, "--screen"), "=")
-		if name == "" && len(os.Args) > 2 {
-			name = os.Args[2]
+		if name == "" && len(args) > 1 {
+			name = args[1]
 		}
 		if i := a.findItem(name); i > 0 {
 			return false, i
 		}
 		fmt.Fprintf(os.Stderr, "%s: no screen named %q. Screens:", prog, name)
-		for _, it := range a.Items {
+		for _, it := range a.homeItems() {
 			fmt.Fprintf(os.Stderr, " %q", it.Label)
 		}
 		fmt.Fprintln(os.Stderr)

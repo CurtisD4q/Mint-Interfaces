@@ -78,6 +78,9 @@ type Screen struct {
 	ui        *uiState
 	customRun func() screenResult
 
+	// onLeave runs when the screen is closed with back.
+	onLeave func()
+
 	// Split-view state. Zero values keep a screen with no Panes on the
 	// single-column path.
 	focus     int
