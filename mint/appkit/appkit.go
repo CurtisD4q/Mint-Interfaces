@@ -121,11 +121,6 @@ type ToolSpec struct {
 	// out without a terminal (fastfetch --pipe false). Mint keeps only the
 	// colours, safely (see mint.CleanLineColours).
 	ColourArgs []string `json:"colour_args,omitempty"`
-
-	// Theme is the colour theme this app starts in when its user has not
-	// chosen one (no theme file): one of theme.Names. mint-gen --theme sets
-	// it. A --theme flag or the user's saved theme still wins.
-	Theme string `json:"theme,omitempty"`
 	// Archetype is the deprecated base-layout field. MainScreen ignores it.
 	// It remains so saved specs (the JSON key "archetype", or "layout") and
 	// older callers still compile.
@@ -2467,7 +2462,6 @@ func (a *ToolApp) BuildApp() *mint.App {
 		Version:        a.Spec.Version,
 		SectionSpacing: 1,
 		Items:          items,
-		DefaultTheme:   a.Spec.Theme,
 	}
 }
 

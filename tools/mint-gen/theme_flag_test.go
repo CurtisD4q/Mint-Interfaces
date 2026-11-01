@@ -1,26 +1,40 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/theme"
 )
 
-func TestThemeFlagIsCheckedAndWritten(t *testing.T) {
-	if code := runCLI([]string{"--theme", "solarized", "ls"}); code != 2 {
+// mint-gen --theme NAME saves the theme for every Mint app, and builds
+// nothing into an app.
+func TestThemeFlagSetsTheThemeForEveryApp(t *testing.T) {
+	old := theme.ConfigPath
+	theme.ConfigPath = filepath.Join(t.TempDir(), "theme.conf")
+	t.Cleanup(func() { theme.ConfigPath = old })
+
+	if code := runCLI([]string{"--theme", "Nord"}); code != 0 {
+		t.Fatalf("mint-gen --theme Nord gave exit %d", code)
+	}
+	if got := theme.Current(); got != "nord" {
+		t.Fatalf("saved theme %q, want nord", got)
+	}
+	if code := runCLI([]string{"--theme", "solarized"}); code != 2 {
 		t.Fatalf("an unknown theme gave exit %d, want 2", code)
 	}
-	src, err := renderSpecGo(appkit.ToolSpec{Name: "ls", Theme: "nord"})
-	if err != nil {
+	if got := theme.Current(); got != "nord" {
+		t.Fatalf("an unknown theme changed the saved one to %q", got)
+	}
+	if _, err := os.Stat(theme.ConfigPath); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(src), `Theme:             "nord",`) {
-		t.Fatalf("the spec does not carry the theme:\n%s", src)
-	}
-	src, _ = renderSpecGo(appkit.ToolSpec{Name: "ls"})
-	if strings.Contains(string(src), "Theme:") {
-		t.Fatal("a spec with no theme names one")
+	src, _ := renderSpecGo(appkit.ToolSpec{Name: "ls"})
+	if strings.Contains(string(src), "Theme") {
+		t.Fatal("an app's spec names a theme")
 	}
 	if !knownThemeName("catppuccin") || knownThemeName("../etc") {
 		t.Fatal("knownThemeName")
