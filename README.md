@@ -222,7 +222,7 @@ The built-in palette is the original purple: 256-colour index 141 for the frame 
 
 Truecolor (`CSI 38;2;r;g;b m` / `CSI 48;2;r;g;b m`) is gated on both the theme and the terminal: it is emitted only when a theme (or `MINT_PALETTE`) specifies RGB values **and** `$COLORTERM` is `truecolor` or `24bit`. When `$COLORTERM` is unset, any RGB colour falls back to the nearest 256-colour approximation (`CSI 38;5;n m` / `CSI 48;5;n m`).
 
-Which theme an app uses, from strongest to weakest: `--theme NAME` on the app's command line (this run only), the theme saved in `theme.conf` (or chosen on the Theme screen), then the app's own default, which `mint-gen --theme NAME --build tool` builds in. `mint-gen --theme NAME --run tool` opens the app in that theme for that run.
+Which theme an app uses, from strongest to weakest: `--theme NAME` on the app's command line (this run only), the theme saved in `theme.conf` (or chosen on the Theme screen), then the app's own default, which `mint-gen --theme NAME tool` builds in (`--theme` implies `--build`). `mint-gen --theme NAME --run tool` also opens the app in that theme for that run.
 
 The `MINT_PALETTE` environment variable overrides individual colours for one run, for example `MINT_PALETTE="accent=#ff5f87,selbg=236"`. Each value is a `#rrggbb` colour or a 256-colour number, and the roles are `accent`, `bright`, `text`, `muted`, `on`, `amber`, `err` and `selbg`. This is how Emacs passes its theme to the apps it launches.
 

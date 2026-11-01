@@ -29,7 +29,7 @@ Run an app directly. If the binary is not there yet, mint-gen builds it first:
 
   mint-gen --run ps
 
-Other flags you will want: --check (will this program work in the app?), --explain (what mint-gen understood), --list (apps already built), --list-archetypes (the kinds of program), --archetype (pick a kind yourself), --theme (the colours the app starts in), --remove (delete an app), and --out (choose the folder). Every flag is listed at the bottom.
+Other flags you will want: --check (will this program work in the app?), --explain (what mint-gen understood), --list (apps already built), --list-archetypes (the kinds of program), --archetype (pick a kind yourself), --theme (build the app in a colour theme: mint-gen --theme nord nmap), --remove (delete an app), and --out (choose the folder). Every flag is listed at the bottom.
 
 Using a Mint app
 

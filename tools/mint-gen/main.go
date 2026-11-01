@@ -51,7 +51,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
 	fs.BoolVar(&rootFlag, "sudo", false, "With --run: start the app with sudo without asking (sudo asks for the password)")
 	fs.BoolVar(&noRootFlag, "no-sudo", false, "With --run: start the app without sudo, without asking")
-	fs.StringVar(&themeFlag, "theme", "", "The colour theme the built app starts in when its user has no theme of their own: default, terminal, nord, gruvbox, dracula, catppuccin or custom")
+	fs.StringVar(&themeFlag, "theme", "", "Build the app with this colour theme (implies --build); it starts in it when its user has no theme of their own: default, terminal, nord, gruvbox, dracula, catppuccin or custom")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
@@ -144,6 +144,11 @@ func runCLI(args []string) int {
 		if !knownThemeName(themeFlag) {
 			fmt.Fprintf(os.Stderr, "mint-gen: unknown theme %q. Themes: %s\n", safeTerminalText(themeFlag), strings.Join(theme.Names, ", "))
 			return 2
+		}
+		// The theme is built into the app, so build it: mint-gen --theme
+		// nord nmap leaves an nmap-mint that starts in nord.
+		if !removeApp {
+			buildBin = true
 		}
 	}
 	if runApp {
