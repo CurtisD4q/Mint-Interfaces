@@ -488,7 +488,7 @@ var defaultArchWeights = archWeights{
 	},
 	BroadShare: 22.5,
 	Related:    10, // SEE ALSO is in the rest of the help
-	ClearLead:  34, // calibrated: clear choices are right about 85% of the time
+	ClearLead:  20, // calibrated: clear choices are right about 85% of the time (with contrastLinks)
 }
 
 // archEvidence is what was found in a program's help, before weighing.
@@ -568,7 +568,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 
 // scoreArchetypes ranks the 35 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
-	return scoreArchEvidence(defaultArchWeights, findArchEvidence(p))
+	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
 }
 
 // Confidence of a choice.
