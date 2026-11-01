@@ -11,7 +11,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
-// Choosing the archetype of a program no list names: one of the 37
+// Choosing the archetype of a program no list names: one of the 38
 // (appkit.AllArchetypeDefs), from two kinds of evidence.
 //
 //   - Behaviour: what the usage lines take (HOST..., PATTERN, FILE1 FILE2,
@@ -122,8 +122,12 @@ var archetypeSignals = map[string][]string{
 		"~entries|~items|~records", "~add|~delete|~list", "certificate database|key database", "rocks|modules|gems",
 		"todo|task|tasks|notes|bookmarks"},
 	"history": {"version control|revision control|source control|scm", "commit|commits|branch|merge|checkout",
-		"backup|backups|snapshot|snapshots|restore", "repository|repo", "~revision|~changeset|~history",
-		"patch|patches|patch series", "~archive"},
+		"repository|repo", "~revision|~changeset|~history",
+		"patch|patches|patch series"},
+	"backup": {"backup|backups|back up|backing up|backup program|backup tool", "snapshot|snapshots",
+		"restore|restores|restoring", "deduplication|deduplicating|deduplicated", "incremental backup|incremental backups|full backup",
+		"~repository|~archive|~archives", "~encrypted|~encryption", "retention|prune|forget|keep-daily|keep-weekly",
+		"~remote storage|~cloud storage"},
 	"toolkit": {"~commands|~subcommands", "toolkit|swiss army|set of tools|collection of tools|utility for",
 		"container|containers|image|images|registry", "multiple repositories|many repositories",
 		"~manage|~management"},
@@ -237,7 +241,8 @@ var subcommandKinds = []struct {
 	id    appkit.ArchetypeID
 	words []string
 }{
-	{"history", []string{"commit", "log", "checkout", "branch", "merge", "snapshot", "snapshots", "restore", "backup", "revert", "diff", "tag", "init", "clone", "push", "pull", "prune", "forget"}},
+	{"history", []string{"commit", "log", "checkout", "branch", "merge", "revert", "diff", "tag", "init", "clone", "push", "pull"}},
+	{"backup", []string{"backup", "restore", "snapshot", "snapshots", "prune", "forget", "mount", "umount", "rollback", "verify", "stats", "check", "create", "extract"}},
 	{"records", []string{"add", "remove", "install", "uninstall", "list", "search", "show", "update", "upgrade", "delete", "edit", "done", "info", "purge", "hold", "unhold"}},
 	{"control", []string{"start", "stop", "restart", "status", "enable", "disable", "reload", "kill", "suspend", "resume", "shutdown", "reboot", "destroy"}},
 	{"pack", []string{"create", "extract"}},
@@ -581,7 +586,7 @@ func relatedArchetypes(name string, related []string) map[appkit.ArchetypeID][]s
 	return out
 }
 
-// scoreArchEvidence weighs evidence with w: the 37 archetypes, best first;
+// scoreArchEvidence weighs evidence with w: the 38 archetypes, best first;
 // ties go to the order of appkit.AllArchetypeDefs, so every run is the same.
 func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	words := map[appkit.ArchetypeID]PhraseScore{}
@@ -641,7 +646,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	return out
 }
 
-// scoreArchetypes ranks the 37 archetypes for a program, best first.
+// scoreArchetypes ranks the 38 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
 	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
 }

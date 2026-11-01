@@ -23,7 +23,7 @@ rename edit-files bench
 lame convert bench
 ps2pdf convert bench
 lftp session bench
-rdiff-backup history bench
+rdiff-backup backup bench
 meson build bench
 node session bench
 python3 session bench
@@ -88,10 +88,10 @@ lzip pack untouched
 lzop pack untouched
 cabextract pack untouched
 arj pack untouched
-rsnapshot history untouched
-bup history untouched
-dar history untouched
-duply history untouched
+rsnapshot backup untouched
+bup backup untouched
+dar backup untouched
+duply backup untouched
 tcc build untouched
 ruby session untouched
 nasm build untouched

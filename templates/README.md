@@ -1,6 +1,6 @@
-# Mint Starters — 37 Archetypes & Mixins
+# Mint Starters — 38 Archetypes & Mixins
 
-Every compatible Linux CLI program can be wrapped in Mint using **37 archetypes** (what kind of program it is) and **composable mixins** (add-ons), provided by `mint/appkit`. `tools/mint-gen` detects a program's archetype. `MainScreen` is one screen assembled from that archetype: what it takes, how it runs, and what it shows.
+Every compatible Linux CLI program can be wrapped in Mint using **38 archetypes** (what kind of program it is) and **composable mixins** (add-ons), provided by `mint/appkit`. `tools/mint-gen` detects a program's archetype. `MainScreen` is one screen assembled from that archetype: what it takes, how it runs, and what it shows.
 
 ---
 
@@ -35,7 +35,7 @@ These folders are small example programs. They are not separate screen types: ea
 
 ---
 
-## 3. The 37 Archetypes
+## 3. The 38 Archetypes
 
 Each archetype says what a program takes, how it runs and what it shows. Its blueprint is every add-on wanted at weight 0.5 or more. `MainScreen` uses that blueprint: a target, two inputs, or subcommand tabs; a one-shot run, a live poll, or a state editor; and an inline result when the archetype shows one. `mint-gen --list-archetypes` lists them, and `mint-gen --archetype <id> <program>` chooses one yourself. Programs named below are on the archetype lists (`mint/appkit/archetypetools.go`); any other program gets the archetype its help points to.
 
@@ -71,7 +71,8 @@ Each archetype says what a program takes, how it runs and what it shows. Its blu
 | `control` | Control | Change things | live | Lists running things and acts on each. | table, root, confirm, live-refresh, row-actions | `incus`, `loginctl`, `lxc`, `pct` |
 | `signal` | Signal | Change things | once | Sends a signal to running processes, or changes their priority, picking them by name or pattern. | root, confirm, history, target | `killall`, `pkill` |
 | `records` | Records | Manage a collection | commands | Adds, lists, changes and removes items in a store. | table, confirm, row-actions | `apk`, `apt`, `apt-get`, `brew`, `dnf` |
-| `history` | History | Manage a collection | commands | Keeps versions or snapshots of something. | table, confirm, history, row-actions | `borg`, `duplicity`, `fossil`, `git`, `hg` |
+| `history` | History | Manage a collection | commands | Keeps the versions of something: commits, branches, revisions. | table, confirm, history, row-actions | `fossil`, `git`, `hg` |
+| `backup` | Backup | Manage a collection | commands | Backs folders up to a repository, and restores them from snapshots. | table, confirm, row-actions, progress, profiles, target | `borg`, `duplicity`, `restic`, `snapper`, `timeshift` |
 | `toolkit` | Toolkit | Manage a collection | commands | Many unrelated commands under one name. | collapsible | `btrfs`, `csvtk`, `docker`, `gh`, `glab` |
 | `wrap` | Wrap | Run other things | once | Runs another command with changes: a limit, a priority, a timer. | collapsible, target |  |
 | `schedule` | Schedule | Run other things | commands | Runs something later or on a timetable. | table, confirm, row-actions | `anacron`, `at`, `atq`, `atrm`, `batch` |
