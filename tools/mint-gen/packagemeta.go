@@ -21,6 +21,9 @@ type packageInfo struct {
 	Summary     string // the first line of Description
 	Description string // the rest of it, as one paragraph
 	Programs    int    // how many programs the package installs
+	Depends     string // what it depends on (Depends and Pre-Depends)
+	Service     bool   // it installs a systemd service
+	Path        string // the program's path, as dpkg lists it
 }
 
 // maxPackagePrograms is how many programs a package may install and still
@@ -34,11 +37,14 @@ var (
 	pkgOfPath     map[string]string // installed program path -> package
 	pkgPrograms   map[string]int    // package -> programs it installs
 	pkgDescs      map[string][2]string
+	pkgDepends    map[string]string
+	pkgService    map[string]bool
 	maxDpkgStatus int64 = 64 << 20
 )
 
 func loadPackages() {
 	pkgOfPath, pkgPrograms, pkgDescs = map[string]string{}, map[string]int{}, map[string][2]string{}
+	pkgDepends, pkgService = map[string]string{}, map[string]bool{}
 	lists, _ := filepath.Glob(filepath.Join(dpkgDir, "info", "*.list"))
 	for _, l := range lists {
 		pkg := strings.TrimSuffix(filepath.Base(l), ".list")
@@ -52,6 +58,9 @@ func loadPackages() {
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			p := sc.Text()
+			if strings.Contains(p, "/systemd/system/") && strings.HasSuffix(p, ".service") {
+				pkgService[pkg] = true
+			}
 			// A program folder: /usr/bin, /sbin, /usr/games, or a tool's own
 			// (/usr/lib/jvm/…/bin).
 			if base := filepath.Base(filepath.Dir(p)); base == "bin" || base == "sbin" || base == "games" {
@@ -70,7 +79,7 @@ func loadPackages() {
 		return
 	}
 	for _, stanza := range strings.Split(string(b), "\n\n") {
-		pkg, short := "", ""
+		pkg, short, deps := "", "", ""
 		var long []string
 		inDesc := false
 		for _, line := range strings.Split(stanza, "\n") {
@@ -81,6 +90,9 @@ func loadPackages() {
 			case strings.HasPrefix(line, "Description: "):
 				short = strings.TrimSpace(strings.TrimPrefix(line, "Description: "))
 				inDesc = true
+			case strings.HasPrefix(line, "Depends: "), strings.HasPrefix(line, "Pre-Depends: "):
+				deps += " " + strings.TrimSpace(line[strings.IndexByte(line, ' '):])
+				inDesc = false
 			case inDesc && strings.HasPrefix(line, " "):
 				if t := strings.TrimSpace(line); t != "." {
 					long = append(long, t)
@@ -88,6 +100,9 @@ func loadPackages() {
 			default:
 				inDesc = false
 			}
+		}
+		if pkg != "" && deps != "" {
+			pkgDepends[pkg] = strings.TrimSpace(deps)
 		}
 		if pkg != "" && short != "" {
 			d := strings.Join(long, " ")
@@ -128,7 +143,8 @@ func lookupPackage(name string) (packageInfo, bool) {
 			if !ok {
 				return packageInfo{}, false
 			}
-			return packageInfo{Package: pkg, Summary: d[0], Description: d[1], Programs: pkgPrograms[pkg]}, true
+			return packageInfo{Package: pkg, Summary: d[0], Description: d[1], Programs: pkgPrograms[pkg],
+				Depends: pkgDepends[pkg], Service: pkgService[pkg], Path: c}, true
 		}
 	}
 	return packageInfo{}, false

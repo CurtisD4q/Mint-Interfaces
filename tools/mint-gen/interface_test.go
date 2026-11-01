@@ -148,30 +148,32 @@ func TestAnswersModeKeepsSafety(t *testing.T) {
 		"zzcap":   "Usage: zzcap [OPTIONS]\nCapture network packets until interrupted. Must be run as root.\n\nOptions:\n  -i, --interface IFACE   interface to listen on\n  -w FILE                 write packets to FILE\n",
 	}
 	withInterfaceMode(t, InterfaceArchetype) // restores both settings afterwards
-	for name, help := range helps {
-		interfaceMode = InterfaceArchetype
-		before := ParseManAndHelp(name, "", help)
-		interfaceMode = InterfaceAnswers
-		after := ParseManAndHelp(name, "", help)
-		if dataRank(after.Data) < dataRank(before.Data) {
-			t.Errorf("%s: data level %q lowered to %q", name, before.Data, after.Data)
-		}
-		secrets := func(s appkit.ToolSpec) (n int) {
-			for _, f := range s.Flags {
-				if f.Kind == appkit.FlagSecret {
-					n++
-				}
+	for _, mode := range []string{InterfaceAnswers, InterfaceBlend} {
+		for name, help := range helps {
+			interfaceMode = InterfaceArchetype
+			before := ParseManAndHelp(name, "", help)
+			interfaceMode = mode
+			after := ParseManAndHelp(name, "", help)
+			if dataRank(after.Data) < dataRank(before.Data) {
+				t.Errorf("%s: data level %q lowered to %q", name, before.Data, after.Data)
 			}
-			return
-		}
-		if secrets(after) < secrets(before) {
-			t.Errorf("%s: secret options %d -> %d", name, secrets(before), secrets(after))
-		}
-		if before.NeedsRoot && !after.NeedsRoot || before.ConfirmRun && !after.ConfirmRun || before.Irreversible && !after.Irreversible {
-			t.Errorf("%s: caution removed: root %v->%v confirm %v->%v", name, before.NeedsRoot, after.NeedsRoot, before.ConfirmRun, after.ConfirmRun)
-		}
-		if after.ReadOnly && !before.ReadOnly {
-			t.Errorf("%s: answers mode made it read-only", name)
+			secrets := func(s appkit.ToolSpec) (n int) {
+				for _, f := range s.Flags {
+					if f.Kind == appkit.FlagSecret {
+						n++
+					}
+				}
+				return
+			}
+			if secrets(after) < secrets(before) {
+				t.Errorf("%s: secret options %d -> %d", name, secrets(before), secrets(after))
+			}
+			if before.NeedsRoot && !after.NeedsRoot || before.ConfirmRun && !after.ConfirmRun || before.Irreversible && !after.Irreversible {
+				t.Errorf("%s: caution removed: root %v->%v confirm %v->%v", name, before.NeedsRoot, after.NeedsRoot, before.ConfirmRun, after.ConfirmRun)
+			}
+			if after.ReadOnly && !before.ReadOnly {
+				t.Errorf("%s: %s mode made it read-only", name, mode)
+			}
 		}
 	}
 }
@@ -186,6 +188,73 @@ func TestScaffoldWritesInterfaceFields(t *testing.T) {
 	for _, want := range []string{`InterfaceGroup:    "live"`, `Features:          []appkit.Feature{"live-refresh", "table"}`, `FullScreen:        true`} {
 		if !strings.Contains(src, want) {
 			t.Errorf("scaffold output lacks %s", want)
+		}
+	}
+}
+
+func TestAnswerProbs(t *testing.T) {
+	a := appkit.Answers{
+		appkit.QKeepsRunning: {Yes: true, Sure: appkit.SureStrong},
+		appkit.QTable:        {Yes: true, Sure: appkit.SureWeak},
+		appkit.QSubcommands:  {Yes: false, Sure: appkit.SureStrong},
+		appkit.QTarget:       {Yes: false, Sure: appkit.SureNone},
+		appkit.QFullScreen:   {Yes: false, Sure: appkit.SureWeak},
+	}
+	p := answerProbs(a)
+	if !(p[appkit.QKeepsRunning] > p[appkit.QTable] && p[appkit.QTable] > 0.5 && p[appkit.QSubcommands] < 0.1) {
+		t.Errorf("strong yes > hint > 0.5 > strong no: %v", p)
+	}
+	if p[appkit.QTarget] != answerBase[appkit.QTarget] || p[appkit.QFullScreen] >= answerBase[appkit.QFullScreen] {
+		t.Errorf("no evidence gives the base rate, silence less: %v", p)
+	}
+}
+
+func TestKeywordGroupProbs(t *testing.T) {
+	sum := func(m map[string]float64) (s float64) {
+		for _, v := range m {
+			s += v
+		}
+		return
+	}
+	listed := ArchetypeChoice{ID: "watch", Confidence: ConfidenceListed}
+	if ap := archetypeProbs(listed); ap["watch"] != 1 {
+		t.Errorf("a listed archetype is certain: %v", ap)
+	}
+	if s := sum(keywordGroupProbs(listed)); s < 0.999 || s > 1.001 {
+		t.Errorf("K(g) sums to %v", s)
+	}
+	close := ArchetypeChoice{ID: "watch", Confidence: ConfidenceClose, Scores: []ArchetypeScore{{ID: "watch", Score: 50}, {ID: "list", Score: 45}, {ID: "convert", Score: 0}}}
+	ap := archetypeProbs(close)
+	if !(ap["watch"] > ap["list"] && ap["list"] > ap["convert"]) {
+		t.Errorf("probabilities follow the points: %v", ap)
+	}
+	if s := sum(keywordGroupProbs(close)); s < 0.999 || s > 1.001 {
+		t.Errorf("K(g) sums to %v", s)
+	}
+	if len(groupBridge) != 35 {
+		t.Errorf("the bridge has %d archetypes, want 35", len(groupBridge))
+	}
+}
+
+func TestBlendModeBuildsTheScreenSafely(t *testing.T) {
+	withInterfaceMode(t, InterfaceBlend)
+	spec := ParseManAndHelp("zzmon", "", zzMonitorHelp)
+	if spec.InterfaceGroup == "" || spec.Features == nil {
+		t.Fatalf("blend mode set no group: %+v", spec.InterfaceGroup)
+	}
+	spec = ParseManAndHelp("zzpkg", "", zzInstallerHelp)
+	b := appkit.Blueprint{Features: spec.Features}
+	if !spec.ConfirmRun || b.Has(appkit.FeatLiveRefresh) || spec.ReadOnly {
+		t.Errorf("zzpkg changes things: confirm %v, features %v, read-only %v", spec.ConfirmRun, spec.Features, spec.ReadOnly)
+	}
+}
+
+func TestAnswerWeightFlag(t *testing.T) {
+	old := blendAnswerWeight
+	t.Cleanup(func() { blendAnswerWeight, interfaceMode = old, InterfaceArchetype })
+	for _, bad := range []string{"1.5", "-0.1", "NaN"} {
+		if code := runCLI([]string{"--interface", "blend", "--answer-weight", bad, "--list-archetypes"}); code != 2 {
+			t.Errorf("--answer-weight %s: exit %d, want 2", bad, code)
 		}
 	}
 }

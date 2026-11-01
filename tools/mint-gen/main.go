@@ -37,6 +37,7 @@ func runCLI(args []string) int {
 		tuiMode        bool
 		probeTerm      bool
 		interfaceFlag  string
+		answerWeight   float64
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
@@ -53,7 +54,8 @@ func runCLI(args []string) int {
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
-	fs.StringVar(&interfaceFlag, "interface", InterfaceArchetype, "How an unlisted program's screen is decided: archetype (default) or answers (from how the program behaves; see --explain)")
+	fs.StringVar(&interfaceFlag, "interface", InterfaceArchetype, "How an unlisted program's screen is decided: archetype (default), answers (from how the program behaves) or blend (both; see --explain)")
+	fs.Float64Var(&answerWeight, "answer-weight", 0.5, "With --interface blend: the weight of the program's answers against its keywords, from 0 to 1")
 
 	ordered := flagsFirst(fs, args)
 	if helpRequested(ordered) {
@@ -64,12 +66,17 @@ func runCLI(args []string) int {
 		return 2
 	}
 	switch interfaceFlag {
-	case InterfaceArchetype, InterfaceAnswers:
+	case InterfaceArchetype, InterfaceAnswers, InterfaceBlend:
 		interfaceMode = interfaceFlag
 	default:
-		fmt.Fprintf(os.Stderr, "mint-gen: --interface must be %q or %q, not %q\n", InterfaceArchetype, InterfaceAnswers, interfaceFlag)
+		fmt.Fprintf(os.Stderr, "mint-gen: --interface must be %q, %q or %q, not %q\n", InterfaceArchetype, InterfaceAnswers, InterfaceBlend, safeTerminalText(interfaceFlag))
 		return 2
 	}
+	if answerWeight < 0 || answerWeight > 1 || answerWeight != answerWeight {
+		fmt.Fprintf(os.Stderr, "mint-gen: --answer-weight must be from 0 to 1\n")
+		return 2
+	}
+	blendAnswerWeight = answerWeight
 
 	if listArchetypes {
 		printArchetypeCatalogue()

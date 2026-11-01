@@ -257,7 +257,10 @@ func BlueprintFromAnswers(yes map[Question]bool, destroysByPurpose bool) Bluepri
 // (an explicit target label, a known status command), and it only ever
 // adds caution. It returns the group.
 func ApplyInterface(spec *ToolSpec, a Answers) InterfaceGroup {
-	g := PlaceInterface(a)
+	return applyInterfaceAs(spec, a, PlaceInterface(a))
+}
+
+func applyInterfaceAs(spec *ToolSpec, a Answers, g InterfaceGroup) InterfaceGroup {
 	if spec == nil {
 		return g
 	}
@@ -326,4 +329,86 @@ func featureIndex(f Feature) int {
 		}
 	}
 	return len(AllFeatures())
+}
+
+// AnswerProbs are how likely each answer is to be yes, from 0 to 1.
+type AnswerProbs map[Question]float64
+
+// RuleProb is how likely the group's rule is to hold, taking the answers
+// as independent: the product, over the questions the rule names, of the
+// chance each answer is what the rule wants.
+func (g InterfaceGroup) RuleProb(p AnswerProbs) float64 {
+	pr := 1.0
+	for q, want := range g.Rule {
+		if want {
+			pr *= p[q]
+		} else {
+			pr *= 1 - p[q]
+		}
+	}
+	return pr
+}
+
+// GroupScore is one group's score in a choice.
+type GroupScore struct {
+	Group   InterfaceGroup
+	Answers float64 // A(g): how likely its rule holds, given the answers
+	Words   float64 // K(g): how likely, given the program's subject (its archetype scores)
+	Score   float64 // the blend
+}
+
+// AnswerGroupProbs is A(g) for every group. The rules divide every set of
+// answers between the groups, so the values add up to 1.
+func AnswerGroupProbs(p AnswerProbs) map[string]float64 {
+	out := make(map[string]float64, len(interfaceGroups))
+	for _, g := range interfaceGroups {
+		out[g.ID] = g.RuleProb(p)
+	}
+	return out
+}
+
+// BlendGroups ranks the groups by y·A(g) + (1−y)·K(g), best first. words
+// is K(g) by group ID (it may be nil: then only the answers count). y is
+// clamped to [0, 1].
+func BlendGroups(p AnswerProbs, words map[string]float64, y float64) []GroupScore {
+	switch {
+	case y < 0:
+		y = 0
+	case y > 1:
+		y = 1
+	}
+	if words == nil {
+		y = 1
+	}
+	a := AnswerGroupProbs(p)
+	out := make([]GroupScore, 0, len(interfaceGroups))
+	for _, g := range interfaceGroups {
+		gs := GroupScore{Group: g, Answers: a[g.ID], Words: words[g.ID]}
+		gs.Score = y*gs.Answers + (1-y)*gs.Words
+		out = append(out, gs)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	return out
+}
+
+// ApplyInterfaceGroup is ApplyInterface with the group already chosen (by
+// BlendGroups). The group's rule sets the screen's shape where it names
+// an answer; elsewhere the answers decide as in ApplyInterface. A yes to a
+// caution question (changes things, can destroy, needs root) always
+// stands, even against the rule: caution wins over shape.
+func ApplyInterfaceGroup(spec *ToolSpec, a Answers, g InterfaceGroup) InterfaceGroup {
+	shaped := Answers{}
+	for _, q := range Questions {
+		shaped[q] = a[q]
+	}
+	for q, want := range g.Rule {
+		ans := a[q]
+		if ans.Yes && !want && (q == QChangesThings || q == QCanDestroy || q == QNeedsRoot) {
+			continue
+		}
+		if ans.Yes != want {
+			shaped[q] = Answer{Yes: want, Sure: SureStrong, Why: "the chosen group"}
+		}
+	}
+	return applyInterfaceAs(spec, shaped, g)
 }

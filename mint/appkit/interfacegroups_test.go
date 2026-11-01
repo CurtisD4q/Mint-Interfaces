@@ -160,3 +160,54 @@ func TestSpecFeaturesDecideTheScreen(t *testing.T) {
 		t.Errorf("live refresh from features: mode %v", app.executionMode())
 	}
 }
+
+// A(g) over all groups adds up to 1 for any answer probabilities.
+func TestAnswerGroupProbsSumToOne(t *testing.T) {
+	for _, p := range []AnswerProbs{
+		{QKeepsRunning: 0.9, QTable: 0.65, QTarget: 0.08, QFullScreen: 0.07},
+		{QChangesThings: 0.5, QSubcommands: 0.9, QCanDestroy: 0.2, QNeedsRoot: 0.65, QWritesFile: 0.3},
+		{},
+	} {
+		sum := 0.0
+		for _, v := range AnswerGroupProbs(p) {
+			sum += v
+		}
+		if sum < 0.999999 || sum > 1.000001 {
+			t.Errorf("%v: A(g) sums to %v", p, sum)
+		}
+	}
+}
+
+func TestBlendGroups(t *testing.T) {
+	p := AnswerProbs{QKeepsRunning: 0.9, QTable: 0.9}
+	words := map[string]float64{"once": 1}
+	if r := BlendGroups(p, words, 1); r[0].Group.ID != "live" {
+		t.Errorf("answers only: %s", r[0].Group.ID)
+	}
+	if r := BlendGroups(p, words, 0); r[0].Group.ID != "once" {
+		t.Errorf("keywords only: %s", r[0].Group.ID)
+	}
+	if r := BlendGroups(p, nil, 0); r[0].Group.ID != "live" {
+		t.Errorf("no keywords: the answers decide, got %s", r[0].Group.ID)
+	}
+}
+
+// A chosen group sets the shape, but a caution yes stands against it.
+func TestApplyInterfaceGroupKeepsCaution(t *testing.T) {
+	live, _ := LookupInterfaceGroup("live") // rule: changes nothing
+	a := answersFrom(map[Question]bool{QKeepsRunning: true, QTable: true}, SureStrong)
+	a[QChangesThings] = Answer{Yes: true, Sure: SureWeak}
+	spec := ToolSpec{Name: "x", ReadOnly: true}
+	ApplyInterfaceGroup(&spec, a, live)
+	b := Blueprint{Features: spec.Features}
+	if !spec.ConfirmRun || b.Has(FeatLiveRefresh) || spec.ReadOnly {
+		t.Errorf("caution lost to the group's rule: confirm %v, features %v, read-only %v", spec.ConfirmRun, spec.Features, spec.ReadOnly)
+	}
+	once, _ := LookupInterfaceGroup("once") // rule: no target
+	a = answersFrom(map[Question]bool{QTarget: true}, SureWeak)
+	spec = ToolSpec{Name: "x"}
+	ApplyInterfaceGroup(&spec, a, once)
+	if spec.WantTarget {
+		t.Error("the chosen group's shape (no target) was not used")
+	}
+}

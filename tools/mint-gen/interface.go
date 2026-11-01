@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -197,7 +198,66 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 	default:
 		set(appkit.QFullScreen, false, appkit.SureWeak, "")
 	}
+	addSystemEvidence(name, manText, manLines, out)
 	return out
+}
+
+var (
+	// A man page's header names its section: "IP(8)  Linux  IP(8)".
+	reManSection = regexp.MustCompile(`^\s*[A-Za-z0-9._+-]+\((\d)[a-z]*\)`)
+	// Help sections that only a full-screen program has.
+	reKeySection = regexp.MustCompile(`(?i)^(key ?bindings?|keys|keyboard (shortcuts|commands|controls)|interactive commands|key commands)\s*:?\s*$`)
+	reNcursesDep = regexp.MustCompile(`\blibncurses(w)?\d`)
+)
+
+// addSystemEvidence adds what the system says about a program, beyond its
+// help: its man section, where it is installed, and what its package
+// depends on and installs. It only ever adds a yes or makes one firmer.
+// A package that installs several programs describes them all, so its
+// evidence is only a hint unless the package is small.
+func addSystemEvidence(name, manText string, manLines []string, out appkit.Answers) {
+	raise := func(q appkit.Question, sure, why string) {
+		cur := out[q]
+		if cur.Yes && (cur.Sure == appkit.SureStrong || sure != appkit.SureStrong) {
+			return
+		}
+		out[q] = appkit.Answer{Yes: true, Sure: sure, Why: why}
+	}
+	for _, l := range manLines {
+		if reKeySection.MatchString(strings.TrimSpace(l)) && len(strings.TrimSpace(l)) < 40 && strings.ToUpper(l) == l {
+			raise(appkit.QFullScreen, appkit.SureStrong, "man page has a "+strings.ToLower(strings.TrimSpace(l))+" section")
+			break
+		}
+	}
+	if m := reManSection.FindStringSubmatch(firstLine(manText)); m != nil && m[1] == "8" {
+		raise(appkit.QNeedsRoot, appkit.SureWeak, "an administration command (man section 8)")
+	}
+	info, ok := lookupPackage(name)
+	if !ok {
+		return
+	}
+	if strings.Contains(info.Path, "/sbin/") {
+		raise(appkit.QNeedsRoot, appkit.SureWeak, "installed in "+filepath.Dir(info.Path))
+	}
+	small := info.Programs <= 3
+	if reNcursesDep.MatchString(info.Depends) {
+		sure := appkit.SureWeak
+		if small {
+			sure = appkit.SureStrong
+		}
+		raise(appkit.QFullScreen, sure, "its package uses ncurses")
+	}
+	if info.Service && small {
+		raise(appkit.QKeepsRunning, appkit.SureWeak, "its package installs a service")
+	}
+}
+
+func firstLine(s string) string {
+	s = strings.TrimLeft(s, "\n")
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // pairedInputs finds two required inputs that form a pair: FILE1 FILE2,
@@ -226,8 +286,12 @@ func pairedInputs(ps []Positional) (string, string, bool) {
 
 // explainInterface prints the answers and the group they place a program
 // in, for --explain.
-func explainInterface(w io.Writer, a appkit.Answers, g appkit.InterfaceGroup) {
-	fmt.Fprintf(w, "  Interface: %s (%s), from the program's answers\n", g.Name, g.Family)
+func explainInterface(w io.Writer, a appkit.Answers, g appkit.InterfaceGroup, blended bool) {
+	from := "the program's answers"
+	if blended {
+		from = "its answers and keywords"
+	}
+	fmt.Fprintf(w, "  Interface: %s (%s), from %s\n", g.Name, g.Family, from)
 	eff := a.Effective(g)
 	for _, q := range appkit.Questions {
 		ans := a[q]

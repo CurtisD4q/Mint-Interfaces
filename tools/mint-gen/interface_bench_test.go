@@ -28,6 +28,24 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
+// modeUnderTest is the new way being compared: MINT_INTERFACE_MODE,
+// answers (the default) or blend; MINT_ANSWER_WEIGHT sets blend's weight.
+func modeUnderTest(t *testing.T) string {
+	m := os.Getenv("MINT_INTERFACE_MODE")
+	if m == "" {
+		m = InterfaceAnswers
+	}
+	if m != InterfaceAnswers && m != InterfaceBlend {
+		t.Fatalf("MINT_INTERFACE_MODE must be answers or blend, not %q", m)
+	}
+	if w := os.Getenv("MINT_ANSWER_WEIGHT"); w != "" {
+		if _, err := fmt.Sscanf(w, "%g", &blendAnswerWeight); err != nil || blendAnswerWeight < 0 || blendAnswerWeight > 1 {
+			t.Fatalf("MINT_ANSWER_WEIGHT must be from 0 to 1, not %q", w)
+		}
+	}
+	return m
+}
+
 // screenQuestions decide the screen's shape; the rest are extras.
 var screenQuestions = []appkit.Question{appkit.QKeepsRunning, appkit.QChangesThings, appkit.QTarget, appkit.QSubcommands, appkit.QFullScreen}
 
@@ -130,8 +148,9 @@ func TestInterfaceBenchmark(t *testing.T) {
 		add(n)
 	}
 	sort.Strings(names)
-	old := interfaceMode
-	defer func() { interfaceMode = old }()
+	old, oldW := interfaceMode, blendAnswerWeight
+	defer func() { interfaceMode, blendAnswerWeight = old, oldW }()
+	mode := modeUnderTest(t)
 
 	type row struct {
 		name     string
@@ -148,7 +167,7 @@ func TestInterfaceBenchmark(t *testing.T) {
 		}
 		interfaceMode = InterfaceArchetype
 		before := ParseManAndHelp(n, man, help)
-		interfaceMode = InterfaceAnswers
+		interfaceMode = mode
 		after := ParseManAndHelp(n, man, help)
 		if after.InterfaceGroup == "" {
 			continue // listed: both ways give the checked setup
@@ -280,9 +299,10 @@ func TestInterfaceLabelBenchmark(t *testing.T) {
 	if os.Getenv("MINT_ARCHETYPE_BENCH") != "interface-labels" {
 		t.Skip("set MINT_ARCHETYPE_BENCH=interface-labels")
 	}
-	oldMode, oldBlind := interfaceMode, parseBlind
-	defer func() { interfaceMode, parseBlind = oldMode, oldBlind }()
+	oldMode, oldBlind, oldW := interfaceMode, parseBlind, blendAnswerWeight
+	defer func() { interfaceMode, parseBlind, blendAnswerWeight = oldMode, oldBlind, oldW }()
 	parseBlind = true
+	mode := modeUnderTest(t)
 	// Labels cannot judge full-screen (no archetype has it): it is left out.
 	labelScreen := []appkit.Question{appkit.QKeepsRunning, appkit.QChangesThings, appkit.QTarget, appkit.QSubcommands}
 	qs := append(append([]appkit.Question{}, labelScreen...), appkit.QWritesFile, appkit.QTable, appkit.QNeedsRoot)
@@ -311,7 +331,7 @@ func TestInterfaceLabelBenchmark(t *testing.T) {
 		conf := model.Archetype.Confidence
 		want := before
 		applyChosenArchetype(&want, label, man+"\n"+help)
-		interfaceMode = InterfaceAnswers
+		interfaceMode = mode
 		after := ParseManAndHelp(c.Name, man, help)
 		w := screenOf(want)
 		for _, x := range []struct {
@@ -390,9 +410,9 @@ func TestInterfaceGroupBenchmark(t *testing.T) {
 	if os.Getenv("MINT_ARCHETYPE_BENCH") != "interface-groups" {
 		t.Skip("set MINT_ARCHETYPE_BENCH=interface-groups")
 	}
-	oldMode, oldBlind := interfaceMode, parseBlind
-	defer func() { interfaceMode, parseBlind = oldMode, oldBlind }()
-	interfaceMode, parseBlind = InterfaceAnswers, true
+	oldMode, oldBlind, oldW := interfaceMode, parseBlind, blendAnswerWeight
+	defer func() { interfaceMode, parseBlind, blendAnswerWeight = oldMode, oldBlind, oldW }()
+	interfaceMode, parseBlind = modeUnderTest(t), true
 	type res struct {
 		name, label, got, want string
 		firm                   bool
@@ -408,7 +428,7 @@ func TestInterfaceGroupBenchmark(t *testing.T) {
 		}
 		spec := ParseManAndHelp(c.Name, man, help)
 		a := detectAnswers(c.Name, man, help, spec)
-		g := appkit.PlaceInterface(a)
+		g, _ := appkit.LookupInterfaceGroup(spec.InterfaceGroup)
 		firm := true
 		for q, yes := range g.Rule {
 			if yes && a[q].Sure != appkit.SureStrong {
@@ -512,4 +532,98 @@ func TestInterfaceGroupBenchmark(t *testing.T) {
 		}
 		t.Logf("%-24s %4d  %s", g.ID, len(rr), strings.Join(parts, ", "))
 	}
+}
+
+// The bridge generator: how each archetype's programs spread over the 22
+// groups, from detected answers (blind), written as Go source to
+// MINT_BRIDGE_OUT (an absolute path outside the repository):
+//
+//	MINT_ARCHETYPE_BENCH=bridge MINT_INTERFACE_PROGRAMS=/abs/names.txt \
+//	MINT_BRIDGE_OUT=/abs/bridge_data.go go test -run TestWriteGroupBridge .
+func TestWriteGroupBridge(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "bridge" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=bridge")
+	}
+	out := os.Getenv("MINT_BRIDGE_OUT")
+	if !strings.HasPrefix(out, "/") {
+		t.Fatal("MINT_BRIDGE_OUT must be an absolute path")
+	}
+	oldBlind := parseBlind
+	defer func() { parseBlind = oldBlind }()
+	parseBlind = true
+	seen := map[string]bool{}
+	var names []string
+	for _, c := range loadArchCases(t) {
+		if !seen[c.Name] {
+			seen[c.Name] = true
+			names = append(names, c.Name)
+		}
+	}
+	for _, n := range readLines(os.Getenv("MINT_INTERFACE_PROGRAMS")) {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	counts := map[appkit.ArchetypeID]map[string]float64{}
+	total := map[string]float64{}
+	n := 0
+	for _, name := range names {
+		man, help, ok := benchHelp(t, benchCache(), name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		spec, model := ParseManAndHelpIO(name, man, help)
+		g := appkit.PlaceInterface(detectAnswers(name, man, help, spec))
+		a := model.Archetype.ID
+		if counts[a] == nil {
+			counts[a] = map[string]float64{}
+		}
+		counts[a][g.ID]++
+		total[g.ID]++
+		n++
+	}
+	// Smoothing: alpha programs' worth of the overall spread, so no group
+	// is ever impossible for an archetype.
+	const alpha = 2.0
+	prior := map[string]float64{}
+	for _, g := range appkit.InterfaceGroups() {
+		prior[g.ID] = (total[g.ID] + 1) / (float64(n) + float64(len(appkit.InterfaceGroups())))
+	}
+	var b strings.Builder
+	b.WriteString("// Code generated by TestWriteGroupBridge (MINT_ARCHETYPE_BENCH=bridge); DO NOT EDIT.\n\n")
+	b.WriteString("package main\n\nimport \"github.com/CurtisD4q/Mint-Interfaces/mint/appkit\"\n\n")
+	fmt.Fprintf(&b, "// groupBridge is how each archetype's programs spread over the 22\n// interface groups: %d programs' detected answers, smoothed.\n", n)
+	b.WriteString("var groupBridge = map[appkit.ArchetypeID]map[string]float64{\n")
+	var ids []string
+	for _, a := range appkit.AllArchetypeDefs() {
+		ids = append(ids, string(a.ID))
+	}
+	writeRow := func(row map[string]float64, nRow float64) {
+		b.WriteString("{")
+		for i, g := range appkit.InterfaceGroups() {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%q: %.4f", g.ID, (row[g.ID]+alpha*prior[g.ID])/(nRow+alpha))
+		}
+		b.WriteString("}")
+	}
+	for _, id := range ids {
+		row := counts[appkit.ArchetypeID(id)]
+		nRow := 0.0
+		for _, v := range row {
+			nRow += v
+		}
+		fmt.Fprintf(&b, "\t%q: ", id)
+		writeRow(row, nRow)
+		fmt.Fprintf(&b, ", // %d programs\n", int(nRow))
+	}
+	b.WriteString("}\n\n// groupBridgePrior is the overall spread, for an archetype with no row.\nvar groupBridgePrior = map[string]float64")
+	writeRow(total, float64(n))
+	b.WriteString("\n")
+	if err := os.WriteFile(out, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("bridge from %d programs written to %s", n, out)
 }

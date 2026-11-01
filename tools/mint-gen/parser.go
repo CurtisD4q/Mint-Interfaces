@@ -201,7 +201,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	def, _ := appkit.LookupArchetype(string(choice.ID))
 	// In interface mode an unlisted program's screen comes from its
 	// answers (see interface.go); the archetype then only words it.
-	answersMode := interfaceMode == InterfaceAnswers && choice.Confidence != ConfidenceListed
+	answersMode := (interfaceMode == InterfaceAnswers || interfaceMode == InterfaceBlend) && choice.Confidence != ConfidenceListed
 	var answers appkit.Answers
 	wantSubs := def.WantsSubcommands()
 	var wording appkit.ToolSpec
@@ -247,8 +247,15 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// only when the help actually named the flag or the prompt.
 	attachParsedScreens(&spec, manText+"\n"+helpText)
 	var group appkit.InterfaceGroup
+	var groupScores []appkit.GroupScore
 	if answersMode {
-		group = appkit.ApplyInterface(&spec, answers)
+		if interfaceMode == InterfaceBlend {
+			ranked := blendChoice(answers, choice, blendAnswerWeight)
+			group = appkit.ApplyInterfaceGroup(&spec, answers, ranked[0].Group)
+			groupScores = ranked
+		} else {
+			group = appkit.ApplyInterface(&spec, answers)
+		}
 		if spec.WantTarget && spec.TargetLabel == "" {
 			spec.TargetLabel, spec.TargetPlaceholder = wording.TargetLabel, wording.TargetPlaceholder
 		}
@@ -277,7 +284,7 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, archExt)
 	model.Archetype = choice
 	if answersMode {
-		model.Answers, model.Group = answers, group
+		model.Answers, model.Group, model.GroupScores = answers, group, groupScores
 	}
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
