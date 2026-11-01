@@ -248,6 +248,12 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// and handling on top of the archetype (see signals.go).
 	model.Signals = readSignals(name, manText, helpText)
 	applySignals(&spec, model.Signals)
+	// Options that change running processes by ID (ionice -p, renice -p,
+	// kill -s) change things whatever the archetype: ask first.
+	if actsOnRunningProcesses(manText+"\n"+helpText) && !appkit.IsReadOnlyTool(spec.BinaryName()) {
+		spec.ConfirmRun = true
+		spec.ReadOnly = false
+	}
 	// A full-screen program with a batch mode runs in that mode instead
 	// (see batch.go).
 	if rule, ok := curatedExclusions[name]; (ok && rule.Category == CatFullScreenTUI) || model.Signals.FullScreen {

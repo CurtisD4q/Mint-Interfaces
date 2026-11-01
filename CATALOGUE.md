@@ -622,11 +622,11 @@ func tableExample(rawLines []string) mint.Row {
 }
 ```
 
-## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (35 Archetypes · Mixins)
+## Part E: Automated Scaffolding with `mint/appkit` and `tools/mint-gen` (36 Archetypes · Mixins)
 
-For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **35 archetypes** (what kind of program a tool is) and **composable mixins** (add-ons):
+For rapid wrapping of compatible CLI programs, `mint/appkit` provides a declarative runtime built on **36 archetypes** (what kind of program a tool is) and **composable mixins** (add-ons):
 
-- **35 archetypes (`appkit.ArchetypeDef`, `appkit.AllArchetypeDefs`)**: Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Setting `ArchetypeID: "probe"` on `appkit.ToolSpec` applies the archetype's add-ons, target label and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-archetypes`). `MainScreen` is one screen: the input comes from what the archetype takes (a target, two inputs, or subcommand tabs when the spec has them), the run comes from how it runs (once, a live poll when it refreshes, or a state editor for settings, device and rules), and the result stays on the page when the archetype shows one.
+- **36 archetypes (`appkit.ArchetypeDef`, `appkit.AllArchetypeDefs`)**: Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Signal, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Setting `ArchetypeID: "probe"` on `appkit.ToolSpec` applies the archetype's add-ons, target label and default profiles (see `templates/README.md` or run `go run ./tools/mint-gen --list-archetypes`). `MainScreen` is one screen: the input comes from what the archetype takes (a target, two inputs, or subcommand tabs when the spec has them), the run comes from how it runs (once, a live poll when it refreshes, or a state editor for settings, device and rules), and the result stays on the page when the archetype shows one.
 
 - **Composable Mixins** — the original 8 (`appkit.Mixins`):
   - `WithFileOutput` (`OutputsFile`, `OutputFlag`, `DefaultExt`), `WithTableOutput` (`TableOutput`, `TableColumns`), `WithCollapsibleOutput` (`CollapsibleOutput`, `ChunkSize`), `WithProfiles` (`Profiles`), `WithDynamicChoices` (`FlagSpec.ChoicesCmd`), `WithRootAuth` (`NeedsRoot`), `WithConfirm` (`ConfirmRun`), and `WithHistory` (`KeepHistory`).

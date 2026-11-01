@@ -33,7 +33,7 @@ ssh-keygen generate bench
 certtool toolkit bench
 top watch bench
 nice wrap bench
-renice control bench
+renice signal bench
 logger present bench
 logrotate edit-files bench
 bzr history bench
@@ -287,7 +287,7 @@ soxi inspect bench
 lslocks list bench
 pvck audit bench
 msggrep search bench
-skill control bench
+skill signal bench
 xrdb settings bench
 mii-tool device bench
 arptables rules bench

@@ -1,6 +1,6 @@
 package appkit
 
-// ArchetypeLabels is the wording a screen uses for one of the 35 archetypes:
+// ArchetypeLabels is the wording a screen uses for one of the 36 archetypes:
 // the action button, the input section, and the output section.
 type ArchetypeLabels struct {
 	Verb   string // "Compare", "Record", "Probe"
@@ -51,6 +51,7 @@ var archetypeLabels = map[string]ArchetypeLabels{
 	"device":    {Verb: "Apply", Input: "Device", Output: "Current state", Title: "Device", Home: "Device"},
 	"rules":     {Verb: "Apply", Input: "Rules", Output: "Rules", Title: "Rules", Home: "Rules"},
 	"control":   {Verb: "Control", Input: "Items", Output: "Running items", Title: "Control", Home: "Control"},
+	"signal":    {Verb: "Signal", Input: "Processes", Output: "Result", Title: "Signal", Home: "Signal"},
 	"records":   {Verb: "Manage", Input: "Commands", Output: "Items", Title: "Records", Home: "Records"},
 	"history":   {Verb: "Show", Input: "Commands", Output: "History", Title: "History", Home: "History"},
 	"toolkit":   {Verb: "Run", Input: "Commands", Output: "Output", Title: "Toolkit", Home: "Toolkit"},
