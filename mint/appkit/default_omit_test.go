@@ -5,36 +5,46 @@ import (
 	"testing"
 )
 
-// cal's -n has no Default from mint-gen, so a slider left at 0 was sending
-// "-n 0": the tool reads that as a real limit, and months and a year could
-// not be asked for at once.
-func TestZeroSliderOmitsTheFlag(t *testing.T) {
+// A number is sent as set, 0 included: 0 often means something (hey -t 0
+// is no timeout). "Off", below the lowest value, is empty and sends
+// nothing, so cal's -n can still be dropped to use -y alone.
+func TestZeroIsSentAndOffIsNot(t *testing.T) {
 	a := newTestApp(t, ToolSpec{Name: "cal", Bin: "cal", Flags: []FlagSpec{
 		{Flag: "-n", Kind: FlagInt, Label: "Months", Min: 0, Max: 12},
 		{Flag: "-y", Kind: FlagBool, Label: "Year"},
 	}})
-
-	a.Values["-n"] = "0"
 	if args, _ := a.BuildArgs(); strings.Contains(strings.Join(args, " "), "-n") {
-		t.Errorf("slider at 0 still sent: %v", args)
+		t.Errorf("untouched number sent: %v", args)
 	}
-
-	// Set to 4, it is sent.
+	a.Values["-n"] = "0"
+	if args, _ := a.BuildArgs(); !strings.Contains(strings.Join(args, " "), "-n 0") {
+		t.Errorf("0 not sent: %v", args)
+	}
 	a.Values["-n"] = "4"
 	if args, _ := a.BuildArgs(); !strings.Contains(strings.Join(args, " "), "-n 4") {
-		t.Errorf("value 4 not sent: %v", args)
+		t.Errorf("4 not sent: %v", args)
 	}
-
-	// Back to 0 with the year on: only -y goes.
-	a.Values["-n"] = "0"
+	// Stepped to off, with the year on: only -y goes.
+	a.Values["-n"] = ""
 	a.Values["-y"] = "true"
-	args, _ := a.BuildArgs()
-	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "-n") {
-		t.Errorf("slider back at 0 still sent: %v", args)
+	if args, _ := a.BuildArgs(); strings.Join(args, " ") != "-y" {
+		t.Errorf("off and year: %v", args)
 	}
-	if !strings.Contains(joined, "-y") {
-		t.Errorf("year flag missing: %v", args)
+}
+
+// The stepper's "off" sits one step below the lowest value, or below 0
+// for an unbounded number.
+func TestIntStepperRangeHasOff(t *testing.T) {
+	for _, c := range []struct{ min, max, step, lo, hi, off int }{
+		{0, 12, 1, -1, 12, -1},
+		{1, 10, 1, 0, 10, 0},
+		{5, 50, 5, 0, 50, 0},
+		{0, 0, 1, -1, 1 << 30, -1},
+	} {
+		lo, hi, off := intStepperRange(c.min, c.max, c.step)
+		if lo != c.lo || hi != c.hi || off != c.off {
+			t.Errorf("range(%d,%d,%d) = %d,%d,%d, want %d,%d,%d", c.min, c.max, c.step, lo, hi, off, c.lo, c.hi, c.off)
+		}
 	}
 }
 

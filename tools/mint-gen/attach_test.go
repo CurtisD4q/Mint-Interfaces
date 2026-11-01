@@ -345,7 +345,8 @@ Commands:
 		t.Fatalf("control hints %q, want %q", got, wantHints)
 	}
 	for _, a := range control.RowActions {
-		confirm := a.Hint == "stop" || a.Hint == "restart" || a.Hint == "disable" || a.Hint == "kill"
+		// Only the verbs that read run without asking.
+		confirm := a.Hint != "status" && a.Hint != "logs"
 		if a.Confirm != confirm || a.Column != 0 || !reflect.DeepEqual(a.Subcommand, []string{a.Hint}) {
 			t.Errorf("control %s: %+v", a.Hint, a)
 		}
@@ -370,13 +371,13 @@ Commands:
 	check("records", "Usage: tool [options]\nCommands:\n  remove  Remove a record\n  update  Update a record\n  show    Show a record\n",
 		[]string{"show", "update", "remove"}, map[string]bool{"show": false, "update": true, "remove": true})
 	check("schedule", "Usage: tool [options]\nCommands:\n  delete  Delete a job\n  run     Run a job\n  info    Show a job\n",
-		[]string{"info", "run", "delete"}, map[string]bool{"info": false, "run": false, "delete": true})
+		[]string{"info", "run", "delete"}, map[string]bool{"info": false, "run": true, "delete": true})
 	check("rules", "Usage: tool [options]\nCommands:\n  delete  Delete a rule\n  deny    Deny a rule\n  allow   Allow a rule\n  status  Show status\n",
-		[]string{"status", "allow", "deny", "delete"}, map[string]bool{"status": false, "allow": false, "deny": true, "delete": true})
+		[]string{"status", "allow", "deny", "delete"}, map[string]bool{"status": false, "allow": true, "deny": true, "delete": true})
 	check("history", "Usage: tool [options]\nCommands:\n  revert  Revert a snapshot\n  diff    Show a diff\n",
 		[]string{"diff", "revert"}, map[string]bool{"diff": false, "revert": true})
 	check("device", "Usage: tool [options]\nCommands:\n  remove   Remove a device\n  disable  Disable a device\n  enable   Enable a device\n  show     Show a device\n",
-		[]string{"show", "enable", "disable", "remove"}, map[string]bool{"show": false, "enable": false, "disable": true, "remove": true})
+		[]string{"show", "enable", "disable", "remove"}, map[string]bool{"show": false, "enable": true, "disable": true, "remove": true})
 }
 
 func TestInferRowActionsFromFlags(t *testing.T) {

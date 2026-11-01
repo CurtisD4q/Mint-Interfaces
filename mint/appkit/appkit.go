@@ -612,13 +612,11 @@ func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdi
 				args = append(args, f.Flag)
 			}
 		default:
-			// A number left at its default, or at zero, is not passed. A
-			// slider sitting at 0 would otherwise send "-n 0", which the
-			// tool reads as a real limit, and the flag could then never be
-			// dropped: months and a year could not be asked for at once.
-			if f.Kind == FlagInt && (val == "" || val == "0") {
-				continue
-			}
+			// A number is sent as set, 0 included: 0 often means something
+			// (hey -t 0 is no timeout, tail -n 0 prints no lines). A number
+			// stepped to "off" (below its lowest value) is empty, and an
+			// empty value is not passed, so the flag can still be dropped
+			// (cal -n with -y).
 			// A value left at its declared default is not passed either: it
 			// is what the tool would use anyway.
 			if f.Default != "" && val == strings.TrimSpace(f.Default) {
@@ -1652,17 +1650,32 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 		if step <= 0 {
 			step = 1
 		}
+		lo, hi, off := intStepperRange(f.Min, f.Max, step)
 		return mint.Stepper(mint.StepperOpts{
 			ID:    "flag:" + key,
 			Label: label,
-			Min:   f.Min,
-			Max:   f.Max,
+			Min:   lo,
+			Max:   hi,
 			Step:  step,
+			Format: func(v int) string {
+				if v == off {
+					return "off"
+				}
+				return strconv.Itoa(v)
+			},
 			Get: func() int {
-				v, _ := strconv.Atoi(a.Values[key])
+				raw := strings.TrimSpace(a.Values[key])
+				if raw == "" {
+					return off
+				}
+				v, _ := strconv.Atoi(raw)
 				return v
 			},
 			Set: func(v int) {
+				if v <= off {
+					a.Values[key] = "" // off: the flag is not sent
+					return
+				}
 				a.Values[key] = strconv.Itoa(v)
 			},
 		})
@@ -1738,6 +1751,16 @@ func (a *ToolApp) flagRow(f FlagSpec) mint.Row {
 			func(v string) { a.Values[key] = v },
 			boxFlag, &spec)
 	}
+}
+
+// intStepperRange is the stepper range for a number option with the
+// given Min and Max: one step below the lowest value is "off" (the option
+// is not sent), and an unbounded number (no Min or Max) is off below 0.
+func intStepperRange(min, max, step int) (lo, hi, off int) {
+	if min == 0 && max == 0 {
+		return -1, 1 << 30, -1
+	}
+	return min - step, max, min - step
 }
 
 func (a *ToolApp) pathFlagSummary(key string, dirsOnly bool) string {
