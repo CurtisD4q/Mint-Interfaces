@@ -524,6 +524,15 @@ var (
 	}
 )
 
+// readingRowVerbs only read: an inferred row action with any other verb
+// (start, enable, up, allow, run…) changes things, so it asks first.
+// systemctl enable, ufw enable (which can cut off a remote session),
+// virsh start and nmcli up all confirm.
+var readingRowVerbs = map[string]bool{
+	"status": true, "show": true, "info": true, "inspect": true, "get": true,
+	"diff": true, "log": true, "logs": true,
+}
+
 func rowVerbTable(id string) []rowVerb {
 	switch id {
 	case "control":
@@ -573,7 +582,7 @@ func rowActionsFromSubcommands(id string, lines []string) []appkit.RowActionSpec
 			Hint:       v.name,
 			Subcommand: []string{v.name},
 			Column:     0,
-			Confirm:    v.confirm,
+			Confirm:    v.confirm || !readingRowVerbs[v.name],
 		})
 	}
 	return out
