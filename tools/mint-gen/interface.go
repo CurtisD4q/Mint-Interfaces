@@ -26,14 +26,28 @@ const (
 var interfaceMode = InterfaceArchetype
 
 var (
-	ifKeepsRunning = regexp.MustCompile(`(?i)\b(until (it is )?(interrupted|killed|stopped)|until you (quit|press|exit)|press (q|ctrl-c|control-c)\b|ctrl-c|real[- ]time|refresh(es|ed)? (every|the display)|every \d+ seconds?|continuously|keeps? running|runs? in the foreground|as a daemon|daemoni[sz]e|listen(s|ing)? (on|for)\b|output appended data as the file grows|wait for (new|more) (data|input|events))`)
-	ifMonitorWord  = regexp.MustCompile(`(?i)\b(monitor(s|ing)?|watch(es|ing)?|live|dashboard|top-like)\b`)
-	ifRunOption    = regexp.MustCompile(`^(interval|delay|refresh-rate|refresh-interval|period|tick|tick-rate|update-interval|follow|watch|daemon|foreground|listen|serve)$`)
-	ifFullScreen   = regexp.MustCompile(`(?i)\b(n?curses|tui|terminal user interface|text[- ]based user interface|full[- ]screen|interactive (terminal|text|console) (ui|interface|application|program|browser|client|viewer|editor)|key ?bindings?|keyboard shortcuts|vi-like|vim-like|emacs-like|terminal ui|text user interface)\b`)
-	ifChanges      = regexp.MustCompile(`(?i)\b(configure[sd]?|change[sd]?|modif(y|ies)|set(s)? (the|a|up|or)|enable[sd]?|disable[sd]?|install(s|ed)?|uninstall|(remove[sd]?|delete[sd]?) (files?|directories|packages?|users?|groups?|rules?|modules?|services?|devices?|partitions?|containers?|images?|keys?|entries)|add(s)? (a|an|or|new)|control(s|ling)? (the|a|an|system)|start(s)? (and|or|the)|stop(s)? (and|or|the)|mount(s)?|unmount|kill(s)?|manage[sd]?|creates? (a|an|new)|update[sd]? (the|a)|apply|applies|edit(s|or)?|rename[sd]?|move[sd]?|cop(y|ies)|format(s)? (a|the) (disk|partition|device))\b`)
-	ifTable        = regexp.MustCompile(`(?i)\b(columns?|tabular|in a table|table (format|output|view)|no[- ]headers?|header (line|row)s?|omit (the )?header|fields? (to|separated)|--output[= ](wide|table)|output fields|csv|tsv)\b`)
-	ifRoot         = regexp.MustCompile(`(?i)\b(must be root|must be run as root|run (it )?as root|requires? (root|superuser|administrator)|root (privileges?|permissions?|access)|superuser (privileges?|access)?|only (the )?root|cap_net_(raw|admin)|cap_sys_\w+|privileged (user|operation|mode)|needs? to be root|as the root user)\b`)
-	ifDestroys     = regexp.MustCompile(`(?i)\b(delete[sd]?|remove[sd]? (files?|directories|the|all|packages?|entries)|erase[sd]?|wipe[sd]?|shred|destroy(s|ed)?|overwrite[sd]?|truncate[sd]?|kill(s)? (processes|a process|the)|format(s)? (a|the) (disk|partition|device|filesystem)|purge[sd]?)\b`)
+	ifKeepsRunning       = regexp.MustCompile(`(?i)\b(until (it is )?(interrupted|killed|stopped)|until you (quit|press|exit)|press (q|ctrl-c|control-c)\b|ctrl-c|real[- ]time|refresh(es|ed)? (every|the display)|every \d+ seconds?|continuously|keeps? running|runs? in the foreground|as a daemon|daemoni[sz]e|listen(s|ing)? (on|for)\b|output appended data as the file grows|wait for (new|more) (data|input|events))`)
+	ifMonitorWord        = regexp.MustCompile(`(?i)\b(monitor(s|ing)?|watch(es|ing)?|live|dashboard|top-like)\b`)
+	ifRunOptionAmbiguous = regexp.MustCompile(`^(follow|delay|watch|period|tick)$`)
+	ifRunOptionDesc      = regexp.MustCompile(`(?i)\b(update|updates|refresh|seconds?|interval|grows|appended|new (data|lines|entries)|until|continuous|repeat|keep)`)
+	ifRunOption          = regexp.MustCompile(`^(interval|delay|refresh-rate|refresh-interval|period|tick|tick-rate|update-interval|follow|watch|daemon|foreground|listen|serve)$`)
+	ifFullScreen         = regexp.MustCompile(`(?i)\b(n?curses|tui|terminal user interface|text[- ]based user interface|full[- ]screen|interactive (terminal|text|console) (ui|interface|application|program|browser|client|viewer|editor)|key ?bindings?|keyboard shortcuts|vi-like|vim-like|emacs-like|terminal ui|text user interface)\b`)
+	ifChanges            = regexp.MustCompile(`(?i)\b(configure[sd]?|change[sd]?|modif(y|ies)|set(s)? (the|a|up|or)|enable[sd]?|disable[sd]?|install(s|ed)?|uninstall|(remove[sd]?|delete[sd]?) (files?|directories|packages?|users?|groups?|rules?|modules?|services?|devices?|partitions?|containers?|images?|keys?|entries)|add(s)? (a|an|or|new)|control(s|ling)? (the|a|an|system)|start(s)? (and|or|the)|stop(s)? (and|or|the)|mount(s)?|unmount|kill(s)?|manage[sd]?|creates? (a|an|new)|update[sd]? (the|a)|apply|applies|edit(s|or)?|rename[sd]?|move[sd]?|cop(y|ies)|format(s)? (a|the) (disk|partition|device))\b`)
+	ifTable              = regexp.MustCompile(`(?i)\b(columns?|tabular|in a table|table (format|output|view)|no[- ]headers?|header (line|row)s?|omit (the )?header|fields? (to|separated)|--output[= ](wide|table)|output fields|csv|tsv)\b`)
+	ifRoot               = regexp.MustCompile(`(?i)\b(must be root|must be run as root|run (it )?as root|requires? (root|superuser|administrator)|root (privileges?|permissions?|access)|superuser (privileges?|access)?|only (the )?root|cap_net_(raw|admin)|cap_sys_\w+|privileged (user|operation|mode)|needs? to be root|as the root user)\b`)
+	ifDestroys           = regexp.MustCompile(`(?i)\b(delete[sd]?|remove[sd]? (files?|directories|the|all|packages?|entries)|erase[sd]?|wipe[sd]?|shred|destroy(s|ed)?|overwrite[sd]?|truncate[sd]?|kill(s)? (processes|a process|the)|format(s)? (a|the) (disk|partition|device|filesystem)|purge[sd]?)\b`)
+	// A usage argument that repeats the run: vmstat [delay [count]].
+	ifRepeatWord = regexp.MustCompile(`(?i)^(delay|interval|seconds?|secs|period|count|iterations?|repeats?)$`)
+	// It records or captures as things happen.
+	ifCaptures = regexp.MustCompile(`(?i)\b(captur(e|es|ing)|sniff(s|er|ing)?|record(s|er|ing)? (audio|sound|video|the screen|from|packets|traffic)|dump(s)? (network )?(traffic|packets))\b`)
+	// It reads a setting and changes it: "query or change", "read and control".
+	ifReadAndSet = regexp.MustCompile(`(?i)\b(query|get|show|read|display|view)( and|,| or| and/or) (set|change|control|modify|adjust|configure)s?\b`)
+	// Its purpose is making files.
+	ifMakesFiles = regexp.MustCompile(`(?i)\b(convert(s|er)?|compress(es|ion|or)?|archiv(e|er|es|ing)|encod(e|er|es|ing)|render(s|er)?|compil(e|er|es)|transcod(e|er|es))\b`)
+	// It lists or reports items, one per row.
+	ifListsItems = regexp.MustCompile(`(?i)^[^\n]{0,12}\b(list|lists|listing|report|reports|display|displays|show|shows|print|prints)\b[^\n]{0,40}\b(devices|processes|files|users|sessions|packages|modules|partitions|interfaces|connections|sockets|jobs|entries|file ?systems|block devices|statistics|units|locks|namespaces|services|containers|mounts|logins|routes|tables|volumes)\b`)
+	// Options that shape rows and columns.
+	ifTableOption = regexp.MustCompile(`^(no-?headers?|noheadings|no-heading|output-fields|fields|columns|list-columns|tabular|table)$`)
 	// A usage word that names the subcommand or its options, not a target.
 	ifCommandWord = regexp.MustCompile(`(?i)^(sub-?)?(command|cmd|commands|operation|object|action|global|options?|opts|subcommand|verb|group|args?|arguments?|parameters?|flags?)s?(\.\.\.)?$`)
 	// Two inputs come in pairs: FILE1 FILE2, OLD NEW, LEFT RIGHT.
@@ -57,19 +71,49 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 		out[q] = appkit.Answer{Yes: yes, Sure: sure, Why: why}
 	}
 
-	// Keeps running.
+	syn := ParseSynopsis(name, manLines, helpLines)
+	repeatArg := ""
+	if len(syn.Forms) > 0 {
+		for _, ps := range syn.Forms[0].Positionals {
+			// COUNT alone is often something else (ar's member count).
+			if ifRepeatWord.MatchString(ps.Name) && !strings.EqualFold(ps.Name, "count") {
+				repeatArg = ps.Name
+				break
+			}
+		}
+	}
+	about := p.Summary + "\n" + p.PackageSummary + "\n" + p.Description
+
+	// Keeps running: refreshes on a timer, streams until stopped, or serves.
 	runOpt := ""
 	for _, f := range spec.Flags {
-		if ifRunOption.MatchString(strings.ToLower(strings.TrimLeft(flagName(f.Flag), "-"))) {
-			runOpt = f.Flag
-			break
+		n := strings.ToLower(strings.TrimLeft(flagName(f.Flag), "-"))
+		if !ifRunOption.MatchString(n) {
+			continue
 		}
+		// --follow, --delay and the like mean other things too (find
+		// -follow follows links; convert -delay sets an animation's):
+		// only when the option is about running on does it count.
+		if ifRunOptionAmbiguous.MatchString(n) && !ifRunOptionDesc.MatchString(f.Label+" "+f.Hint) {
+			continue
+		}
+		runOpt = f.Flag
+		break
 	}
 	switch {
 	case runOpt != "":
 		set(appkit.QKeepsRunning, true, appkit.SureStrong, "option "+runOpt)
+	case repeatArg != "":
+		set(appkit.QKeepsRunning, true, appkit.SureStrong, "usage repeats every "+repeatArg)
+	case ifMatch(ifKeepsRunning, about) != "":
+		set(appkit.QKeepsRunning, true, appkit.SureStrong, "description says "+ifMatch(ifKeepsRunning, about))
+	case ifMatch(ifCaptures, front) != "":
+		set(appkit.QKeepsRunning, true, appkit.SureStrong, "summary says "+ifMatch(ifCaptures, front))
+	case len(name) > 3 && strings.HasSuffix(name, "top"):
+		set(appkit.QKeepsRunning, true, appkit.SureStrong, "a top-style monitor ("+name+")")
 	case ifMatch(ifKeepsRunning, text) != "":
-		set(appkit.QKeepsRunning, true, appkit.SureStrong, "help says "+ifMatch(ifKeepsRunning, text))
+		// Said somewhere in a long help, in passing: a hint only.
+		set(appkit.QKeepsRunning, true, appkit.SureWeak, "help says "+ifMatch(ifKeepsRunning, text))
 	case ifMatch(ifMonitorWord, front) != "":
 		set(appkit.QKeepsRunning, true, appkit.SureWeak, "summary says "+ifMatch(ifMonitorWord, front))
 	default:
@@ -80,6 +124,10 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 	switch {
 	case ifMatch(ifChanges, front) != "":
 		set(appkit.QChangesThings, true, appkit.SureStrong, "summary says "+ifMatch(ifChanges, front))
+	case ifMatch(ifReadAndSet, front) != "":
+		set(appkit.QChangesThings, true, appkit.SureStrong, "summary says "+ifMatch(ifReadAndSet, front))
+	case len(name) > 3 && strings.HasSuffix(name, "ctl"):
+		set(appkit.QChangesThings, true, appkit.SureStrong, "a control tool ("+name+")")
 	default:
 		mut := ""
 		for _, n := range discoveredSubcommands(append(append([]string{}, helpLines...), manLines...)) {
@@ -96,15 +144,14 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 	}
 
 	// Takes a target; two inputs.
-	syn := ParseSynopsis(name, manLines, helpLines)
 	var inputs []Positional
 	if len(syn.Forms) > 0 {
 		for _, ps := range syn.Forms[0].Positionals {
 			if ps.Role == appkit.RoleOutputFile || ps.Role == appkit.RoleOutputDir {
 				continue
 			}
-			if ifCommandWord.MatchString(ps.Name) {
-				continue // "COMMAND", "[global]": the subcommand, not a target
+			if ifCommandWord.MatchString(ps.Name) || ifRepeatWord.MatchString(ps.Name) {
+				continue // "COMMAND", "[delay [count]]": not a target
 			}
 			inputs = append(inputs, ps)
 		}
@@ -119,7 +166,8 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 	case required > 0:
 		set(appkit.QTarget, true, appkit.SureStrong, "usage needs "+inputs[0].Name)
 	case len(inputs) > 0:
-		set(appkit.QTarget, true, appkit.SureWeak, "usage allows ["+inputs[0].Name+"]")
+		// It works without one: the box would be optional, not the point.
+		set(appkit.QTarget, false, appkit.SureWeak, "usage only allows ["+inputs[0].Name+"]")
 	case len(syn.Forms) > 0:
 		set(appkit.QTarget, false, appkit.SureStrong, "usage takes no arguments")
 	default:
@@ -154,14 +202,28 @@ func detectAnswers(name, manText, helpText string, spec appkit.ToolSpec) appkit.
 		set(appkit.QWritesFile, true, appkit.SureStrong, "output option "+outOpt)
 	case outPos:
 		set(appkit.QWritesFile, true, appkit.SureStrong, "usage names an output")
+	case ifMatch(ifMakesFiles, front) != "":
+		set(appkit.QWritesFile, true, appkit.SureWeak, "summary says "+ifMatch(ifMakesFiles, front))
 	default:
 		set(appkit.QWritesFile, false, appkit.SureWeak, "no output option or argument")
 	}
 
-	// Table output.
-	if w := ifMatch(ifTable, text); w != "" {
-		set(appkit.QTable, true, appkit.SureWeak, "help says "+w)
-	} else {
+	// Table output: it lists or reports items, one row each.
+	tableOpt := ""
+	for _, f := range spec.Flags {
+		if ifTableOption.MatchString(strings.ToLower(strings.TrimLeft(flagName(f.Flag), "-"))) {
+			tableOpt = f.Flag
+			break
+		}
+	}
+	switch {
+	case ifMatch(ifListsItems, front) != "":
+		set(appkit.QTable, true, appkit.SureStrong, "summary says "+ifMatch(ifListsItems, front))
+	case tableOpt != "":
+		set(appkit.QTable, true, appkit.SureStrong, "option "+tableOpt)
+	case ifMatch(ifTable, text) != "":
+		set(appkit.QTable, true, appkit.SureWeak, "help says "+ifMatch(ifTable, text))
+	default:
 		set(appkit.QTable, false, appkit.SureWeak, "")
 	}
 
@@ -246,9 +308,6 @@ func addSystemEvidence(name, manText string, manLines []string, out appkit.Answe
 			sure = appkit.SureStrong
 		}
 		raise(appkit.QFullScreen, sure, "its package uses ncurses")
-	}
-	if info.Service && small {
-		raise(appkit.QKeepsRunning, appkit.SureWeak, "its package installs a service")
 	}
 }
 
