@@ -11,7 +11,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
-// Choosing the archetype of a program no list names: one of the 36
+// Choosing the archetype of a program no list names: one of the 37
 // (appkit.AllArchetypeDefs), from two kinds of evidence.
 //
 //   - Behaviour: what the usage lines take (HOST..., PATTERN, FILE1 FILE2,
@@ -70,6 +70,9 @@ var archetypeSignals = map[string][]string{
 		"kernel ring buffer|ring buffer", "~as they arrive|~appended", "audit log"},
 	"record": {"capture|packet capture", "pcap|pcapng|libpcap", "~record|~recording", "~dump", "network traffic|traffic",
 		"promiscuous", "sniff|sniffer", "~stream", "~to a file"},
+	"record-sound": {"record audio|records audio|recording audio|audio recorder|sound recorder|record sound|records sound|capture audio|captures audio",
+		"microphone|audio input|line in|capture device|recording device",
+		"sample rate|sampling rate|~samples|~channels|~mono|~stereo", "~wav|~wave|~flac|~ogg|~au|~raw audio|~pcm"},
 	"probe": {"~scan|~scanner", "port scan|port scanner|network scanner|host scan", "ping|icmp|echo request", "traceroute|route packets|hop|hops",
 		"host discovery|discover hosts|open ports", "~target|~targets", "~ports", "bad blocks|bad sectors", "~probe"},
 	"audit": {"audit|auditing|security audit", "vulnerability|vulnerabilities|cve", "malware|virus|antivirus|rootkit",
@@ -196,11 +199,13 @@ var (
 	reOptSignal   = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--signal\b|^\s{0,12}-s,?\s+(?:--\S+\s+)?<?sig(?:nal)?>?\b`)
 	reOptPriority = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:priority|niceness)\b`)
 	// --pid or --pgrp itself (not --pidfile), and ionice's I/O class.
-	reOptPidOnly = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp)\b(?:[^-]|$)`)
-	reOptIOClass = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--(?:class|classdata)\b`)
-	reNameKills  = regexp.MustCompile(`(?i)kill`)
-	reOptPid     = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp|pidfile)\b`)
-	reOptLength  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:length|count|number|num|seed|width|font)\b`)
+	reOptPidOnly  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp)\b(?:[^-]|$)`)
+	reOptIOClass  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--(?:class|classdata)\b`)
+	reNameRecords = regexp.MustCompile(`(?i)rec(?:ord)?`)
+	reSaysSound   = regexp.MustCompile(`(?i)\b(?:audio|sound|microphone|pulseaudio|pipewire|alsa)\b`)
+	reNameKills   = regexp.MustCompile(`(?i)kill`)
+	reOptPid      = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp|pidfile)\b`)
+	reOptLength   = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:length|count|number|num|seed|width|font)\b`)
 
 	// A typed session: an interactive shell, REPL, or a prompt the user
 	// answers. sessionCuesMatch is true when either matches.
@@ -422,6 +427,14 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 		add("filter", saidIn(reSaysStdin), cueMedium, "it reads standard input and writes standard output")
 	}
 
+	// Its name says it records, and it is about sound: arecord,
+	// parecord, pw-record. One page often covers playing and recording
+	// (pacat, pw-cat); the name is the mode, so it counts like a usage
+	// line.
+	if reNameRecords.MatchString(p.Name) && reSaysSound.MatchString(p.Summary+"\n"+p.Description) {
+		add("record-sound", zoneUsage, cueStrong, "its name says it records, and it records sound")
+	}
+
 	// Its name says it kills: kill, pkill, killall, xkill.
 	if reNameKills.MatchString(p.Name) {
 		add("signal", zoneName, cueMedium, "its name says it kills processes")
@@ -568,7 +581,7 @@ func relatedArchetypes(name string, related []string) map[appkit.ArchetypeID][]s
 	return out
 }
 
-// scoreArchEvidence weighs evidence with w: the 36 archetypes, best first;
+// scoreArchEvidence weighs evidence with w: the 37 archetypes, best first;
 // ties go to the order of appkit.AllArchetypeDefs, so every run is the same.
 func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	words := map[appkit.ArchetypeID]PhraseScore{}
@@ -628,7 +641,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	return out
 }
 
-// scoreArchetypes ranks the 36 archetypes for a program, best first.
+// scoreArchetypes ranks the 37 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
 	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
 }

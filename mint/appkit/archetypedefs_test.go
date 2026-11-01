@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// 36: Ask … Session, and General for anything else.
+// 37: Ask … Session, and General for anything else.
 func TestThirtyFiveArchetypes(t *testing.T) {
 	defs := AllArchetypeDefs()
-	if len(defs) != 36 {
+	if len(defs) != 37 {
 		t.Fatalf("%d archetypes", len(defs))
 	}
 	seen := map[string]bool{}
