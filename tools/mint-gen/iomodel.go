@@ -54,8 +54,10 @@ type IOModel struct {
 	Known     bool   // the tool is in the known-tools list
 	Usage     string // the first usage form
 	Archetype ArchetypeChoice
-	HelpRead  []string // the help mint-gen read ("man page", "--help", "-h (the help says…)")
-	HelpNotes []string // help that could not be read, and why
+	Signals   behaviourSignals // what the help shows clearly about how it behaves
+	Notes     []string         // where they disagree with the archetype, or change how Mint handles it
+	HelpRead  []string         // the help mint-gen read ("man page", "--help", "-h (the help says…)")
+	HelpNotes []string         // help that could not be read, and why
 }
 
 // BuildIOModel combines the options' roles (ClassifyArg), the usage forms
@@ -221,6 +223,7 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 	}
 	if m.Archetype.ID != "" {
 		explainArchetypeChoice(w, m.Tool, m.Archetype)
+		printSignalNotes(w, m.Notes)
 	}
 	if m.Usage != "" {
 		p("  Usage:    %s", m.Usage)

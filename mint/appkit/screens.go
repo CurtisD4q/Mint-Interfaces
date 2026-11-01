@@ -596,6 +596,11 @@ func (a *ToolApp) rootAuthSection() *mint.Section {
 }
 
 func (a *ToolApp) executeFromUI(c *mint.Ctx) {
+	if a.Spec.FullScreen {
+		// It would draw over Mint and wait for keys Mint cannot pass on.
+		c.ToastWarn(a.Spec.Name + " opens full-screen: run it in a terminal: " + a.CommandPreview())
+		return
+	}
 	if a.Spec.Preview != nil {
 		var plan fileplan.Plan
 		var err error
@@ -773,6 +778,9 @@ func (a *ToolApp) stateEditWanted() bool {
 // executionMode picks the middle zone. Live refresh wins over a state
 // editor, so a controller that can both poll and read status polls.
 func (a *ToolApp) executionMode() execMode {
+	if a.Spec.FullScreen {
+		return execOnce // never polled: it would take over the terminal
+	}
 	b := a.blueprint()
 	if b.Has(FeatLiveRefresh) || (a.Spec.PollInterval > 0 && a.Spec.CanReadState()) {
 		return execPoll

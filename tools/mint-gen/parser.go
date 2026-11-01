@@ -244,6 +244,11 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	model.Archetype = choice
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
+	// What the help shows clearly about how the program behaves: caution
+	// and handling on top of the archetype (see signals.go).
+	model.Signals = readSignals(name, manText, helpText)
+	applySignals(&spec, model.Signals)
+	model.Notes = signalNotes(appkit.ArchetypeID(spec.ArchetypeID), model.Signals)
 	return spec, model
 }
 

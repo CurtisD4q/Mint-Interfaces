@@ -113,8 +113,10 @@ func runCLI(args []string) int {
 		if !rep.Compatible {
 			return 1
 		}
-		if spec, err := ParseProgram(checkTarget); err == nil {
+		if spec, model := ParseProgramIO(checkTarget); spec.Name != "" {
+			printHelpNotes(model.HelpNotes)
 			fmt.Println()
+			printSignalNotes(os.Stdout, model.Notes)
 			printSafetyReport(os.Stdout, spec)
 			printKnownToolWarnings(os.Stderr)
 		}
@@ -165,6 +167,9 @@ func runCLI(args []string) int {
 		srcs, _ := CollectHelpNotes(program)
 		manText, helpText := manAndHelp(srcs)
 		applyChosenArchetype(&spec, a, manText+"\n"+helpText)
+		// The signals' caution stays with any archetype.
+		applySignals(&spec, model.Signals)
+		model.Notes = signalNotes(a.ID, model.Signals)
 	}
 
 	prof, _, cached := ensureTermProfile(false)
@@ -181,6 +186,7 @@ func runCLI(args []string) int {
 		fmt.Printf("  - %s\n", f)
 	}
 	printArchetypeChoice(os.Stdout, program, model.Archetype, archetypeFlag)
+	printSignalNotes(os.Stdout, model.Notes)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
 	printKnownToolWarnings(os.Stderr)

@@ -21,6 +21,7 @@ type packageInfo struct {
 	Summary     string // the first line of Description
 	Description string // the rest of it, as one paragraph
 	Programs    int    // how many programs the package installs
+	Depends     string // what it depends on (Depends and Pre-Depends)
 }
 
 // maxPackagePrograms is how many programs a package may install and still
@@ -34,11 +35,13 @@ var (
 	pkgOfPath     map[string]string // installed program path -> package
 	pkgPrograms   map[string]int    // package -> programs it installs
 	pkgDescs      map[string][2]string
+	pkgDepends    map[string]string
 	maxDpkgStatus int64 = 64 << 20
 )
 
 func loadPackages() {
 	pkgOfPath, pkgPrograms, pkgDescs = map[string]string{}, map[string]int{}, map[string][2]string{}
+	pkgDepends = map[string]string{}
 	lists, _ := filepath.Glob(filepath.Join(dpkgDir, "info", "*.list"))
 	for _, l := range lists {
 		pkg := strings.TrimSuffix(filepath.Base(l), ".list")
@@ -70,7 +73,7 @@ func loadPackages() {
 		return
 	}
 	for _, stanza := range strings.Split(string(b), "\n\n") {
-		pkg, short := "", ""
+		pkg, short, deps := "", "", ""
 		var long []string
 		inDesc := false
 		for _, line := range strings.Split(stanza, "\n") {
@@ -81,6 +84,9 @@ func loadPackages() {
 			case strings.HasPrefix(line, "Description: "):
 				short = strings.TrimSpace(strings.TrimPrefix(line, "Description: "))
 				inDesc = true
+			case strings.HasPrefix(line, "Depends: "), strings.HasPrefix(line, "Pre-Depends: "):
+				deps += " " + strings.TrimSpace(line[strings.IndexByte(line, ' '):])
+				inDesc = false
 			case inDesc && strings.HasPrefix(line, " "):
 				if t := strings.TrimSpace(line); t != "." {
 					long = append(long, t)
@@ -88,6 +94,9 @@ func loadPackages() {
 			default:
 				inDesc = false
 			}
+		}
+		if pkg != "" && deps != "" {
+			pkgDepends[pkg] = strings.TrimSpace(deps)
 		}
 		if pkg != "" && short != "" {
 			d := strings.Join(long, " ")
@@ -128,7 +137,7 @@ func lookupPackage(name string) (packageInfo, bool) {
 			if !ok {
 				return packageInfo{}, false
 			}
-			return packageInfo{Package: pkg, Summary: d[0], Description: d[1], Programs: pkgPrograms[pkg]}, true
+			return packageInfo{Package: pkg, Summary: d[0], Description: d[1], Programs: pkgPrograms[pkg], Depends: pkgDepends[pkg]}, true
 		}
 	}
 	return packageInfo{}, false
