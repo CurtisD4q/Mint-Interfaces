@@ -248,7 +248,19 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// and handling on top of the archetype (see signals.go).
 	model.Signals = readSignals(name, manText, helpText)
 	applySignals(&spec, model.Signals)
+	// A full-screen program with a batch mode runs in that mode instead
+	// (see batch.go).
+	if rule, ok := curatedExclusions[name]; (ok && rule.Category == CatFullScreenTUI) || model.Signals.FullScreen {
+		if b, ok := findBatchMode(name, spec); ok {
+			applyBatchMode(&spec, b, choice.Confidence == ConfidenceListed, model.Signals.Changes, manText+"\n"+helpText)
+			model.Batch = &b
+			model.Signals.FullScreen, model.Signals.MaybeFullScreen = false, false
+		}
+	}
 	model.Notes = signalNotes(appkit.ArchetypeID(spec.ArchetypeID), model.Signals)
+	if model.Batch != nil {
+		model.Notes = append([]string{batchNote(name, *model.Batch)}, model.Notes...)
+	}
 	return spec, model
 }
 

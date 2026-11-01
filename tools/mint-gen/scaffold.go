@@ -176,6 +176,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.FullScreen {
 		buf.WriteString("\t\tFullScreen:        true,\n")
 	}
+	if len(spec.BatchArgs) > 0 {
+		fmt.Fprintf(&buf, "\t\tBatchArgs:         %s,\n", goStrings(spec.BatchArgs))
+	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)
 	if spec.TargetDefault != "" {

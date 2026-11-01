@@ -113,6 +113,10 @@ type ToolSpec struct {
 	// nano, less), so Mint shows its command to run in a terminal instead
 	// of running it, and never polls it.
 	FullScreen bool `json:"full_screen,omitempty"`
+	// BatchArgs start every run (and every live refresh) so a program that
+	// is full-screen by default prints plain text and exits instead:
+	// top -b -n 1, lynx -dump. See mint-gen's batch modes.
+	BatchArgs []string `json:"batch_args,omitempty"`
 	// Archetype is the deprecated base-layout field. MainScreen ignores it.
 	// It remains so saved specs (the JSON key "archetype", or "layout") and
 	// older callers still compile.
@@ -992,6 +996,8 @@ func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, std
 		args = append(args, a.Spec.ApplyArgs...)
 	}
 	prefix := len(args) // subcommand or apply words
+	// Batch words come first among the options: top -b -n 1 -d 2.
+	args = append(args, a.Spec.BatchArgs...)
 	flagArgs, outPath, stdin := a.composeArgs(mode)
 	args = append(args, flagArgs...)
 	args, _ = a.diffArgs(args, prefix)

@@ -110,6 +110,12 @@ func runCLI(args []string) int {
 		rep := CheckCompatibility(checkTarget)
 		printCompatReport(rep)
 		fmt.Printf("Terminal:    %s\n", formatTermSummary(prof, cached))
+		if !rep.Compatible && rep.Category == CatFullScreenTUI {
+			if _, m := ParseProgramIO(checkTarget); m.Batch != nil {
+				fmt.Printf("Batch mode:  %s %s (%s): mint-gen can build it in this mode\n", checkTarget, strings.Join(m.Batch.Args, " "), m.Batch.Why)
+				rep.Compatible = true
+			}
+		}
 		if !rep.Compatible {
 			return 1
 		}
@@ -149,6 +155,12 @@ func runCLI(args []string) int {
 	}
 
 	rep := CheckCompatibility(program)
+	if !rep.Compatible && !force && rep.Category == CatFullScreenTUI {
+		// A full-screen program with a batch mode is built in that mode.
+		if _, m := ParseProgramIO(program); m.Batch != nil {
+			rep.Compatible = true
+		}
+	}
 	if !rep.Compatible && !force {
 		printCompatReport(rep)
 		fmt.Fprintf(os.Stderr, "\nRefusing to scaffold %q (excluded category: %s). Pass --force to override.\n", program, rep.Category)

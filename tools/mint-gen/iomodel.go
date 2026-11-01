@@ -55,6 +55,7 @@ type IOModel struct {
 	Usage     string // the first usage form
 	Archetype ArchetypeChoice
 	Signals   behaviourSignals // what the help shows clearly about how it behaves
+	Batch     *batchMode       // the batch mode it runs in, when it is full-screen by default
 	Notes     []string         // where they disagree with the archetype, or change how Mint handles it
 	HelpRead  []string         // the help mint-gen read ("man page", "--help", "-h (the help says…)")
 	HelpNotes []string         // help that could not be read, and why
