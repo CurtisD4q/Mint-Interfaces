@@ -32,6 +32,10 @@ type ArchetypeScore struct {
 	ID    appkit.ArchetypeID
 	Score float64
 	Hits  []string
+	// Score in two parts: behaviour cues (how the program works: its
+	// usage, subcommands and options), and words (its phrases, subject
+	// and related programs). Score is their sum.
+	Cues, Words float64
 }
 
 // archetypeSignals are each archetype's phrases, in the notation of
@@ -538,23 +542,24 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	for _, def := range appkit.AllArchetypeDefs() {
 		s := ArchetypeScore{ID: def.ID}
 		for _, h := range ev.cues[def.ID] {
-			s.Score += float64(w.CueZone[h.zone]) * float64(w.CueStrength[h.level]) / 100
+			s.Cues += float64(w.CueZone[h.zone]) * float64(w.CueStrength[h.level]) / 100
 			s.Hits = append(s.Hits, h.why)
 		}
 		if ws, ok := words[def.ID]; ok {
-			s.Score += float64(ws.Score)
+			s.Words += float64(ws.Score)
 			s.Hits = append(s.Hits, ws.Hits...)
 		}
 		if bs, ok := broad[def.ID]; ok {
 			if pts := float64(bs.Score) * w.BroadShare / 100; pts > 0 {
-				s.Score += pts
+				s.Words += pts
 				s.Hits = append(s.Hits, fmt.Sprintf("its subject (%s): %s", points(pts), strings.Join(bs.Hits, ", ")))
 			}
 		}
 		for _, r := range ev.related[def.ID] {
-			s.Score += w.Related
+			s.Words += w.Related
 			s.Hits = append(s.Hits, "related: "+r)
 		}
+		s.Score = s.Cues + s.Words
 		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })

@@ -445,3 +445,136 @@ func TestArchetypeTuning(t *testing.T) {
 			w.CueStrength, w.Words.WeakName, w.Words.WeakSummary, w.Words.WeakDescription, w.Words.WeakUsage, w.Words.BodyCap, w.BroadShare, w.Related)
 	}
 }
+
+// TestTwoStepSearch tries choosing in two steps: the group of archetypes
+// first (mostly from behaviour cues), then the archetype within it (mostly
+// from words). Settings are chosen by 5-fold cross-validation
+// (MINT_ARCHETYPE_BENCH=twostep).
+func TestTwoStepSearch(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "twostep" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=twostep")
+	}
+	group := map[appkit.ArchetypeID]string{}
+	for _, d := range appkit.AllArchetypeDefs() {
+		group[d.ID] = d.Group
+	}
+	type doc struct {
+		want   appkit.ArchetypeID
+		scores []ArchetypeScore
+	}
+	var docs []doc
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		docs = append(docs, doc{c.Want, scoreArchetypes(programTextFrom(c.Name, man, help))})
+	}
+	type setting struct {
+		agg         string  // how a group's score is made from its archetypes
+		alpha, beta float64 // words in the group step; cues in the archetype step
+	}
+	var settings []setting
+	for _, agg := range []string{"max", "sum", "top2"} {
+		for _, a := range []float64{0, 0.25, 0.5, 1} {
+			for _, b := range []float64{0, 0.25, 0.5, 1, 2} {
+				settings = append(settings, setting{agg, a, b})
+			}
+		}
+	}
+	choose := func(s setting, sc []ArchetypeScore) (arch appkit.ArchetypeID, grp string) {
+		vals := map[string][]float64{}
+		for _, x := range sc {
+			vals[group[x.ID]] = append(vals[group[x.ID]], x.Cues+s.alpha*x.Words)
+		}
+		best, bestV := "", -1.0
+		for g, vs := range vals {
+			sort.Sort(sort.Reverse(sort.Float64Slice(vs)))
+			v := vs[0]
+			switch s.agg {
+			case "sum":
+				v = 0
+				for _, x := range vs {
+					v += x
+				}
+			case "top2":
+				if len(vs) > 1 {
+					v += vs[1]
+				}
+			}
+			if v > bestV || (v == bestV && g < best) {
+				best, bestV = g, v
+			}
+		}
+		bv := -1.0
+		for _, x := range sc {
+			if group[x.ID] != best {
+				continue
+			}
+			if v := x.Words + s.beta*x.Cues; v > bv {
+				arch, bv = x.ID, v
+			}
+		}
+		return arch, best
+	}
+	n := len(docs)
+	okA := make([][]bool, len(settings))
+	for si, s := range settings {
+		okA[si] = make([]bool, n)
+		for i, d := range docs {
+			a, _ := choose(s, d.scores)
+			okA[si][i] = a == d.want
+		}
+	}
+	count := func(row []bool, keep func(int) bool) (c int) {
+		for i, r := range row {
+			if keep(i) && r {
+				c++
+			}
+		}
+		return
+	}
+	flat, flatGroup := 0, 0
+	for _, d := range docs {
+		if d.scores[0].ID == d.want {
+			flat++
+		}
+		if group[d.scores[0].ID] == group[d.want] {
+			flatGroup++
+		}
+	}
+	t.Logf("flat (as now): archetype %d/%d, group %d/%d", flat, n, flatGroup, n)
+	cv := 0
+	var chose []string
+	for f := 0; f < 5; f++ {
+		best, bn := 0, -1
+		for si := range settings {
+			if c := count(okA[si], func(i int) bool { return i%5 != f }); c > bn {
+				best, bn = si, c
+			}
+		}
+		cv += count(okA[best], func(i int) bool { return i%5 == f })
+		chose = append(chose, fmt.Sprintf("%+v", settings[best]))
+	}
+	t.Logf("two-step, settings chosen by cross-validation: archetype %d/%d  folds chose %v", cv, n, chose)
+	order := make([]int, len(settings))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return count(okA[order[a]], func(int) bool { return true }) > count(okA[order[b]], func(int) bool { return true })
+	})
+	for _, si := range order[:6] {
+		s := settings[si]
+		g := 0
+		for _, d := range docs {
+			if _, gg := choose(s, d.scores); gg == group[d.want] {
+				g++
+			}
+		}
+		t.Logf("  best seen %+v: archetype %d/%d, group %d/%d", s, count(okA[si], func(int) bool { return true }), n, g, n)
+	}
+}
