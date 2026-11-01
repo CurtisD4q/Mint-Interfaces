@@ -9,8 +9,8 @@ import (
 
 // Every archetype keeps many advanced options in their own pane.
 func TestEveryArchetypeFollowsItsPaneRule(t *testing.T) {
-	if n := len(AllArchetypeDefs()); n != 36 {
-		t.Fatalf("%d archetypes, want 36", n)
+	if n := len(AllArchetypeDefs()); n != 37 {
+		t.Fatalf("%d archetypes, want 37", n)
 	}
 	var split, rest int
 	for _, def := range AllArchetypeDefs() {
@@ -26,8 +26,8 @@ func TestEveryArchetypeFollowsItsPaneRule(t *testing.T) {
 			assertPaneRule(t, def, with, true)
 		})
 	}
-	if split != 36 || rest != 0 {
-		t.Fatalf("%d archetypes split advanced options, %d do not; want all 36", split, rest)
+	if split != 37 || rest != 0 {
+		t.Fatalf("%d archetypes split advanced options, %d do not; want all 37", split, rest)
 	}
 }
 

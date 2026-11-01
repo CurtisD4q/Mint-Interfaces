@@ -15,7 +15,7 @@ var moreArchetypeSignals = map[string][]string{
 	"read":       {"~reading", "~viewer|~viewing", "screen at a time|one screenful|screenful", "~browser", "info pages|manual pages"},
 	"watch":      {"~monitors", "realtime|real-time", "~refreshes|updates every", "~periodically", "interactive process viewer|process viewer", "~utilisation"},
 	"follow":     {"~following", "~tail", "as they happen|as they occur", "~streaming", "~messages", "watch for changes"},
-	"record":     {"~captures|~capturing", "~dumps", "audio input|microphone", "screen recording|session recording|terminal session"},
+	"record":     {"~captures|~capturing", "~dumps", "screen recording|session recording|terminal session"},
 	"probe":      {"~scans|~scanning", "~probes", "~pings", "~reachable|~reachability", "network discovery"},
 	"audit":      {"~check for|~checks for", "~weakness|~weaknesses"},
 	"measure":    {"~measures"},

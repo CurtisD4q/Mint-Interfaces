@@ -239,8 +239,8 @@ generate_randfile generate bench
 mktemp generate bench
 pw-mon follow bench
 xtables-monitor follow bench
-arecord record bench
-parecord record bench
+arecord record-sound bench
+parecord record-sound bench
 script record bench
 rev filter bench
 expand filter bench
@@ -275,7 +275,7 @@ pathchk audit bench
 zgrep search bench
 stty device bench
 btmon record bench
-pw-record record bench
+pw-record record-sound bench
 chgrp edit-files bench
 rmdir edit-files bench
 chattr edit-files bench

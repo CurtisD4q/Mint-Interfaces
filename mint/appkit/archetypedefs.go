@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// The 36 archetypes say what kind of program a tool is: what it takes in,
+// The 37 archetypes say what kind of program a tool is: what it takes in,
 // how it runs, and what it gives back. Each is a definition with guide
 // fields, and its interface preferences are weights from 0 to 1, so that a
 // design style can later be blended in by weight (see Blueprint). There are
@@ -16,7 +16,7 @@ import (
 // screen from these features: what the program takes, how it runs (once,
 // polled, or as a state editor), and what it shows.
 
-// ArchetypeID names one of the 36 archetypes: "probe", "look-up"…
+// ArchetypeID names one of the 37 archetypes: "probe", "look-up"…
 type ArchetypeID string
 
 // Feature is one thing an interface can have: a table of results, a live
@@ -168,6 +168,11 @@ var archetypeRegistry = []ArchetypeDef{
 		Runs: "Until stopped or for a set time.", Shows: "How long and how much so far; the file at the end.",
 		Prefer: Preferences{Features: feat(FeatFileOutput, 1.0, FeatProgress, 0.8, FeatRoot, 0.5, FeatDynamicChoices, 0.5, FeatTable, 0.3)},
 		Data:   DataSensitive, DataReason: "recordings can capture passwords, private messages or what is on screen"},
+	{ID: "record-sound", DefaultExt: "wav", Name: "Record sound", Group: GroupObserve,
+		Is: "Records sound from a microphone or audio device to a file.", Takes: "An audio device, a format, and a file.",
+		Runs: "Until stopped or for a set time.", Shows: "How long so far; the recording at the end.",
+		Prefer: Preferences{Features: feat(FeatFileOutput, 1.0, FeatDynamicChoices, 0.8, FeatProgress, 0.7, FeatProfiles, 0.5)},
+		Data:   DataSensitive, DataReason: "sound recordings can capture private conversations"},
 
 	// ---- Act on targets ----
 	{ID: "probe", DefaultExt: "txt", Name: "Probe", Group: GroupTargets,
@@ -294,7 +299,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Prefer: Preferences{Features: feat(FeatCollapsible, 0.6, FeatFileOutput, 0.4, FeatHistory, 0.3)}},
 }
 
-// AllArchetypeDefs returns the 36 archetypes in order.
+// AllArchetypeDefs returns the 37 archetypes in order.
 func AllArchetypeDefs() []ArchetypeDef {
 	return append([]ArchetypeDef(nil), archetypeRegistry...)
 }

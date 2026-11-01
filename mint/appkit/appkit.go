@@ -1,5 +1,5 @@
 // Package appkit provides a declarative runtime for turning command-line
-// programs into Mint TUI applications using 36 archetypes and composable
+// programs into Mint TUI applications using 37 archetypes and composable
 // mixins (add-ons). MainScreen is assembled from the archetype's features.
 package appkit
 
@@ -108,7 +108,7 @@ type ToolSpec struct {
 	Title       string `json:"title,omitempty"`
 	Desc        string `json:"desc,omitempty"`
 	Version     string `json:"version,omitempty"`
-	ArchetypeID string `json:"archetype_id,omitempty"` // which of the 36 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	ArchetypeID string `json:"archetype_id,omitempty"` // which of the 37 archetypes: "probe", "look-up"… (see ArchetypeDef)
 	// FullScreen: the program draws its own full-screen interface (htop,
 	// nano, less), so Mint shows its command to run in a terminal instead
 	// of running it, and never polls it.

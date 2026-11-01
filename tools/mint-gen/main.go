@@ -40,7 +40,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
 	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
-	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 36 archetypes and the add-ons")
+	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 37 archetypes and the add-ons")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
 	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
@@ -560,7 +560,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 	app := &mint.App{
 		Title: "◈ Mint Generator",
 		Crumb: "mint-gen",
-		Note:  "man-page & --help interface scaffolder (36 Archetypes · Mixins)",
+		Note:  "man-page & --help interface scaffolder (37 Archetypes · Mixins)",
 		Items: []mint.HomeItem{
 			{Icon: "▸", Label: "Inspect & Scaffold", Desc: "Detect the archetype, inspect parsed flags, and scaffold apps/<tool>", Open: mainScr},
 		},

@@ -1,6 +1,6 @@
-# Mint Starters — 36 Archetypes & Mixins
+# Mint Starters — 37 Archetypes & Mixins
 
-Every compatible Linux CLI program can be wrapped in Mint using **36 archetypes** (what kind of program it is) and **composable mixins** (add-ons), provided by `mint/appkit`. `tools/mint-gen` detects a program's archetype. `MainScreen` is one screen assembled from that archetype: what it takes, how it runs, and what it shows.
+Every compatible Linux CLI program can be wrapped in Mint using **37 archetypes** (what kind of program it is) and **composable mixins** (add-ons), provided by `mint/appkit`. `tools/mint-gen` detects a program's archetype. `MainScreen` is one screen assembled from that archetype: what it takes, how it runs, and what it shows.
 
 ---
 
@@ -35,7 +35,7 @@ These folders are small example programs. They are not separate screen types: ea
 
 ---
 
-## 3. The 36 Archetypes
+## 3. The 37 Archetypes
 
 Each archetype says what a program takes, how it runs and what it shows. Its blueprint is every add-on wanted at weight 0.5 or more. `MainScreen` uses that blueprint: a target, two inputs, or subcommand tabs; a one-shot run, a live poll, or a state editor; and an inline result when the archetype shows one. `mint-gen --list-archetypes` lists them, and `mint-gen --archetype <id> <program>` chooses one yourself. Programs named below are on the archetype lists (`mint/appkit/archetypetools.go`); any other program gets the archetype its help points to.
 
@@ -52,6 +52,7 @@ Each archetype says what a program takes, how it runs and what it shows. Its blu
 | `watch` | Watch | Observe over time | live | Samples values again and again. | table, live-refresh | `free`, `iostat`, `mpstat`, `nvidia-smi`, `pidstat` |
 | `follow` | Follow | Observe over time | once | Shows events as they happen. | collapsible, follow | `dmesg`, `journalctl`, `ngrep`, `tail` |
 | `record` | Record | Observe over time | once | Records a live source to a file. | file-output, dynamic-choices, root, progress | `dumpcap`, `tcpdump`, `tshark` |
+| `record-sound` | Record sound | Observe over time | once | Records sound from a microphone or audio device to a file. | file-output, dynamic-choices, progress, profiles | — |
 | `probe` | Probe | Act on targets | once | Checks targets and gives one result for each. | table, file-output, profiles, root, history, progress, target | `arp-scan`, `ffuf`, `fping`, `gobuster`, `masscan` |
 | `audit` | Audit | Act on targets | once | Runs checks and lists findings. | table, collapsible, file-output, history, findings, target | `checksec`, `chkrootkit`, `clamscan`, `eslint`, `grype` |
 | `measure` | Measure | Act on targets | once | Runs a workload and reports numbers. | table, profiles, history, progress | `ab`, `fio`, `hey`, `hyperfine`, `iperf3` |

@@ -9,7 +9,7 @@ import (
 
 var reSubcmdLine = regexp.MustCompile(`^\s{2,8}([a-z][a-z0-9_-]{1,22})\s{2,}(.+)$`)
 
-// DetectArchetype classifies a program into one of the 36 archetypes: the
+// DetectArchetype classifies a program into one of the 37 archetypes: the
 // archetype lists first, then its behaviour and words (see
 // chooseArchetype).
 func DetectArchetype(bin string, manText, helpText string) appkit.ArchetypeDef {
