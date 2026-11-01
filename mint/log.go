@@ -427,10 +427,19 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 					break
 				}
 				y := contentTop + row
-				raw := CleanLine(lines[idx].Text)
-				shown := sliceCols(raw, hscroll, lineWidth)
+				line := cleanedLogLine(lines[idx])
+				raw := line.Text
+				shown, runs := sliceColoured(raw, line.Colours, hscroll, lineWidth)
 				isMatch := qLower != "" && containsFold(raw, query)
+				// The program's own colours, redrawn safely. The selected
+				// line and search matches keep Mint's highlight so they
+				// stay easy to see.
+				coloured := len(runs) > 0 && coloursOn() && idx != activeLine && !isMatch
 				switch {
+				case coloured && lines[idx].Err:
+					cv.put(y, 3, renderColoured(shown, runs, lineWidth, C.Amber))
+				case coloured:
+					cv.put(y, 3, renderColoured(shown, runs, lineWidth, C.Text))
 				case idx == activeLine:
 					cv.selBar(y, w)
 					cv.put(y, 3, C.SelBg+C.Accent+C.Bold+shown+Reset)

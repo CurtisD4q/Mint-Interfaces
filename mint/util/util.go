@@ -19,6 +19,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // asciiSpace is ASCII whitespace: space, \t, \n, \v, \f, \r.
@@ -502,20 +503,31 @@ func Chars(s string) []string {
 // It measures in cells and cuts on grapheme-cluster boundaries, so a wide
 // rune is never split and the result is never wider than width.
 func SliceCols(s string, offset, width int) string {
+	out, _, _ := SliceColsSpan(s, offset, width)
+	return out
+}
+
+// SliceColsSpan is SliceCols that also says which runes of s it kept:
+// s's runes [from, to) are in the window, after a "‹" when from > 0 and
+// the window is wider than one cell. Callers use it to carry positions
+// (such as colour runs) over to the window.
+func SliceColsSpan(s string, offset, width int) (out string, from, to int) {
 	if width <= 0 || s == "" {
-		return ""
+		return "", 0, 0
 	}
 	if offset < 0 {
 		offset = 0
 	}
 	clusters := Chars(s)
 	widths := make([]int, len(clusters))
+	runes := make([]int, len(clusters)+1) // rune position where each cluster starts
 	for i, c := range clusters {
 		w := VLen(c)
 		if w <= 0 {
 			w = 1
 		}
 		widths[i] = w
+		runes[i+1] = runes[i] + utf8.RuneCountInString(c)
 	}
 
 	// Skip offset cells, and say whether anything is hidden to the left. A
@@ -552,11 +564,11 @@ func SliceCols(s string, offset, width int) string {
 	if width == 1 {
 		switch {
 		case left:
-			return "‹"
+			return "‹", 0, 0
 		case end < len(clusters):
-			return "…"
+			return "…", 0, 0
 		default:
-			return strings.Join(clusters[start:end], "")
+			return strings.Join(clusters[start:end], ""), runes[start], runes[end]
 		}
 	}
 
@@ -568,7 +580,7 @@ func SliceCols(s string, offset, width int) string {
 	if end < len(clusters) {
 		b.WriteString("…")
 	}
-	return b.String()
+	return b.String(), runes[start], runes[end]
 }
 
 // Truncate shortens s to n visual cells, ending in "…" when it had to cut.

@@ -267,3 +267,27 @@ func cleanedLogLine(l LogLine) LogLine {
 	l.Text = text
 	return l
 }
+
+// sliceColoured is util.SliceCols for a coloured line: the window of text
+// that starts offset cells in and is at most width cells wide, with its
+// colour runs moved to match. The "‹" and "…" markers are left plain.
+func sliceColoured(text string, runs []ColourRun, offset, width int) (string, []ColourRun) {
+	out, from, to := util.SliceColsSpan(text, offset, width)
+	if len(runs) == 0 || to <= from {
+		return out, nil
+	}
+	lead := 0
+	if strings.HasPrefix(out, "‹") && from > 0 {
+		lead = 1
+	}
+	var moved []ColourRun
+	for _, r := range runs {
+		s, e := max(r.Start, from), min(r.End, to)
+		if s >= e {
+			continue
+		}
+		r.Start, r.End = s-from+lead, e-from+lead
+		moved = append(moved, r)
+	}
+	return out, moved
+}

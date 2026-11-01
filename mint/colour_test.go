@@ -90,3 +90,33 @@ func TestCleanedLogLineDropsStaleColours(t *testing.T) {
 		t.Error("colours dropped from clean text")
 	}
 }
+
+func TestSliceColouredMovesRunsWithTheWindow(t *testing.T) {
+	text, runs := CleanLineColours("plain \x1b[31mRED\x1b[0m tail")
+	// Whole line fits: runs unchanged.
+	out, got := sliceColoured(text, runs, 0, 40)
+	if out != text || len(got) != 1 || got[0] != runs[0] {
+		t.Fatalf("no slice: %q %+v", out, got)
+	}
+	// Panned 4 cells: "‹" then "in RED tail"; RED starts after the marker.
+	out, got = sliceColoured(text, runs, 4, 40)
+	if out != "‹n RED tail" {
+		t.Fatalf("out = %q", out)
+	}
+	if len(got) != 1 || got[0].Start != 3 || got[0].End != 6 || string([]rune(out)[3:6]) != "RED" {
+		t.Fatalf("runs = %+v", got)
+	}
+	// Panned past the colour: no runs left.
+	if _, got = sliceColoured(text, runs, 10, 40); len(got) != 0 {
+		t.Fatalf("runs past the window = %+v", got)
+	}
+	// Cut on the right through the colour: run clipped, "…" plain.
+	out, got = sliceColoured(text, runs, 0, 9)
+	if out != "plain RE…" || len(got) != 1 || got[0].Start != 6 || got[0].End != 8 {
+		t.Fatalf("clipped: %q %+v", out, got)
+	}
+	drawn := renderColoured(out, got, 9, "")
+	if strings.Count(drawn, "\x1b[31m") != 1 || !strings.HasSuffix(drawn, "…"+Reset) {
+		t.Fatalf("drawn = %q", drawn)
+	}
+}
