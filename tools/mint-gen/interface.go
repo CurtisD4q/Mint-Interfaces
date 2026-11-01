@@ -301,13 +301,10 @@ func addSystemEvidence(name, manText string, manLines []string, out appkit.Answe
 	if strings.Contains(info.Path, "/sbin/") {
 		raise(appkit.QNeedsRoot, appkit.SureWeak, "installed in "+filepath.Dir(info.Path))
 	}
-	small := info.Programs <= 3
-	if reNcursesDep.MatchString(info.Depends) {
-		sure := appkit.SureWeak
-		if small {
-			sure = appkit.SureStrong
-		}
-		raise(appkit.QFullScreen, sure, "its package uses ncurses")
+	// A package of several programs uses ncurses for one of them (procps
+	// for top, not ps): only a small package's dependency counts.
+	if info.Programs <= 3 && reNcursesDep.MatchString(info.Depends) {
+		raise(appkit.QFullScreen, appkit.SureStrong, "its package uses ncurses")
 	}
 }
 

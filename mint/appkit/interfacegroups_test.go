@@ -72,14 +72,17 @@ func TestEffectiveAnswersOnlyAdd(t *testing.T) {
 	if !a.Effective(g)[QNeedsRoot] {
 		t.Error("a weak yes to needs root was dropped")
 	}
-	g, _ = LookupInterfaceGroup("live-change") // typical: takes a target
-	a = answersFrom(map[Question]bool{QKeepsRunning: true, QChangesThings: true}, SureStrong)
-	a[QTarget] = Answer{Yes: false, Sure: SureWeak}
-	if !a.Effective(g)[QTarget] {
+	g, _ = LookupInterfaceGroup("live-screen") // typical: a table
+	if !g.Typical[QTable] {
+		t.Fatal("test assumes live-screen usually prints a table")
+	}
+	a = answersFrom(map[Question]bool{QKeepsRunning: true, QFullScreen: true}, SureStrong)
+	a[QTable] = Answer{Yes: false, Sure: SureWeak}
+	if !a.Effective(g)[QTable] {
 		t.Error("where the help said nothing, the group's usual yes should fill in")
 	}
-	a[QTarget] = Answer{Yes: false, Sure: SureStrong}
-	if a.Effective(g)[QTarget] {
+	a[QTable] = Answer{Yes: false, Sure: SureStrong}
+	if a.Effective(g)[QTable] {
 		t.Error("a clear no was overridden")
 	}
 }

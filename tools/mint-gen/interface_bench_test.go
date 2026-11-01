@@ -553,10 +553,14 @@ func TestWriteGroupBridge(t *testing.T) {
 	parseBlind = true
 	seen := map[string]bool{}
 	var names []string
-	for _, c := range loadArchCases(t) {
-		if !seen[c.Name] {
-			seen[c.Name] = true
-			names = append(names, c.Name)
+	// MINT_BRIDGE_ONLY=1 builds it from the listed programs alone, so a
+	// benchmark's programs are not in it.
+	if os.Getenv("MINT_BRIDGE_ONLY") == "" {
+		for _, c := range loadArchCases(t) {
+			if !seen[c.Name] {
+				seen[c.Name] = true
+				names = append(names, c.Name)
+			}
 		}
 	}
 	for _, n := range readLines(os.Getenv("MINT_INTERFACE_PROGRAMS")) {

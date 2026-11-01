@@ -70,76 +70,77 @@ const (
 	FamilyCommands   = "Commands"
 )
 
-// interfaceGroups are the 22 groups, largest first in the study. Their
+// interfaceGroups are the 22 groups, largest first in the study (remade
+// from the reworded questions' answers; the comments name examples). Their
 // rules divide every possible set of answers between them (see
 // TestInterfaceGroupsCoverEveryAnswerSet).
 var interfaceGroups = []InterfaceGroup{
-	{ID: "once", Name: "Run once", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: false, QTable: false, QCanDestroy: false, QFullScreen: false},
+	{ID: "once", Name: "Run once", Family: FamilyOnce, // 256 programs: acpi, age, b2sum, borg
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: false, QTable: false, QSubcommands: false, QWritesFile: false, QNeedsRoot: false},
+		Typical: map[Question]bool{QTwoInputs: false}},
+	{ID: "once-table", Name: "Table", Family: FamilyOnce, // 90 programs: ab, apropos, apt-cache, ausearch
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: false, QTable: true},
 		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QNeedsRoot: false}},
-	{ID: "once-target", Name: "Run once on a target", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QSubcommands: false, QWritesFile: false, QTable: false, QCanDestroy: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QNeedsRoot: false}},
-	{ID: "live", Name: "Live view", Family: FamilyLive,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: false, QTarget: false, QWritesFile: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "live-target", Name: "Live view of a target", Family: FamilyLive,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: false, QTarget: true, QCanDestroy: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
-	{ID: "once-target-table", Name: "Table about a target", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QSubcommands: false, QWritesFile: false, QTable: true, QCanDestroy: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QNeedsRoot: false}},
-	{ID: "once-table", Name: "Table", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: false, QTable: true, QCanDestroy: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QNeedsRoot: false}},
-	{ID: "once-target-destroy", Name: "Risky run on a target", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QSubcommands: false, QCanDestroy: true, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
-	{ID: "screen", Name: "Full-screen app", Family: FamilyFullScreen,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: false, QFullScreen: true},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "change-target", Name: "Change a target", Family: FamilyChanges,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: true, QTarget: true, QSubcommands: false, QCanDestroy: false},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QFullScreen: false}},
-	{ID: "live-screen", Name: "Full-screen live view", Family: FamilyFullScreen,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: false, QFullScreen: true},
-		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: true, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "change", Name: "Change things", Family: FamilyChanges,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: true, QTarget: false, QSubcommands: false},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false, QFullScreen: false}},
-	{ID: "live-change", Name: "Live and changing", Family: FamilyLiveChange,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: true, QFullScreen: false},
-		Typical: map[Question]bool{QTarget: true, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "commands-target", Name: "Commands on a target", Family: FamilyCommands,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QSubcommands: true, QFullScreen: false},
+	{ID: "once-target", Name: "Run once on a target", Family: FamilyOnce, // 86 programs: ag, ar, axel, fuser
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: true, QWritesFile: false, QCanDestroy: false},
+		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "screen", Name: "Full-screen app", Family: FamilyFullScreen, // 75 programs: info, mtr, nslookup, python3
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: true, QCanDestroy: false},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
+	{ID: "live", Name: "Live view", Family: FamilyLive, // 70 programs: anacron, arp-scan, dig, ffprobe
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: true, QFullScreen: false, QWritesFile: false, QCanDestroy: false},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "change", Name: "Change things", Family: FamilyChanges, // 61 programs: bluetoothctl, brightnessctl, cpio, curl
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: false, QSubcommands: false, QTarget: false, QFullScreen: false},
 		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "change-commands-target", Name: "Change things with commands", Family: FamilyChanges,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: true, QTarget: true, QSubcommands: true},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false, QFullScreen: false}},
-	{ID: "once-destroy", Name: "Risky run", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: false, QCanDestroy: true, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
-	{ID: "once-target-file", Name: "Make a file from a target", Family: FamilyOnce,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QSubcommands: false, QWritesFile: true, QCanDestroy: false, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QTable: false, QNeedsRoot: false}},
-	{ID: "screen-target", Name: "Full-screen app for a target", Family: FamilyFullScreen,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: false, QTarget: true, QFullScreen: true},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "live-target-destroy", Name: "Risky long run on a target", Family: FamilyLive,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: false, QTarget: true, QCanDestroy: true, QFullScreen: false},
-		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
-	{ID: "change-target-destroy", Name: "Risky change to a target", Family: FamilyChanges,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: true, QTarget: true, QSubcommands: false, QCanDestroy: true},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QFullScreen: false}},
-	{ID: "live-screen-change", Name: "Full-screen manager", Family: FamilyFullScreen,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: true, QFullScreen: true},
-		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: true, QWritesFile: false, QTable: true, QNeedsRoot: false, QCanDestroy: false}},
-	{ID: "change-commands", Name: "Commands that change things", Family: FamilyChanges,
-		Rule:    map[Question]bool{QKeepsRunning: false, QChangesThings: true, QTarget: false, QSubcommands: true},
-		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false, QFullScreen: false}},
-	{ID: "live-file", Name: "Long run saving a file", Family: FamilyLive,
-		Rule:    map[Question]bool{QKeepsRunning: true, QChangesThings: false, QTarget: false, QWritesFile: true, QFullScreen: false},
+	{ID: "change-commands", Name: "Commands that change things", Family: FamilyChanges, // 54 programs: apt, apt-get, btrfs, cargo
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: false, QSubcommands: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false, QFullScreen: false}},
+	{ID: "once-destroy", Name: "Risky run", Family: FamilyOnce, // 48 programs: atq, batch, blkid, bzip2
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: true, QWritesFile: false},
+		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "live-screen", Name: "Full-screen live view", Family: FamilyFullScreen, // 44 programs: mysql, htop, iftop, top
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: true, QFullScreen: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: true, QNeedsRoot: false, QCanDestroy: false}},
+	{ID: "live-change", Name: "Live and changing", Family: FamilyLiveChange, // 39 programs: conntrack, docker, hg, hostnamectl
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: true, QFullScreen: false},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
+	{ID: "once-target-file", Name: "Make a file from a target", Family: FamilyOnce, // 37 programs: 7z, 7za, awk, clang
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: true, QWritesFile: true},
 		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
+	{ID: "live-file", Name: "Long run saving a file", Family: FamilyLive, // 30 programs: aria2c, dumpcap, exiftool, ffmpeg
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: true, QFullScreen: false, QWritesFile: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QTable: true, QNeedsRoot: false, QCanDestroy: false}},
+	{ID: "change-target", Name: "Change a target", Family: FamilyChanges, // 28 programs: cp, install, ip6tables, iptables
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: false, QSubcommands: false, QTarget: true},
+		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: true, QFullScreen: false}},
+	{ID: "once-file", Name: "Make a file", Family: FamilyOnce, // 21 programs: base64, javac, sort, ps2pdf
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: false, QTable: false, QSubcommands: false, QWritesFile: true},
+		Typical: map[Question]bool{QTwoInputs: false, QNeedsRoot: false}},
+	{ID: "once-file-destroy", Name: "Make or replace files", Family: FamilyOnce, // 20 programs: gunzip, gzip, tar, wget
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: true, QWritesFile: true},
+		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "commands", Name: "Commands", Family: FamilyCommands, // 20 programs: amixer, gh, lynis, openssl
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: false, QTable: false, QSubcommands: true},
+		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QNeedsRoot: false}},
+	{ID: "once-root", Name: "Run once as root", Family: FamilyOnce, // 18 programs: chkrootkit, faillock, iptables-save, pidof
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: false, QCanDestroy: false, QTable: false, QSubcommands: false, QWritesFile: false, QNeedsRoot: true},
+		Typical: map[Question]bool{QTwoInputs: false}},
+	{ID: "live-screen-change", Name: "Full-screen manager", Family: FamilyFullScreen, // 17 programs: rclone, cmus, dte, hledger
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: true, QFullScreen: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: true, QWritesFile: false, QTable: true, QNeedsRoot: false, QCanDestroy: false}},
+	{ID: "live-destroy", Name: "Risky long run", Family: FamilyLive, // 17 programs: rkhunter, stress-ng, btop, tcptrace
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: true, QFullScreen: false, QWritesFile: false, QCanDestroy: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "screen-destroy", Name: "Risky full-screen app", Family: FamilyFullScreen, // 17 programs: ncdu, fdisk, lzop, aptitude
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: true, QCanDestroy: true},
+		Typical: map[Question]bool{QTarget: false, QTwoInputs: false, QSubcommands: false, QWritesFile: false, QTable: false, QNeedsRoot: false}},
+	{ID: "once-target-destroy", Name: "Risky run on a target", Family: FamilyOnce, // 16 programs: ack, at, atrm, duplicity
+		Rule:    map[Question]bool{QChangesThings: false, QKeepsRunning: false, QFullScreen: false, QTarget: true, QWritesFile: false, QCanDestroy: true},
+		Typical: map[Question]bool{QTwoInputs: false, QSubcommands: false, QTable: false, QNeedsRoot: false}},
+	{ID: "change-screen", Name: "Full-screen app that changes things", Family: FamilyFullScreen, // 12 programs: sftp, dpkg, aerc, mocp
+		Rule:    map[Question]bool{QChangesThings: true, QKeepsRunning: false, QSubcommands: false, QTarget: false, QFullScreen: true},
+		Typical: map[Question]bool{QTwoInputs: false, QWritesFile: false, QTable: false, QNeedsRoot: false, QCanDestroy: false}},
 }
 
 // InterfaceGroups returns the 22 groups.
