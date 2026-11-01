@@ -871,12 +871,16 @@ func TestTitleRuleSitsUnderTheTitle(t *testing.T) {
 	const h, w = 24, 80
 	s := longSplitScreen()
 	frame := s.renderFrame(h, w)
-	if s.viewTop != 4 {
-		t.Fatalf("body starts at row %d; the rule should replace the blank under the title", s.viewTop)
+	// Title, the rule under it, one blank row, then the body (#105).
+	if s.viewTop != 5 {
+		t.Fatalf("body starts at row %d, want 5: title, rule, one blank row", s.viewTop)
 	}
 	grid := frameGrid(frame, h, w)
 	if !isGapRule(grid[2]) {
 		t.Fatalf("row under the title: %q", grid[2])
+	}
+	if strings.Trim(grid[3], "│ ") != "" {
+		t.Fatalf("row under the rule is not blank: %q", grid[3])
 	}
 	for _, b := range s.bands {
 		if b.rows > 0 && b.rows < paneMinRows {
