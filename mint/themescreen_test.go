@@ -148,25 +148,3 @@ func TestThemeScreenShowsTheFlagTheme(t *testing.T) {
 		t.Fatalf("save hint %q", hint)
 	}
 }
-
-// An app's own default theme applies only when the user has no theme
-// file, and a palette chosen before the screen opens is kept.
-func TestDefaultThemeOnlyWithoutAThemeFile(t *testing.T) {
-	path := withThemeFile(t)
-	SetPalette(theme.Load("default"))
-	shownTheme = ""
-	a := &App{DefaultTheme: "nord"}
-	a.applyDefaultTheme()
-	if basePalette != theme.Load("nord") {
-		t.Fatal("the app's default theme did not apply with no theme file")
-	}
-
-	if err := os.WriteFile(path, []byte("theme = gruvbox\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	SetPalette(theme.Load(""))
-	a.applyDefaultTheme()
-	if basePalette != theme.Load("gruvbox") {
-		t.Fatal("the app's default theme overrode the user's saved theme")
-	}
-}

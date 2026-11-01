@@ -415,13 +415,6 @@ func Load(name string) Palette {
 	return themeDefault()
 }
 
-// HasFile reports whether a theme file is there to read (the one ReadPath
-// names). A built app's own default theme only applies when there is not.
-func HasFile() bool {
-	_, ok := readLines(ReadPath())
-	return ok
-}
-
 // Current returns the theme name selected in ConfigPath.
 func Current() string { return readSelectedName() }
 

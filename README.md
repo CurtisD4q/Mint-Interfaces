@@ -234,18 +234,17 @@ There are seven themes:
 
 #### Choosing a theme
 
+- **For every app, from mint-gen.** `mint-gen --theme NAME` saves the theme for every Mint app, for example `mint-gen --theme nord`. It writes `theme.conf` (below), the same as the Theme screen's **Use this theme**, and builds nothing. Apps that are open use it when they next start. It can go with another command too: `mint-gen --theme nord --build nmap` saves the theme, then builds nmap as usual.
 - **The Theme screen.** Every app's home list ends with **Theme**. Choosing a theme shows it straight away; **Use this theme** saves it for every Mint app, and leaving without saving (or **Undo preview**) puts the old colours back. An app can leave the item out with `App.NoThemeItem`.
 - **For one run.** Start any app with `--theme NAME` (or `--theme=NAME`), for example `nmap-mint --theme dracula`. Nothing is saved. It can come before Mint's other flags: `nmap-mint --theme nord --screen Run`.
-- **Built into an app.** `mint-gen --theme NAME tool` builds the app with that theme as its own default (`--theme` implies `--build`), for example `mint-gen --theme nord nmap`. `mint-gen --theme NAME --run tool` also opens it in that theme for that run.
 
 Only the seven names above are accepted; any other name is refused with the list.
 
-Which theme an app uses, strongest first:
+There is one saved theme, shared by every Mint app. Which theme an app uses, strongest first:
 
 1. `--theme NAME` on the app's command line (that run only)
-2. the theme saved in `theme.conf`, or chosen on the Theme screen
-3. the app's own default, from `mint-gen --theme`
-4. `default`
+2. the theme saved in `theme.conf`, by `mint-gen --theme`, the Theme screen or by hand
+3. `default`, when nothing is saved
 
 `MINT_PALETTE` (below) is applied on top of the theme the file picks.
 
@@ -274,7 +273,7 @@ selbg  = 60 60 70
 err    = 220 90 90
 ```
 
-**Under sudo.** Run as root, `~` is `/root`, so an app looks for `/root/.config/mint-interfaces/theme.conf`. When root has no theme file of its own, Mint uses the theme file of the user who ran `sudo` (`SUDO_USER`). That file is only read, never written: saving a theme as root writes root's own file. It is used only when it is a regular file (not a link) owned by that user or by root, and at most 64 KiB of it is read.
+**Under sudo.** Run as root, `~` is `/root`, so an app looks for `/root/.config/mint-interfaces/theme.conf`. When root has no theme file of its own, Mint uses the theme file of the user who ran `sudo` (`SUDO_USER`). That file is only read, never written: saving a theme as root (`sudo mint-gen --theme nord`, or the Theme screen in an app run with sudo) writes root's own file, and mint-gen says so. To set your own theme, run `mint-gen --theme` without sudo. It is used only when it is a regular file (not a link) owned by that user or by root, and at most 64 KiB of it is read.
 
 #### Terminals, MINT_PALETTE and program colours
 
@@ -286,7 +285,7 @@ A program's own colours (fastfetch's logo, `grep --color`) are shown in the outp
 
 #### In code
 
-`mint.SetPalette(theme.Load(name))` applies a theme immediately; `theme.Set(name)` saves it to `theme.conf`; `theme.Current()` is the saved one, and `theme.Problem()` says what is wrong with the file, if anything. `ToolSpec.Theme` (or `App.DefaultTheme`) is an app's own default.
+`mint.SetPalette(theme.Load(name))` applies a theme immediately; `theme.Set(name)` saves it to `theme.conf`; `theme.Current()` is the saved one, and `theme.Problem()` says what is wrong with the file, if anything.
 
 ### Layout of the library
 

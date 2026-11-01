@@ -60,10 +60,6 @@ type App struct {
 	// arguments themselves.
 	NoFlags bool
 
-	// DefaultTheme is the theme this app starts in when the user has no
-	// theme file of their own (one of theme.Names). --theme still wins.
-	DefaultTheme string
-
 	// NoThemeItem leaves out the Theme item Mint adds at the end of the
 	// home list (see ThemeScreen).
 	NoThemeItem bool
@@ -317,7 +313,6 @@ func (a *App) Run() {
 		SetKeyProfile(a.Keys)
 	}
 	profileFromEnv()
-	a.applyDefaultTheme()
 
 	start := 0 // 1-based home item to open first
 	if !a.NoFlags && len(os.Args) > 1 {
@@ -551,12 +546,4 @@ func (a *App) handleArgs(args []string, title, crumb, note string) (done bool, i
 		os.Exit(2)
 	}
 	return false, 0
-}
-
-// applyDefaultTheme shows the app's own default theme when the user has no
-// theme file. A --theme flag, read after it, still wins.
-func (a *App) applyDefaultTheme() {
-	if a.DefaultTheme != "" && !theme.HasFile() {
-		applyTheme(a.DefaultTheme)
-	}
 }
