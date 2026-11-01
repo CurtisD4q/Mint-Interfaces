@@ -128,7 +128,7 @@ var archetypeSignals = map[string][]string{
 		"~commands", "~connect|~connection", "programming language|scripting language"},
 }
 
-var archetypeSignalList = buildSignals(archetypeSignals)
+var archetypeSignalList = buildSignals(mergePhrases(archetypeSignals, moreArchetypeSignals))
 
 // How strong a behaviour cue is. Its points are the points of the part of
 // the help it was found in (archWeights.CueZone), scaled by its strength
