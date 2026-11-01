@@ -596,6 +596,11 @@ func (a *ToolApp) rootAuthSection() *mint.Section {
 }
 
 func (a *ToolApp) executeFromUI(c *mint.Ctx) {
+	if a.Spec.FullScreen {
+		// It would draw over Mint and wait for keys Mint cannot pass on.
+		c.ToastWarn(a.Spec.Name + " opens full-screen: run it in a terminal: " + a.CommandPreview())
+		return
+	}
 	if a.Spec.Preview != nil {
 		var plan fileplan.Plan
 		var err error
@@ -747,8 +752,12 @@ const (
 	execState                 // read state, edit, apply
 )
 
-// blueprint is the archetype's feature plan, or empty when none is set.
+// blueprint is the feature plan: the one built from the program's answers
+// (Spec.Features), else the archetype's, else empty.
 func (a *ToolApp) blueprint() Blueprint {
+	if a.Spec.Features != nil {
+		return Blueprint{Features: a.Spec.Features}
+	}
 	if def, ok := LookupArchetype(a.Spec.ArchetypeID); ok {
 		return def.Blueprint()
 	}
@@ -762,6 +771,10 @@ func (a *ToolApp) blueprint() Blueprint {
 func (a *ToolApp) stateEditWanted() bool {
 	if a.blueprint().Has(FeatStateEdit) {
 		return true
+	}
+	if a.Spec.Features != nil {
+		// Built from answers: the archetype only words the screen.
+		return len(a.Spec.ApplyArgs) > 0 || len(a.Spec.StatusArgs) > 0
 	}
 	switch a.Spec.ArchetypeID {
 	case "settings", "device", "rules":

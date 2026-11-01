@@ -192,8 +192,28 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	text := programTextFrom(name, manText, helpText)
 	choice := chooseArchetype(name, manText, helpText)
 	def, _ := appkit.LookupArchetype(string(choice.ID))
-	def.ApplyTo(&spec)
-	if def.WantsSubcommands() && len(spec.Subcommands) == 0 {
+	// In interface mode an unlisted program's screen comes from its
+	// answers (see interface.go); the archetype then only words it.
+	answersMode := interfaceMode == InterfaceAnswers && choice.Confidence != ConfidenceListed
+	var answers appkit.Answers
+	wantSubs := def.WantsSubcommands()
+	var wording appkit.ToolSpec
+	if answersMode {
+		wording = spec
+		def.ApplyTo(&wording)
+		spec.ArchetypeID = wording.ArchetypeID
+		if spec.DefaultExt == "" {
+			spec.DefaultExt = wording.DefaultExt
+		}
+		// The archetype's caution stays: answers only ever add to it.
+		spec.NeedsRoot = spec.NeedsRoot || wording.NeedsRoot
+		spec.ConfirmRun = spec.ConfirmRun || wording.ConfirmRun
+		answers = detectAnswers(name, manText, helpText, spec)
+		wantSubs = answers[appkit.QSubcommands].Yes
+	} else {
+		def.ApplyTo(&spec)
+	}
+	if wantSubs && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
 			spec.Subcommands = subs
 		}
@@ -219,6 +239,13 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	// Unlisted follow / serve / session tools get their interactive screen
 	// only when the help actually named the flag or the prompt.
 	attachParsedScreens(&spec, manText+"\n"+helpText)
+	var group appkit.InterfaceGroup
+	if answersMode {
+		group = appkit.ApplyInterface(&spec, answers)
+		if spec.WantTarget && spec.TargetLabel == "" {
+			spec.TargetLabel, spec.TargetPlaceholder = wording.TargetLabel, wording.TargetPlaceholder
+		}
+	}
 	if spec.TargetLabel == "" && !spec.HideTarget {
 		spec.TargetLabel = "Target / arguments"
 	}
@@ -242,6 +269,9 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	}
 	model.Ext, model.ExtWhy = chooseExtension(spec, model, outputDesc, archExt)
 	model.Archetype = choice
+	if answersMode {
+		model.Answers, model.Group = answers, group
+	}
 	spec.DefaultExt = model.Ext
 	attachEnvSecrets(&spec, extractEnvSecrets(manLines, helpLines))
 	return spec, model

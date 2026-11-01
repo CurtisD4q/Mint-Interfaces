@@ -109,6 +109,15 @@ type ToolSpec struct {
 	Desc        string `json:"desc,omitempty"`
 	Version     string `json:"version,omitempty"`
 	ArchetypeID string `json:"archetype_id,omitempty"` // which of the 35 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	// Built from the program's answers instead (see ApplyInterface): the
+	// group it falls in, and the features that decide its screen. When
+	// Features is set, it is used instead of the archetype's blueprint;
+	// the archetype then only words the screen.
+	InterfaceGroup string    `json:"interface_group,omitempty"`
+	Features       []Feature `json:"features,omitempty"`
+	// FullScreen: the program draws its own full-screen interface, so Mint
+	// shows its command to run in a terminal instead of running it.
+	FullScreen bool `json:"full_screen,omitempty"`
 	// Archetype is the deprecated base-layout field. MainScreen ignores it.
 	// It remains so saved specs (the JSON key "archetype", or "layout") and
 	// older callers still compile.

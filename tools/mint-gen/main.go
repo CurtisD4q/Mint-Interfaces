@@ -36,6 +36,7 @@ func runCLI(args []string) int {
 		repoRoot       string
 		tuiMode        bool
 		probeTerm      bool
+		interfaceFlag  string
 	)
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
@@ -52,6 +53,7 @@ func runCLI(args []string) int {
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
+	fs.StringVar(&interfaceFlag, "interface", InterfaceArchetype, "How an unlisted program's screen is decided: archetype (default) or answers (from how the program behaves; see --explain)")
 
 	ordered := flagsFirst(fs, args)
 	if helpRequested(ordered) {
@@ -59,6 +61,13 @@ func runCLI(args []string) int {
 		return 0
 	}
 	if err := fs.Parse(ordered); err != nil {
+		return 2
+	}
+	switch interfaceFlag {
+	case InterfaceArchetype, InterfaceAnswers:
+		interfaceMode = interfaceFlag
+	default:
+		fmt.Fprintf(os.Stderr, "mint-gen: --interface must be %q or %q, not %q\n", InterfaceArchetype, InterfaceAnswers, interfaceFlag)
 		return 2
 	}
 

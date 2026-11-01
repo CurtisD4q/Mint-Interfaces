@@ -173,6 +173,22 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.ArchetypeID != "" {
 		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
 	}
+	if spec.InterfaceGroup != "" {
+		fmt.Fprintf(&buf, "\t\tInterfaceGroup:    %q,\n", spec.InterfaceGroup)
+	}
+	if spec.Features != nil {
+		buf.WriteString("\t\tFeatures:          []appkit.Feature{")
+		for i, f := range spec.Features {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%q", string(f))
+		}
+		buf.WriteString("},\n")
+	}
+	if spec.FullScreen {
+		buf.WriteString("\t\tFullScreen:        true,\n")
+	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)
 	if spec.TargetDefault != "" {
