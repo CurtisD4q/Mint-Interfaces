@@ -33,3 +33,36 @@ func TestBatchTopRefreshes(t *testing.T) {
 		t.Errorf("no process table in %d lines", len(app.SnapshotLines))
 	}
 }
+
+func TestColourArgsFollowBatchArgs(t *testing.T) {
+	app := &ToolApp{Spec: ToolSpec{Name: "zz", BatchArgs: []string{"-b"}, ColourArgs: []string{"--pipe", "false"}}, Values: map[string]string{}}
+	args, _ := app.BuildArgs()
+	if strings.Join(args, " ") != "-b --pipe false" {
+		t.Errorf("args %q", args)
+	}
+}
+
+// fastfetch, asked for its colours, keeps them on the output lines.
+func TestFastfetchKeepsColours(t *testing.T) {
+	if _, err := exec.LookPath("fastfetch"); err != nil {
+		t.Skip("no fastfetch")
+	}
+	app := &ToolApp{Spec: ToolSpec{Name: "fastfetch", ArchetypeID: "inspect", ColourArgs: []string{"--pipe", "false"}}, Values: map[string]string{}}
+	job, err := app.StartJob()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Wait()
+	coloured := 0
+	for _, l := range app.ActiveLogLines() {
+		if len(l.Colours) > 0 {
+			coloured++
+		}
+		if strings.ContainsRune(l.Text, '\x1b') {
+			t.Fatalf("escape left in text: %q", l.Text)
+		}
+	}
+	if coloured < 5 {
+		t.Errorf("only %d coloured lines", coloured)
+	}
+}

@@ -9,16 +9,17 @@ import (
 // A Collapsible Row can be placed directly inside a Section's Rows slice and
 // expands inline when opened with Enter, Space, or →.
 type CollapsibleOpts struct {
-	ID        string          // optional state key; defaults to Title
-	Title     string          // header label shown beside ▸ / ▾
-	Badge     string          // optional right-side summary (defaults to "N hidden" or line count)
-	Open      *bool           // optional pointer to caller-managed open state
-	Collapsed bool            // initial state when Open is nil (true = start folded)
-	Rows      []Row           // child rows shown when unfolded
-	Lines     func() []string // optional dynamic large-text line source
-	Text      string          // optional static multi-line text
-	ChunkSize int             // when > 0, splits large text into nested collapsible chunks of ChunkSize lines
-	Empty     string          // shown when Lines/Text is empty (default "No text")
+	ID        string           // optional state key; defaults to Title
+	Title     string           // header label shown beside ▸ / ▾
+	Badge     string           // optional right-side summary (defaults to "N hidden" or line count)
+	Open      *bool            // optional pointer to caller-managed open state
+	Collapsed bool             // initial state when Open is nil (true = start folded)
+	Rows      []Row            // child rows shown when unfolded
+	Lines     func() []string  // optional dynamic large-text line source
+	LogLines  func() []LogLine // as Lines, keeping each line's colours (used instead of Lines)
+	Text      string           // optional static multi-line text
+	ChunkSize int              // when > 0, splits large text into nested collapsible chunks of ChunkSize lines
+	Empty     string           // shown when Lines/Text is empty (default "No text")
 }
 
 // Collapsible creates a foldable header row that expands its child Rows or
@@ -50,6 +51,7 @@ func Collapsible(o CollapsibleOpts) Row {
 		openPtr:     o.Open,
 		children:    o.Rows,
 		textLines:   linesFn,
+		textLog:     o.LogLines,
 		chunkSize:   o.ChunkSize,
 		placeholder: empty,
 	}
@@ -93,12 +95,24 @@ func buildCollapsibleChildren(r Row) ([]Row, string) {
 	out = append(out, r.children...)
 	badge := r.badge
 
-	if r.textLines != nil {
-		var raw []string
-		protect(func() { raw = r.textLines() })
-		cleaned := make([]string, 0, len(raw))
-		for _, l := range raw {
-			cleaned = append(cleaned, CleanLine(l))
+	if r.textLines != nil || r.textLog != nil {
+		var lines []LogLine
+		if r.textLog != nil {
+			var raw []LogLine
+			protect(func() { raw = r.textLog() })
+			for _, l := range raw {
+				lines = append(lines, cleanedLogLine(l))
+			}
+		} else {
+			var raw []string
+			protect(func() { raw = r.textLines() })
+			for _, l := range raw {
+				lines = append(lines, LogLine{Text: CleanLine(l)})
+			}
+		}
+		cleaned := make([]string, len(lines))
+		for i, l := range lines {
+			cleaned[i] = l.Text
 		}
 		if badge == "" {
 			badge = fmt.Sprintf("%d lines", len(cleaned))
@@ -111,13 +125,7 @@ func buildCollapsibleChildren(r Row) ([]Row, string) {
 		if title == "" {
 			title = "Output"
 		}
-		logLinesFn := func() []LogLine {
-			ll := make([]LogLine, len(cleaned))
-			for i, s := range cleaned {
-				ll[i] = LogLine{Text: s}
-			}
-			return ll
-		}
+		logLinesFn := func() []LogLine { return append([]LogLine(nil), lines...) }
 		if r.chunkSize > 0 && len(cleaned) > r.chunkSize {
 			out = append(out, Action(ActionOpts{
 				Label: "Open full text in viewer",
@@ -132,10 +140,10 @@ func buildCollapsibleChildren(r Row) ([]Row, string) {
 			}
 			for start := 0; start < len(cleaned); start += r.chunkSize {
 				end := min(len(cleaned), start+r.chunkSize)
-				chunk := cleaned[start:end]
+				chunk := lines[start:end]
 				chunkRows := make([]Row, len(chunk))
 				for i, line := range chunk {
-					chunkRows[i] = Row{kind: "row", wtype: "logline", logLine: LogLine{Text: line}}
+					chunkRows[i] = Row{kind: "row", wtype: "logline", logLine: line}
 				}
 				chunkTitle := fmt.Sprintf("Lines %d–%d", start+1, end)
 				out = append(out, Collapsible(CollapsibleOpts{
@@ -147,8 +155,8 @@ func buildCollapsibleChildren(r Row) ([]Row, string) {
 				}))
 			}
 		} else {
-			for _, line := range cleaned {
-				out = append(out, Row{kind: "row", wtype: "logline", logLine: LogLine{Text: line}})
+			for _, line := range lines {
+				out = append(out, Row{kind: "row", wtype: "logline", logLine: line})
 			}
 			if len(cleaned) > 10 {
 				out = append(out, Action(ActionOpts{

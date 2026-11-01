@@ -179,6 +179,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if len(spec.BatchArgs) > 0 {
 		fmt.Fprintf(&buf, "\t\tBatchArgs:         %s,\n", goStrings(spec.BatchArgs))
 	}
+	if len(spec.ColourArgs) > 0 {
+		fmt.Fprintf(&buf, "\t\tColourArgs:        %s,\n", goStrings(spec.ColourArgs))
+	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)
 	if spec.TargetDefault != "" {

@@ -117,6 +117,10 @@ type ToolSpec struct {
 	// is full-screen by default prints plain text and exits instead:
 	// top -b -n 1, lynx -dump. See mint-gen's batch modes.
 	BatchArgs []string `json:"batch_args,omitempty"`
+	// ColourArgs ask the program for its colours when it would leave them
+	// out without a terminal (fastfetch --pipe false). Mint keeps only the
+	// colours, safely (see mint.CleanLineColours).
+	ColourArgs []string `json:"colour_args,omitempty"`
 	// Archetype is the deprecated base-layout field. MainScreen ignores it.
 	// It remains so saved specs (the JSON key "archetype", or "layout") and
 	// older callers still compile.
@@ -998,6 +1002,7 @@ func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, std
 	prefix := len(args) // subcommand or apply words
 	// Batch words come first among the options: top -b -n 1 -d 2.
 	args = append(args, a.Spec.BatchArgs...)
+	args = append(args, a.Spec.ColourArgs...)
 	flagArgs, outPath, stdin := a.composeArgs(mode)
 	args = append(args, flagArgs...)
 	args, _ = a.diffArgs(args, prefix)

@@ -338,7 +338,8 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 	n := 0
 
 	emit := func(replaceable bool) {
-		j.appendLine(displayLine(cur), isErr, replaceable)
+		text, colours := displayLine(cur)
+		j.appendLine(text, colours, isErr, replaceable)
 		cur = cur[:0]
 	}
 
@@ -382,8 +383,8 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 			}
 			cur = append(cur, b)
 			if len(cur) >= MaxLineBytes {
-				text := displayLine(trimPartialRune(cur)) + LineTruncatedMark
-				j.appendLine(text, isErr, false)
+				text, colours := displayLine(trimPartialRune(cur))
+				j.appendLine(text+LineTruncatedMark, colours, isErr, false)
 				cur = cur[:0]
 				skipping = true
 				lastWasCR = false
@@ -392,14 +393,15 @@ func (j *Job) readPipe(r io.Reader, isErr bool) {
 	}
 }
 
-// displayLine turns raw output bytes into text that is safe to show. Lines
+// displayLine turns raw output bytes into text that is safe to show, and
+// the colours the program set on it (see mint.CleanLineColours). Lines
 // that look binary (a NUL byte, or mostly invalid UTF-8) are summarised
 // rather than cleaned, since cleaning would leave meaningless fragments.
-func displayLine(raw []byte) string {
+func displayLine(raw []byte) (string, []mint.ColourRun) {
 	if looksBinary(raw) {
-		return binarySummary(raw)
+		return binarySummary(raw), nil
 	}
-	return mint.CleanLine(string(raw))
+	return mint.CleanLineColours(string(raw))
 }
 
 // looksBinary reports whether raw is binary data rather than text: it has
@@ -473,11 +475,15 @@ func (j *Job) finalizeLast(isErr bool) {
 	j.mu.Unlock()
 }
 
-func (j *Job) appendLine(text string, isErr, replaceable bool) {
+func (j *Job) appendLine(text string, colours []mint.ColourRun, isErr, replaceable bool) {
 	if j.c.Redact != nil {
-		text = j.c.Redact(text)
+		if masked := j.c.Redact(text); masked != text {
+			// Colours are positions in the text: a line with something
+			// masked keeps none, so they can never point at a secret.
+			text, colours = masked, nil
+		}
 	}
-	line := mint.LogLine{Text: text, Err: isErr, Overwrite: replaceable}
+	line := mint.LogLine{Text: text, Err: isErr, Overwrite: replaceable, Colours: colours}
 
 	var pct int = -1
 	if j.c.Progress != nil {

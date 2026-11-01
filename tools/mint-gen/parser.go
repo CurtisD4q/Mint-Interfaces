@@ -257,6 +257,9 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 			model.Signals.FullScreen, model.Signals.MaybeFullScreen = false, false
 		}
 	}
+	if args, ok := knownColourArgs[name]; ok && len(spec.ColourArgs) == 0 {
+		spec.ColourArgs = append([]string(nil), args...)
+	}
 	model.Notes = signalNotes(appkit.ArchetypeID(spec.ArchetypeID), model.Signals)
 	if model.Batch != nil {
 		model.Notes = append([]string{batchNote(name, *model.Batch)}, model.Notes...)

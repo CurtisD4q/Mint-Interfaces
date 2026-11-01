@@ -43,6 +43,16 @@ var sectionHeadingRe = regexp.MustCompile(`^([A-Z][A-Z0-9 _/\-&()]{1,48}:?|\[\+\
 // markers) and groups them into foldable mint.Collapsible rows. If fewer than
 // 2 headings are found, it falls back to chunked mint.CollapsibleLines.
 func SplitSections(lines []string, chunkSize int) []mint.Row {
+	ll := make([]mint.LogLine, len(lines))
+	for i, l := range lines {
+		ll[i] = mint.LogLine{Text: l}
+	}
+	return SplitSectionsLog(ll, chunkSize)
+}
+
+// SplitSectionsLog is SplitSections for output lines, keeping the
+// program's colours (mint.LogLine.Colours) where a line has them.
+func SplitSectionsLog(lines []mint.LogLine, chunkSize int) []mint.Row {
 	if chunkSize <= 0 {
 		chunkSize = 100
 	}
@@ -54,13 +64,13 @@ func SplitSections(lines []string, chunkSize int) []mint.Row {
 
 	type secGroup struct {
 		title string
-		lines []string
+		lines []mint.LogLine
 	}
 	var groups []secGroup
 	var cur *secGroup
 
 	for _, raw := range lines {
-		cleaned := mint.CleanLine(raw)
+		cleaned := mint.CleanLine(raw.Text)
 		trimmed := strings.TrimSpace(cleaned)
 		if len(cleaned) > 0 && cleaned[0] != ' ' && cleaned[0] != '\t' && sectionHeadingRe.MatchString(trimmed) && len(trimmed) >= 2 {
 			groups = append(groups, secGroup{title: strings.TrimSuffix(trimmed, ":")})
@@ -71,34 +81,34 @@ func SplitSections(lines []string, chunkSize int) []mint.Row {
 			groups = append(groups, secGroup{title: "Overview"})
 			cur = &groups[len(groups)-1]
 		}
-		cur.lines = append(cur.lines, cleaned)
+		cur.lines = append(cur.lines, raw)
 	}
 
 	if len(groups) >= 2 {
 		rows := make([]mint.Row, 0, len(groups))
 		for i, g := range groups {
-			bodyLines := append([]string(nil), g.lines...)
+			bodyLines := append([]mint.LogLine(nil), g.lines...)
 			openByDefault := i == 0
 			rows = append(rows, mint.Collapsible(mint.CollapsibleOpts{
 				ID:        "sec:" + g.title,
 				Title:     g.title,
 				Badge:     fmt.Sprintf("%d lines", len(bodyLines)),
 				Collapsed: !openByDefault,
-				Lines:     func() []string { return bodyLines },
+				LogLines:  func() []mint.LogLine { return bodyLines },
 				ChunkSize: chunkSize,
 			}))
 		}
 		return rows
 	}
 
-	copied := append([]string(nil), lines...)
+	copied := append([]mint.LogLine(nil), lines...)
 	return []mint.Row{
 		mint.Collapsible(mint.CollapsibleOpts{
 			ID:        "output:main",
 			Title:     "Output",
 			Badge:     fmt.Sprintf("%d lines", len(copied)),
 			Collapsed: false,
-			Lines:     func() []string { return copied },
+			LogLines:  func() []mint.LogLine { return copied },
 			ChunkSize: chunkSize,
 		}),
 	}
@@ -263,9 +273,38 @@ func (a *ToolApp) SetSnapshotText(out string) {
 	a.SnapshotLines = lines
 }
 
+// ActiveLogLines is ActiveLines with each line's colours, where the
+// current job's output has them.
+func (a *ToolApp) ActiveLogLines() []mint.LogLine {
+	a.mu.Lock()
+	job := a.activeJob
+	a.mu.Unlock()
+	texts := a.ActiveLines()
+	if job != nil {
+		if ll := job.Lines(); len(ll) == len(texts) {
+			same := true
+			for i := range ll {
+				if ll[i].Text != texts[i] {
+					same = false
+					break
+				}
+			}
+			if same {
+				return ll
+			}
+		}
+	}
+	out := make([]mint.LogLine, len(texts))
+	for i, t := range texts {
+		out[i] = mint.LogLine{Text: t}
+	}
+	return out
+}
+
 // ActiveLines returns the current job's text lines if a job has run, or the
 // snapshot lines captured by RefreshState.
 func (a *ToolApp) ActiveLines() []string {
+
 	a.mu.Lock()
 	job := a.activeJob
 	snap := append([]string(nil), a.SnapshotLines...)
@@ -334,14 +373,14 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 	}
 
 	if a.Spec.CollapsibleOutput && len(lines) > 0 {
-		rows = append(rows, SplitSections(lines, a.Spec.ChunkSize)...)
+		rows = append(rows, SplitSectionsLog(a.ActiveLogLines(), a.Spec.ChunkSize)...)
 	}
 
 	if len(rows) == 0 {
 		if len(lines) == 0 {
 			rows = append(rows, mint.Note("  No output captured yet."))
 		} else {
-			rows = append(rows, SplitSections(lines, a.Spec.ChunkSize)...)
+			rows = append(rows, SplitSectionsLog(a.ActiveLogLines(), a.Spec.ChunkSize)...)
 		}
 	}
 

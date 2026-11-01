@@ -72,6 +72,7 @@ type Row struct {
 
 	children  []Row
 	textLines func() []string
+	textLog   func() []LogLine // as textLines, with the program's colours
 	chunkSize int
 
 	headers     []string

@@ -19,6 +19,9 @@ type LogLine struct {
 	Text      string
 	Err       bool
 	Overwrite bool
+	// Colours are the program's own colours for Text, read safely from its
+	// output (see CleanLineColours). Empty for most lines.
+	Colours []ColourRun
 }
 
 var ansiEsc = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])`)
@@ -81,9 +84,16 @@ func RuneMarker(r rune) string {
 }
 
 func cleanLine(raw string, visible bool) string {
+	out, _ := cleanLineFrom(raw, visible, 0)
+	return out
+}
+
+// cleanLineFrom is cleanLine for a piece of a line that starts at column
+// col (tab stops are counted from the start of the line). It returns the
+// column after the piece.
+func cleanLineFrom(raw string, visible bool, col int) (string, int) {
 	s := ansiEsc.ReplaceAllString(raw, "")
 	var out []rune
-	col := 0
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		i += size
@@ -123,7 +133,7 @@ func cleanLine(raw string, visible bool) string {
 			col++
 		}
 	}
-	return string(out)
+	return string(out), col
 }
 
 // sliceCols returns a horizontal window of s starting at cell offset and
@@ -187,7 +197,7 @@ func expandLog(r Row) []Row {
 			out = append(out, Row{
 				kind:    "row",
 				wtype:   "logline",
-				logLine: LogLine{Text: CleanLine(tail[i].Text), Err: tail[i].Err},
+				logLine: cleanedLogLine(LogLine{Text: tail[i].Text, Err: tail[i].Err, Colours: tail[i].Colours}),
 			})
 		} else if i == 0 && len(tail) == 0 {
 			out = append(out, Row{
@@ -215,6 +225,8 @@ func (c *canvas) logLine(r, w int, it *Row) {
 		c.put(r, 3, prefix+C.Dim+txt+Reset)
 	case it.logLine.Err:
 		c.put(r, 3, prefix+C.Amber+txt+Reset)
+	case len(it.logLine.Colours) > 0 && coloursOn():
+		c.put(r, 3, prefix+renderColoured(it.logLine.Text, it.logLine.Colours, room, C.Text))
 	default:
 		c.put(r, 3, prefix+C.Text+txt+Reset)
 	}

@@ -127,3 +127,9 @@ func batchNote(name string, b batchMode) string {
 	}
 	return "it is full-screen by default; Mint runs it in batch mode (" + cmd + ": " + b.Why + ")"
 }
+
+// knownColourArgs ask a program for its colours when it leaves them out
+// without a terminal. Mint keeps only the colours, safely.
+var knownColourArgs = map[string][]string{
+	"fastfetch": {"--pipe", "false"},
+}
