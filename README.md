@@ -218,13 +218,75 @@ Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The d
 
 ### Colour
 
-The built-in palette is the original purple: 256-colour index 141 for the frame and titles, and a dim selection bar. `theme.Names` lists `default`, `terminal`, `nord`, `gruvbox`, `dracula`, `catppuccin` and `custom`. `mint.SetPalette(theme.Load(name))` applies one immediately. `theme.Set(name)` writes `~/.config/mint-interfaces/theme.conf`, the same file mint-interfaces-legacy reads, so both share a theme.
+#### Themes
 
-Truecolor (`CSI 38;2;r;g;b m` / `CSI 48;2;r;g;b m`) is gated on both the theme and the terminal: it is emitted only when a theme (or `MINT_PALETTE`) specifies RGB values **and** `$COLORTERM` is `truecolor` or `24bit`. When `$COLORTERM` is unset, any RGB colour falls back to the nearest 256-colour approximation (`CSI 38;5;n m` / `CSI 48;5;n m`).
+There are seven themes:
 
-Which theme an app uses, from strongest to weakest: `--theme NAME` on the app's command line (this run only), the theme saved in `theme.conf` (or chosen on the Theme screen), then the app's own default, which `mint-gen --theme NAME tool` builds in (`--theme` implies `--build`). `mint-gen --theme NAME --run tool` also opens the app in that theme for that run.
+| Theme | Look |
+|---|---|
+| `default` | Mint's purple (256-colour 141 for the frame and titles), with light grey text |
+| `terminal` | your terminal's own 16 colours, so it follows the terminal's colour scheme |
+| `nord` | cool, frosty blues |
+| `gruvbox` | warm and retro, with cream text |
+| `dracula` | dark purple with a pink highlight |
+| `catppuccin` | soft pastels |
+| `custom` | your own RGB colours, from `theme.conf` (below) |
+
+#### Choosing a theme
+
+- **The Theme screen.** Every app's home list ends with **Theme**. Choosing a theme shows it straight away; **Use this theme** saves it for every Mint app, and leaving without saving (or **Undo preview**) puts the old colours back. An app can leave the item out with `App.NoThemeItem`.
+- **For one run.** Start any app with `--theme NAME` (or `--theme=NAME`), for example `nmap-mint --theme dracula`. Nothing is saved. It can come before Mint's other flags: `nmap-mint --theme nord --screen Run`.
+- **Built into an app.** `mint-gen --theme NAME tool` builds the app with that theme as its own default (`--theme` implies `--build`), for example `mint-gen --theme nord nmap`. `mint-gen --theme NAME --run tool` also opens it in that theme for that run.
+
+Only the seven names above are accepted; any other name is refused with the list.
+
+Which theme an app uses, strongest first:
+
+1. `--theme NAME` on the app's command line (that run only)
+2. the theme saved in `theme.conf`, or chosen on the Theme screen
+3. the app's own default, from `mint-gen --theme`
+4. `default`
+
+`MINT_PALETTE` (below) is applied on top of the theme the file picks.
+
+#### The theme file
+
+The saved theme lives in `~/.config/mint-interfaces/theme.conf` (`$XDG_CONFIG_HOME/mint-interfaces/theme.conf` when that is set), the same file mint-interfaces-legacy reads, so both share a theme. Apps read it when they start, so restart an app after editing it.
+
+```
+theme = nord
+```
+
+Case, quotes and a colon don't matter: `Theme = Nord`, `theme = "nord"`, `theme: nord` and a line that is just `nord` all work. A name Mint doesn't have (`theme = solarized`) falls back to `default`, and the Theme screen's banner says so.
+
+For your own colours, set `theme = custom` and give each role an RGB value from 0 to 255. A role left out uses a built-in colour.
+
+```
+theme = custom
+
+accent = 124 58 237
+bright = 167 139 250
+text   = 229 229 229
+muted  = 150 150 150
+on     = 52 211 153
+amber  = 251 191 36
+selbg  = 60 60 70
+err    = 220 90 90
+```
+
+**Under sudo.** Run as root, `~` is `/root`, so an app looks for `/root/.config/mint-interfaces/theme.conf`. When root has no theme file of its own, Mint uses the theme file of the user who ran `sudo` (`SUDO_USER`). That file is only read, never written: saving a theme as root writes root's own file. It is used only when it is a regular file (not a link) owned by that user or by root, and at most 64 KiB of it is read.
+
+#### Terminals, MINT_PALETTE and program colours
+
+Truecolor (`CSI 38;2;r;g;b m` / `CSI 48;2;r;g;b m`) is gated on both the theme and the terminal: it is emitted only when a theme (or `MINT_PALETTE`) specifies RGB values **and** `$COLORTERM` is `truecolor` or `24bit`. When `$COLORTERM` is unset, any RGB colour falls back to the nearest 256-colour approximation (`CSI 38;5;n m` / `CSI 48;5;n m`). On a 16-colour terminal the `default` theme's 256-colour codes are mapped to the nearest of the 16. `NO_COLOR` (or a monochrome `$TERM`) turns colour off, and emphasis becomes bold or reverse.
 
 The `MINT_PALETTE` environment variable overrides individual colours for one run, for example `MINT_PALETTE="accent=#ff5f87,selbg=236"`. Each value is a `#rrggbb` colour or a 256-colour number, and the roles are `accent`, `bright`, `text`, `muted`, `on`, `amber`, `err` and `selbg`. This is how Emacs passes its theme to the apps it launches.
+
+A program's own colours (fastfetch's logo, `grep --color`) are shown in the output box and the full-screen viewer, safely: Mint reads only the colour codes, maps them to the 16 standard colours, and writes its own codes. Nothing the program sent reaches the terminal.
+
+#### In code
+
+`mint.SetPalette(theme.Load(name))` applies a theme immediately; `theme.Set(name)` saves it to `theme.conf`; `theme.Current()` is the saved one, and `theme.Problem()` says what is wrong with the file, if anything. `ToolSpec.Theme` (or `App.DefaultTheme`) is an app's own default.
 
 ### Layout of the library
 
