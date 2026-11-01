@@ -304,14 +304,15 @@ func zoneMatchesIn(list []signal, text string, prose bool) map[int]int {
 
 // programText is what the scorer reads about a program.
 type programText struct {
-	Name        string
-	Summary     string   // one line: what it is (see extractSummary)
-	Description string   // the opening of the man page's DESCRIPTION (see extractDescription)
-	Usage       []string // usage lines
-	Body        string   // all of the man page and help
-	ArchBody    string   // the body the archetype phrases are read in: its body sections (see bodySections)
-	OptionText  string   // where the option cues look: its options (see optionCueSections)
-	Related     []string // programs from SEE ALSO
+	Name                               string
+	Summary                            string   // one line: what it is (see extractSummary)
+	Description                        string   // the opening of the man page's DESCRIPTION (see extractDescription)
+	Usage                              []string // usage lines
+	Body                               string   // all of the man page and help
+	ArchBody                           string   // the body the archetype phrases are read in: its body sections (see bodySections)
+	OptionText                         string   // where the option cues look: its options (see optionCueSections)
+	PackageSummary, PackageDescription string   // what its package says it is (see packageText)
+	Related                            []string // programs from SEE ALSO
 
 	manLines, helpLines []string          // cleaned, for reading behaviour (see archetype.go)
 	options             []appkit.FlagSpec // options from the help, then the man page
@@ -321,18 +322,21 @@ type programText struct {
 func programTextFrom(name, manText, helpText string) programText {
 	manLines, helpLines := cleanLines(manText), cleanLines(helpText)
 	secs := splitHelpSections(manLines, helpLines)
+	pkgSummary, pkgDescription := packageText(name)
 	return programText{
-		Name:        name,
-		Summary:     extractSummary(name, manLines, helpLines),
-		Description: extractDescription(manLines),
-		Usage:       usageLines(name, manLines, helpLines),
-		Body:        manText + "\n" + helpText,
-		ArchBody:    archBody(secs),
-		OptionText:  optionText(secs),
-		Related:     seeAlsoPrograms(manText),
-		manLines:    manLines,
-		helpLines:   helpLines,
-		options:     append(parseFlagsFromLines(helpLines, false), parseFlagsFromLines(manLines, true)...),
+		Name:               name,
+		Summary:            extractSummary(name, manLines, helpLines),
+		Description:        extractDescription(manLines),
+		Usage:              usageLines(name, manLines, helpLines),
+		Body:               manText + "\n" + helpText,
+		ArchBody:           archBody(secs),
+		OptionText:         optionText(secs),
+		PackageSummary:     pkgSummary,
+		PackageDescription: pkgDescription,
+		Related:            seeAlsoPrograms(manText),
+		manLines:           manLines,
+		helpLines:          helpLines,
+		options:            append(parseFlagsFromLines(helpLines, false), parseFlagsFromLines(manLines, true)...),
 	}
 }
 
