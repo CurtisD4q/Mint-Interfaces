@@ -159,6 +159,11 @@ type rmVersion struct {
 // the link and empty the directory it points at. An unconfirmed rm is
 // not treated as link-only, so the preview shows that emptying: it is
 // what older GNU coreutils does, and it does not understate a delete.
+//
+// The evidence: 9.12 removing only the link was checked against a real
+// 9.12 (#92); 9.4 (#94) and 9.7 (uutils/coreutils#15789) follow the link.
+// 9.8 to 9.11 are unconfirmed, so they count as following it, which can
+// only over-warn, never understate a delete.
 func (v rmVersion) removesLinkOnly() bool {
 	return v.gnu && (v.major > 9 || (v.major == 9 && v.minor >= 12))
 }
