@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// The 35 archetypes say what kind of program a tool is: what it takes in,
+// The 36 archetypes say what kind of program a tool is: what it takes in,
 // how it runs, and what it gives back. Each is a definition with guide
 // fields, and its interface preferences are weights from 0 to 1, so that a
 // design style can later be blended in by weight (see Blueprint). There are
@@ -16,7 +16,7 @@ import (
 // screen from these features: what the program takes, how it runs (once,
 // polled, or as a state editor), and what it shows.
 
-// ArchetypeID names one of the 35 archetypes: "probe", "look-up"…
+// ArchetypeID names one of the 36 archetypes: "probe", "look-up"…
 type ArchetypeID string
 
 // Feature is one thing an interface can have: a table of results, a live
@@ -247,6 +247,12 @@ var archetypeRegistry = []ArchetypeDef{
 		Runs: "Refreshes.", Shows: "A table of items with actions for each.",
 		Prefer:       Preferences{Features: feat(FeatTable, 1.0, FeatRowActions, 1.0, FeatConfirm, 0.7, FeatLiveRefresh, 0.6, FeatRoot, 0.6)},
 		PollInterval: 3 * time.Second},
+	{ID: "signal", Name: "Signal", Group: GroupChange,
+		Is:    "Sends a signal to running processes, or changes their priority, picking them by name or pattern.",
+		Takes: "A process name or pattern, and the signal or priority.",
+		Runs:  "Once.", Shows: "Which processes it acted on.",
+		Prefer:      Preferences{Features: feat(FeatTarget, 1.0, FeatConfirm, 1.0, FeatRoot, 0.5, FeatHistory, 0.5)},
+		TargetLabel: "Process name or pattern", TargetPlaceholder: "e.g. firefox"},
 
 	// ---- Manage a collection ----
 	{ID: "records", Name: "Records", Group: GroupManage,
@@ -288,7 +294,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Prefer: Preferences{Features: feat(FeatCollapsible, 0.6, FeatFileOutput, 0.4, FeatHistory, 0.3)}},
 }
 
-// AllArchetypeDefs returns the 35 archetypes in order.
+// AllArchetypeDefs returns the 36 archetypes in order.
 func AllArchetypeDefs() []ArchetypeDef {
 	return append([]ArchetypeDef(nil), archetypeRegistry...)
 }

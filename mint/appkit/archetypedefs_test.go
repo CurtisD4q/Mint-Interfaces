@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// 35: Ask … Session, and General for anything else.
+// 36: Ask … Session, and General for anything else.
 func TestThirtyFiveArchetypes(t *testing.T) {
 	defs := AllArchetypeDefs()
-	if len(defs) != 35 {
+	if len(defs) != 36 {
 		t.Fatalf("%d archetypes", len(defs))
 	}
 	seen := map[string]bool{}
@@ -67,7 +67,7 @@ func TestArchetypeListsAndTemplates(t *testing.T) {
 	if a, _ := ArchetypeForTool("/usr/bin/nmap"); a.ID != "probe" {
 		t.Errorf("nmap: %s", a.ID)
 	}
-	if a, _ := ArchetypeForTool("pkill"); a.ID != "control" {
+	if a, _ := ArchetypeForTool("pkill"); a.ID != "signal" {
 		t.Errorf("pkill: %s", a.ID)
 	}
 }

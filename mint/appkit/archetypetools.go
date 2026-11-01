@@ -75,7 +75,7 @@ var archetypeTools = map[string]ArchetypeID{
 	"uptime": "ask", "whatis": "ask",
 	// Control
 	"loginctl": "control", "systemctl": "control", "supervisorctl": "control", "rc-service": "control",
-	"service": "control", "sv": "control", "s6-svc": "control", "pkill": "control", "killall": "control",
+	"service": "control", "sv": "control", "s6-svc": "control", "pkill": "signal", "killall": "signal",
 	"virsh": "control", "qm": "control", "pct": "control", "lxc": "control", "incus": "control",
 	"vagrant": "control",
 	// Search

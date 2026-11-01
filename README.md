@@ -20,11 +20,11 @@ go run ./examples/features  # the additions, including a background job
 
 You can generate and compile a full Mint interface for any installed command-line program in three steps (see [Turnkey CLI apps and automated scaffolding](#turnkey-cli-apps-mintappkit-and-automated-scaffolding-toolsmint-gen) and [Standalone binaries and flags](#standalone-binaries-and-flags) below for full details):
 
-1. **Check compatibility (optional):** Verify the program works in a pure TUI and inspect or cache your terminal's capability profile in `~/.config/mint-interfaces/termcaps.json` (`--list-archetypes` lists the 35 archetypes; `--probe-term` refreshes the terminal probe):
+1. **Check compatibility (optional):** Verify the program works in a pure TUI and inspect or cache your terminal's capability profile in `~/.config/mint-interfaces/termcaps.json` (`--list-archetypes` lists the 36 archetypes; `--probe-term` refreshes the terminal probe):
    ```sh
    go run ./tools/mint-gen --check nmap
    ```
-2. **Generate and compile in one command:** Parse `man` + `--help`, recognise what kind of program it is (one of 35 archetypes), scaffold `apps/<tool>/`, and build the static binary:
+2. **Generate and compile in one command:** Parse `man` + `--help`, recognise what kind of program it is (one of 36 archetypes), scaffold `apps/<tool>/`, and build the static binary:
    ```sh
    go run ./tools/mint-gen --build nmap
    ```
@@ -389,9 +389,9 @@ python3 tools/check_catalogue.py
 
 ### Turnkey CLI apps (`mint/appkit`) and automated scaffolding (`tools/mint-gen`)
 
-`mint/appkit` provides a declarative runtime built on **35 archetypes** (what kind of program a tool is) and **composable add-ons** (see [`templates/README.md`](templates/README.md)):
+`mint/appkit` provides a declarative runtime built on **36 archetypes** (what kind of program a tool is) and **composable add-ons** (see [`templates/README.md`](templates/README.md)):
 
-- **35 archetypes** (`appkit.AllArchetypeDefs`, listed by `mint-gen --list-archetypes`): Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Each says what a program takes, how it runs and what it shows, and wants add-ons by weight (0 to 1). Its blueprint is every add-on wanted at 0.5 or more. The weights are there so a design style can later be blended in. `MainScreen` builds one screen from that blueprint: the input (a target, two inputs, or subcommand tabs), the run (once, a live poll, or a state editor), and the result. The older 28 templates (`T01`–`T28`) are gone; a spec that still names one (`Template:`) no longer builds and needs an `ArchetypeID`.
+- **36 archetypes** (`appkit.AllArchetypeDefs`, listed by `mint-gen --list-archetypes`): Ask, Look up, Inspect, List, Search, Query, Compare, Read, Watch, Follow, Record, Probe, Audit, Measure, Convert, Filter, Pack, Generate, Build, Transfer, Present, Edit files, Mirror, Settings, Device, Rules, Control, Signal, Records, History, Toolkit, Wrap, Schedule, Serve, Session and General. Each says what a program takes, how it runs and what it shows, and wants add-ons by weight (0 to 1). Its blueprint is every add-on wanted at 0.5 or more. The weights are there so a design style can later be blended in. `MainScreen` builds one screen from that blueprint: the input (a target, two inputs, or subcommand tabs), the run (once, a live poll, or a state editor), and the result. The older 28 templates (`T01`–`T28`) are gone; a spec that still names one (`Template:`) no longer builds and needs an `ArchetypeID`.
 - **Composable Mixins** (15; `go run ./tools/mint-gen --list-archetypes` lists them):
   - The original 8: `WithFileOutput`, `WithTableOutput`, `WithCollapsibleOutput`, `WithProfiles`, `WithDynamicChoices`, `WithRootAuth`, `WithConfirm`, and `WithHistory`.
   - 7 more, switched on when the program's own details are known: `WithDiff` (Compare: `diff`, `cmp`), `WithFindings` (Audit: `shellcheck`, `lynis`, SARIF), `WithPreview` (Edit files: `rm`, `cp`, `mv`, `rsync`), `WithFollow` (Follow: `tail -F`, `journalctl -f`), `WithService` (Serve: `python -m http.server`, `nc -l`), `WithTranscript` (Session: `psql`, `sqlite3`, `gdb`, `redis-cli`) and `WithReorder` (Rules: `iptables`, `nft`, `ufw`, `ip rule`). mint-gen attaches the ones that are safe to offer by itself; [`CATALOGUE.md`](CATALOGUE.md) Part E describes each.
@@ -405,7 +405,7 @@ python3 tools/check_catalogue.py
    ```bash
    go run ./tools/mint-gen --check nmap
    ```
-   *(You can also run `go run ./tools/mint-gen --list-archetypes` to see the 35 archetypes and the add-ons.)*
+   *(You can also run `go run ./tools/mint-gen --list-archetypes` to see the 36 archetypes and the add-ons.)*
 
 2. **Generate and compile the interface in one command**
    Run `mint-gen` with `--build` (or pass `--archetype probe` to choose the archetype yourself):

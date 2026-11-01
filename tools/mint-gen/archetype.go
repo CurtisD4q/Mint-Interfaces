@@ -11,7 +11,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
-// Choosing the archetype of a program no list names: one of the 35
+// Choosing the archetype of a program no list names: one of the 36
 // (appkit.AllArchetypeDefs), from two kinds of evidence.
 //
 //   - Behaviour: what the usage lines take (HOST..., PATTERN, FILE1 FILE2,
@@ -109,8 +109,12 @@ var archetypeSignals = map[string][]string{
 		"partition|partition table|partitions", "arp cache|arp table|neighbour", "traffic control|queueing discipline",
 		"~insert|~append|~entries", "bridge table|ethernet bridge"},
 	"control": {"service|services|~daemon|~daemons|~unit|~units", "~start|~stop|~restart|~enable|~disable",
-		"~process|~processes", "send a signal|signal to|kill processes|~signal|~kill", "priority|niceness|scheduling priority", "virtual machine|domains|guest",
+		"~process|~processes", "virtual machine|domains|guest",
 		"init script|runlevel|system v", "~supervise|~supervisor|~monitoring daemon"},
+	"signal": {"send a signal|sends a signal|signal to|signals to|kill processes|kills processes|terminate processes|~signal|~signals|~kill",
+		"~process|~processes|running processes|process name|processes by name|matching processes",
+		"process id|process ids|~pid|~pids|process group", "niceness|scheduling priority|nice value|~priority",
+		"~sigterm|~sigkill|~sighup|~sigint|~sigstop|~sigcont"},
 	"records": {"package|packages|package manager", "install|uninstall|upgrade|installed|~remove", "dependency|dependencies",
 		"~entries|~items|~records", "~add|~delete|~list", "certificate database|key database", "rocks|modules|gems",
 		"todo|task|tasks|notes|bookmarks"},
@@ -187,6 +191,15 @@ var (
 	reOptDryRun  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--(?:dry-run|dryrun|simulate|no-act|just-print)\b`)
 	reOptFormat  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:format|codec|quality|bitrate|resolution|output-format|input-format|encoding)\b`)
 	reOptLoad    = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:concurrency|connections|concurrent|requests|duration|threads|rate|warmup|runs|iterations|time)\b.*\b(?:concurren|connections|requests|seconds|duration|threads|runs|iterations)`)
+	// A signal to send, or a running process's priority: --signal SIG,
+	// -s SIGNAL, -n/--priority with -p/--pid.
+	reOptSignal   = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--signal\b|^\s{0,12}-s,?\s+(?:--\S+\s+)?<?sig(?:nal)?>?\b`)
+	reOptPriority = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:priority|niceness)\b`)
+	// --pid or --pgrp itself (not --pidfile), and ionice's I/O class.
+	reOptPidOnly = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp)\b(?:[^-]|$)`)
+	reOptIOClass = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--(?:class|classdata)\b`)
+	reNameKills  = regexp.MustCompile(`(?i)kill`)
+	reOptPid     = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:pid|pids|pgrp|pidfile)\b`)
 	reOptLength  = regexp.MustCompile(`(?im)^\s{0,12}(?:-\w,\s*)?--?(?:length|count|number|num|seed|width|font)\b`)
 
 	// A typed session: an interactive shell, REPL, or a prompt the user
@@ -200,6 +213,13 @@ var (
 	reSaysFiles   = regexp.MustCompile(`(?i)\bfiles?\b`)
 	reSaysStdin   = regexp.MustCompile(`(?i)\b(?:standard input|stdin)\b.{0,80}\b(?:standard output|stdout)\b|\bwrit\w* (?:the )?result to standard output\b`)
 )
+
+// actsOnRunningProcesses reports whether the help lists an option that
+// picks running processes by ID together with one that signals them or
+// sets their priority.
+func actsOnRunningProcesses(text string) bool {
+	return reOptPidOnly.MatchString(text) && (reOptSignal.MatchString(text) || reOptPriority.MatchString(text) || reOptIOClass.MatchString(text))
+}
 
 // sessionCuesMatch reports whether help text looks like a typed session:
 // reInteractive (a shell, REPL, or interpreter) or a prompt cue.
@@ -361,6 +381,12 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 	if n := len(reOptLoad.FindAllString(body, 4)); n >= 2 {
 		add("measure", zoneBody, cueMedium, "it sets a load: concurrency, requests, duration or runs")
 	}
+	switch {
+	case reOptSignal.MatchString(body):
+		add("signal", zoneBody, cueStrong, "it sends a signal it is given")
+	case reOptPriority.MatchString(body) && reOptPid.MatchString(body):
+		add("signal", zoneBody, cueMedium, "it sets the priority of running processes")
+	}
 	if reOptFormat.MatchString(body) {
 		add("convert", zoneBody, cueWeak, "it chooses a format")
 	}
@@ -394,6 +420,11 @@ func archetypeCues(p programText) map[appkit.ArchetypeID][]cueHit {
 	}
 	if reSaysStdin.MatchString(about) {
 		add("filter", saidIn(reSaysStdin), cueMedium, "it reads standard input and writes standard output")
+	}
+
+	// Its name says it kills: kill, pkill, killall, xkill.
+	if reNameKills.MatchString(p.Name) {
+		add("signal", zoneName, cueMedium, "its name says it kills processes")
 	}
 
 	// General: anything, a little.
@@ -537,7 +568,7 @@ func relatedArchetypes(name string, related []string) map[appkit.ArchetypeID][]s
 	return out
 }
 
-// scoreArchEvidence weighs evidence with w: the 35 archetypes, best first;
+// scoreArchEvidence weighs evidence with w: the 36 archetypes, best first;
 // ties go to the order of appkit.AllArchetypeDefs, so every run is the same.
 func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	words := map[appkit.ArchetypeID]PhraseScore{}
@@ -597,7 +628,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 	return out
 }
 
-// scoreArchetypes ranks the 35 archetypes for a program, best first.
+// scoreArchetypes ranks the 36 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
 	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
 }

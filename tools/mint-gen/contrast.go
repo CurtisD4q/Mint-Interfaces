@@ -62,6 +62,12 @@ var contrastLinks = []struct {
 		[]string{"download", "downloads", "upload", "uploads", "transfer", "fetch"}},
 	{"rules", "list", []string{"rule", "rules", "partition", "partitions", "table", "chain", "chains", "policy"},
 		[]string{"list", "lists", "show", "display"}},
+	{"signal", "list", []string{"signal", "signals", "kill", "kills", "terminate", "renice"},
+		[]string{"list", "lists", "listing", "display", "show", "report"}},
+	{"signal", "search", []string{"signal", "signals", "kill", "kills"},
+		[]string{"search for", "searches for", "find files", "matching lines", "regular expression"}},
+	{"signal", "control", []string{"signal", "signals", "kill", "kills", "processes by name", "priority", "pid", "process id"},
+		[]string{"service", "services", "unit", "units", "daemon", "start", "stop", "restart", "enable", "disable"}},
 	{"wrap", "control", []string{"run a command", "runs a command", "run a program", "transient", "scope", "with a time limit"},
 		[]string{"start", "stop", "restart", "status", "enable", "disable"}},
 }
