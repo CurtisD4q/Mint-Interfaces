@@ -67,6 +67,7 @@ var archetypeTools = map[string]ArchetypeID{
 	"smartctl": "inspect", "exiftool": "inspect", "mediainfo": "inspect", "ffprobe": "inspect",
 	"file": "inspect", "stat": "inspect", "strings": "inspect", "readelf": "inspect", "objdump": "inspect",
 	"nm": "inspect", "ldd": "inspect", "wc": "inspect",
+	"fastfetch": "inspect", "neofetch": "inspect", // system information, printed once
 	// Watch
 	"free": "watch", "vmstat": "watch", "iostat": "watch", "mpstat": "watch", "pidstat": "watch",
 	"sensors": "watch", "nvidia-smi": "watch",
