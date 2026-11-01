@@ -648,7 +648,32 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 
 // scoreArchetypes ranks the 38 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
-	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
+	return applyTieBreaks(p, applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p))))
+}
+
+// reOptTable is an option for a table's headings or columns: --heading,
+// --no-header, --noheadings, --columns, --sort. A program with one prints
+// a table.
+var reOptTable = regexp.MustCompile(`(?im)^\s{0,12}(?:\[\s*)?(?:-\w(?:,\s*|\|))?--?(?:headings?|headers?|no-?headings?|no-?headers?|columns?|sort)\b`)
+
+// applyTieBreaks settles a close call between two archetypes that are
+// easily mistaken, from evidence the scores do not weigh.
+//
+// List or Inspect, close: a program with options for a table's headings
+// or columns lists things (who, w, vgs). The 22-group study found 83% of
+// list programs print a table, against 28% of inspect programs. The call
+// stays close: List is put one point ahead, not made a clear choice.
+func applyTieBreaks(p programText, scores []ArchetypeScore) []ArchetypeScore {
+	if len(scores) < 2 || scores[0].Score-scores[1].Score >= clearLead {
+		return scores
+	}
+	top, second := scores[0].ID, scores[1].ID
+	if top == "inspect" && second == "list" && reOptTable.MatchString(p.OptionText) {
+		scores[1].Score = scores[0].Score + 1
+		scores[1].Hits = append(scores[1].Hits, "close call with inspect: it has options for a table's headings or columns")
+		scores[0], scores[1] = scores[1], scores[0]
+	}
+	return scores
 }
 
 // Confidence of a choice.
