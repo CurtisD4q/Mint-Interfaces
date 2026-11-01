@@ -363,3 +363,153 @@ func TestInterfaceLabelBenchmark(t *testing.T) {
 		t.Logf("screen right, %s: archetype %d, answers %d", s, bySet[s][0], bySet[s][1])
 	}
 }
+
+// labelAnswers are the answers a labelled archetype implies, from its
+// blueprint: the yardstick for where its programs should land.
+func labelAnswers(a appkit.ArchetypeDef) appkit.Answers {
+	b := a.Blueprint()
+	m := map[appkit.Question]bool{
+		appkit.QKeepsRunning:  b.Has(appkit.FeatLiveRefresh) || b.Has(appkit.FeatFollow) || b.Has(appkit.FeatService),
+		appkit.QChangesThings: b.Has(appkit.FeatStateEdit),
+		appkit.QTarget:        b.Has(appkit.FeatTarget) || b.Has(appkit.FeatTwoInputs) || a.TargetLabel != "",
+		appkit.QTwoInputs:     b.Has(appkit.FeatTwoInputs),
+		appkit.QSubcommands:   a.WantsSubcommands(),
+		appkit.QWritesFile:    b.Has(appkit.FeatFileOutput),
+		appkit.QTable:         b.Has(appkit.FeatTable),
+		appkit.QNeedsRoot:     b.Has(appkit.FeatRoot),
+		appkit.QCanDestroy:    b.Has(appkit.FeatConfirm),
+	}
+	return answersOf(m)
+}
+
+// The group benchmark: where the 351 labelled programs land among the 22
+// groups (blind, lists off), against where their labels say they should.
+//
+//	MINT_ARCHETYPE_BENCH=interface-groups go test -run TestInterfaceGroupBenchmark -v .
+func TestInterfaceGroupBenchmark(t *testing.T) {
+	if os.Getenv("MINT_ARCHETYPE_BENCH") != "interface-groups" {
+		t.Skip("set MINT_ARCHETYPE_BENCH=interface-groups")
+	}
+	oldMode, oldBlind := interfaceMode, parseBlind
+	defer func() { interfaceMode, parseBlind = oldMode, oldBlind }()
+	interfaceMode, parseBlind = InterfaceAnswers, true
+	type res struct {
+		name, label, got, want string
+		firm                   bool
+	}
+	var rs []res
+	for _, c := range loadArchCases(t) {
+		if !c.tunable() {
+			continue
+		}
+		man, help, ok := benchHelp(t, benchCache(), c.Name)
+		if !ok || strings.TrimSpace(man+help) == "" {
+			continue
+		}
+		spec := ParseManAndHelp(c.Name, man, help)
+		a := detectAnswers(c.Name, man, help, spec)
+		g := appkit.PlaceInterface(a)
+		firm := true
+		for q, yes := range g.Rule {
+			if yes && a[q].Sure != appkit.SureStrong {
+				firm = false // a deciding yes rests on a hint
+			}
+		}
+		label, _ := appkit.LookupArchetype(string(c.Want))
+		rs = append(rs, res{c.Name, string(c.Want), g.ID, appkit.PlaceInterface(labelAnswers(label)).ID, firm})
+	}
+	n := len(rs)
+	fam := func(id string) string { g, _ := appkit.LookupInterfaceGroup(id); return g.Family }
+	same, sameFam, firm, firmRight := 0, 0, 0, 0
+	for _, r := range rs {
+		if r.got == r.want {
+			same++
+		}
+		if fam(r.got) == fam(r.want) {
+			sameFam++
+		}
+		if r.firm {
+			firm++
+			if r.got == r.want {
+				firmRight++
+			}
+		}
+	}
+	pc := func(k, of int) string { return fmt.Sprintf("%3d (%3.0f%%)", k, 100*float64(k)/float64(max(of, 1))) }
+	t.Logf("%d labelled programs, blind", n)
+	t.Logf("in the group their label implies:   %s", pc(same, n))
+	t.Logf("in that group's family:             %s", pc(sameFam, n))
+	t.Logf("placed firmly (every deciding yes is strong): %s, of which in the implied group %s", pc(firm, n), pc(firmRight, firm))
+	t.Logf("not placed firmly: %d, of which in the implied group %s", n-firm, pc(same-firmRight, n-firm))
+
+	// Per archetype: implied group, and where its programs went.
+	byLabel := map[string][]res{}
+	for _, r := range rs {
+		byLabel[r.label] = append(byLabel[r.label], r)
+	}
+	labels := make([]string, 0, len(byLabel))
+	for l := range byLabel {
+		labels = append(labels, l)
+	}
+	sort.Slice(labels, func(i, j int) bool { return len(byLabel[labels[i]]) > len(byLabel[labels[j]]) })
+	together := 0
+	t.Logf("%-11s %4s  %-24s %-10s %-10s %s", "archetype", "n", "implied group", "landed", "together", "where they went")
+	for _, l := range labels {
+		g := byLabel[l]
+		cnt := map[string]int{}
+		in := 0
+		for _, r := range g {
+			cnt[r.got]++
+			if r.got == r.want {
+				in++
+			}
+		}
+		type kv struct {
+			k string
+			v int
+		}
+		var top []kv
+		for k, v := range cnt {
+			top = append(top, kv{k, v})
+		}
+		sort.Slice(top, func(i, j int) bool { return top[i].v > top[j].v || top[i].v == top[j].v && top[i].k < top[j].k })
+		together += top[0].v
+		var parts []string
+		for i, x := range top {
+			if i == 4 {
+				break
+			}
+			parts = append(parts, fmt.Sprintf("%s %d", x.k, x.v))
+		}
+		t.Logf("%-11s %4d  %-24s %-10s %-10s %s", l, len(g), g[0].want, pc(in, len(g)), pc(top[0].v, len(g)), strings.Join(parts, ", "))
+	}
+	t.Logf("label-mates in their archetype's most common group: %s", pc(together, n))
+
+	// Per group: how many landed, and how mixed their labels are.
+	byGroup := map[string][]res{}
+	for _, r := range rs {
+		byGroup[r.got] = append(byGroup[r.got], r)
+	}
+	t.Logf("%-24s %4s  %s", "group", "n", "labels")
+	for _, g := range appkit.InterfaceGroups() {
+		rr := byGroup[g.ID]
+		cnt := map[string]int{}
+		for _, r := range rr {
+			cnt[r.label]++
+		}
+		var parts []string
+		for k, v := range cnt {
+			parts = append(parts, fmt.Sprintf("%s %d", k, v))
+		}
+		sort.Slice(parts, func(i, j int) bool {
+			var a, b int
+			fmt.Sscanf(parts[i][strings.LastIndex(parts[i], " ")+1:], "%d", &a)
+			fmt.Sscanf(parts[j][strings.LastIndex(parts[j], " ")+1:], "%d", &b)
+			return a > b || a == b && parts[i] < parts[j]
+		})
+		if len(parts) > 5 {
+			parts = parts[:5]
+		}
+		t.Logf("%-24s %4d  %s", g.ID, len(rr), strings.Join(parts, ", "))
+	}
+}
