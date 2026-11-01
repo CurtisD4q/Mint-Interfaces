@@ -33,8 +33,8 @@ var archetypeTools = map[string]ArchetypeID{
 	"tar": "pack", "7z": "pack", "7za": "pack", "zip": "pack", "unzip": "pack", "gzip": "pack", "gunzip": "pack",
 	"bzip2": "pack", "xz": "pack", "zstd": "pack", "lz4": "pack", "cpio": "pack", "ar": "pack",
 	// History
-	"borg": "history", "restic": "history", "timeshift": "history", "snapper": "history", "duplicity": "history",
-	"kopia": "history", "git": "history", "hg": "history", "svn": "history", "fossil": "history",
+	"borg": "backup", "restic": "backup", "timeshift": "backup", "snapper": "backup", "duplicity": "backup",
+	"kopia": "backup", "git": "history", "hg": "history", "svn": "history", "fossil": "history",
 	// Build
 	"go": "build", "make": "build", "cargo": "build", "ninja": "build", "cmake": "build", "pytest": "build",
 	"gcc": "build", "g++": "build", "clang": "build", "javac": "build", "tsc": "build",

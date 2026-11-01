@@ -314,7 +314,7 @@ func helpNamesChangingOption(lines []string) bool {
 
 func namedStateArchetype(id string) bool {
 	switch id {
-	case "settings", "device", "rules", "control", "records", "schedule", "history", "watch", "list":
+	case "settings", "device", "rules", "control", "records", "schedule", "history", "backup", "watch", "list":
 		return true
 	default:
 		return false
@@ -478,7 +478,7 @@ func pickStatusFlag(spec *appkit.ToolSpec) string {
 
 func wantsRowActions(spec *appkit.ToolSpec) bool {
 	switch spec.ArchetypeID {
-	case "control", "records", "schedule", "rules", "history", "settings", "list", "device":
+	case "control", "records", "schedule", "rules", "history", "backup", "settings", "list", "device":
 		return true
 	}
 	def, ok := appkit.LookupArchetype(spec.ArchetypeID)
@@ -515,6 +515,10 @@ var (
 		{"show", false}, {"diff", false}, {"inspect", false}, {"log", false},
 		{"checkout", true}, {"restore", true}, {"revert", true},
 	}
+	backupRowVerbs = []rowVerb{
+		{"ls", false}, {"list", false}, {"show", false}, {"info", false}, {"diff", false}, {"stats", false}, {"check", false},
+		{"restore", true}, {"rollback", true}, {"forget", true}, {"prune", true}, {"delete", true}, {"remove", true},
+	}
 	// device, settings, list, and any other row-action archetype.
 	collectionRowVerbs = []rowVerb{
 		{"show", false}, {"info", false}, {"status", false}, {"get", false},
@@ -545,6 +549,8 @@ func rowVerbTable(id string) []rowVerb {
 		return rulesRowVerbs
 	case "history":
 		return historyRowVerbs
+	case "backup":
+		return backupRowVerbs
 	default:
 		return collectionRowVerbs
 	}

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// The 37 archetypes say what kind of program a tool is: what it takes in,
+// The 38 archetypes say what kind of program a tool is: what it takes in,
 // how it runs, and what it gives back. Each is a definition with guide
 // fields, and its interface preferences are weights from 0 to 1, so that a
 // design style can later be blended in by weight (see Blueprint). There are
@@ -16,7 +16,7 @@ import (
 // screen from these features: what the program takes, how it runs (once,
 // polled, or as a state editor), and what it shows.
 
-// ArchetypeID names one of the 37 archetypes: "probe", "look-up"…
+// ArchetypeID names one of the 38 archetypes: "probe", "look-up"…
 type ArchetypeID string
 
 // Feature is one thing an interface can have: a table of results, a live
@@ -265,9 +265,15 @@ var archetypeRegistry = []ArchetypeDef{
 		Runs: "Once per action.", Shows: "A table of items to add to, edit and remove from.",
 		Prefer: Preferences{Features: feat(FeatTable, 1.0, FeatRowActions, 0.8, FeatConfirm, 0.6)}},
 	{ID: "history", Name: "History", Group: GroupManage,
-		Is: "Keeps versions or snapshots of something.", Takes: "A repository.",
-		Runs: "Once per action.", Shows: "The log or snapshots, with actions on each.",
+		Is: "Keeps the versions of something: commits, branches, revisions.", Takes: "A repository.",
+		Runs: "Once per action.", Shows: "The log, with actions on each version.",
 		Prefer: Preferences{Features: feat(FeatTable, 0.9, FeatRowActions, 0.7, FeatConfirm, 0.6, FeatHistory, 0.5, FeatCollapsible, 0.4)}},
+	{ID: "backup", Name: "Backup", Group: GroupManage,
+		Is: "Backs folders up to a repository, and restores them from snapshots.", Takes: "A repository, and the folders to back up or restore.",
+		Runs: "As a job.", Shows: "The snapshots, with restore and remove on each.",
+		Prefer:      Preferences{Features: feat(FeatTable, 0.9, FeatConfirm, 0.9, FeatRowActions, 0.7, FeatProgress, 0.7, FeatProfiles, 0.5, FeatHistory, 0.4)},
+		TargetLabel: "Repository", TargetPlaceholder: "e.g. /mnt/backup/repo",
+		Data: DataSensitive, DataReason: "backups hold copies of your files"},
 	{ID: "toolkit", Name: "Toolkit", Group: GroupManage,
 		Is: "Many unrelated commands under one name.", Takes: "A command, then its own options.",
 		Runs: "Depends on the command.", Shows: "Depends on the command.",
@@ -299,7 +305,7 @@ var archetypeRegistry = []ArchetypeDef{
 		Prefer: Preferences{Features: feat(FeatCollapsible, 0.6, FeatFileOutput, 0.4, FeatHistory, 0.3)}},
 }
 
-// AllArchetypeDefs returns the 37 archetypes in order.
+// AllArchetypeDefs returns the 38 archetypes in order.
 func AllArchetypeDefs() []ArchetypeDef {
 	return append([]ArchetypeDef(nil), archetypeRegistry...)
 }
@@ -375,11 +381,11 @@ func BlueprintFrom(p Preferences) Blueprint {
 }
 
 // WantsSubcommands reports whether this archetype is a set of commands
-// (pack, records, history, toolkit, schedule), so a generator should read
+// (pack, records, history, backup, toolkit, schedule), so a generator should read
 // subcommand tabs from the help when the spec has none yet.
 func (a ArchetypeDef) WantsSubcommands() bool {
 	switch a.ID {
-	case "pack", "records", "history", "toolkit", "schedule":
+	case "pack", "records", "history", "backup", "toolkit", "schedule":
 		return true
 	default:
 		return false
