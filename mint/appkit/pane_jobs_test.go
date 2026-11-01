@@ -7,7 +7,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// Every archetype keeps advanced options in their own pane.
+// Every archetype keeps many advanced options in their own pane.
 func TestEveryArchetypeFollowsItsPaneRule(t *testing.T) {
 	if n := len(AllArchetypeDefs()); n != 35 {
 		t.Fatalf("%d archetypes, want 35", n)
@@ -38,6 +38,7 @@ func TestDrawnOrderPutsTheCommandUnderOutput(t *testing.T) {
 		{Flag: "--a", Kind: FlagBool, Label: "A", Section: "Scan"},
 		{Flag: "--z", Kind: FlagBool, Label: "Z", Section: "Scan", Advanced: true},
 	}}
+	spec.Flags = append(spec.Flags, manyAdvanced()...)
 	frame := newTestApp(t, spec).MainScreen().FrameText(40, 100)
 	basic := strings.Index(frame, "Basic Options")
 	adv := strings.Index(frame, "Advanced + Additional")
@@ -64,6 +65,7 @@ func screenFor(t *testing.T, def ArchetypeDef, advanced bool) *mint.Screen {
 			FlagSpec{Flag: "--hidden", Kind: FlagBool, Label: "Hidden", Section: "Options", Advanced: true},
 			FlagSpec{Flag: "--trace", Kind: FlagBool, Label: "Trace", Section: "Debug", Advanced: true},
 		)
+		spec.Flags = append(spec.Flags, manyAdvanced()...)
 	}
 	if def.ID == "toolkit" || def.ID == "records" {
 		spec.Subcommands = []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}

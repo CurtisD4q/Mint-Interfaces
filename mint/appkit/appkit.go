@@ -2034,7 +2034,7 @@ func (a *ToolApp) RunScreen() *mint.Screen {
 		// are listed under the output.
 		var options []mint.Section
 		var panes []*mint.Pane
-		if a.advancedInOwnPane() && a.hasAdvancedOptions() {
+		if a.splitAdvanced() {
 			basic, adv := a.splitFlagSections()
 			options = basic
 			if len(dropEmpty(options)) > 0 {

@@ -6,30 +6,47 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 )
 
-// Every archetype keeps ordinary options and advanced options in separate
-// panes: Basic Options, then Advanced + Additional, then Output.
+// Ordinary options go in Basic Options. A tool with many advanced options
+// puts them in an Advanced + Additional pane under it; a simple tool, with
+// only a few, keeps them in Basic Options (as More Options and "(Advanced)"
+// headings), so a small app is one options pane, then any special panes,
+// then Output.
 const (
 	titleBasic    = "Basic Options"
 	titleAdvanced = "Advanced + Additional"
 	titleOutput   = "Output"
 )
 
-// advancedInOwnPane reports whether an archetype puts its advanced options
-// in their own pane. Every archetype does; the pane only appears when a
-// tool has advanced options.
+// fewAdvanced is the most advanced options a tool can have and still keep
+// them in Basic Options. Basic Options holds about 12 options, so up to 10
+// more fit without making it long: free, pstree, gzip and cal have 1–10,
+// while grep has 35, tshark 60 and nmap 84.
+const fewAdvanced = 10
+
+// advancedInOwnPane reports whether an archetype can put advanced options
+// in their own pane. Every archetype can; splitAdvanced decides per tool.
 func advancedInOwnPane(id string) bool { return true }
 
 func (a *ToolApp) advancedInOwnPane() bool {
 	return a != nil && advancedInOwnPane(a.Spec.ArchetypeID)
 }
 
-func (a *ToolApp) hasAdvancedOptions() bool {
+func (a *ToolApp) advancedCount() int {
+	n := 0
 	for _, f := range a.Spec.Flags {
 		if f.Advanced {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
+}
+
+func (a *ToolApp) hasAdvancedOptions() bool { return a.advancedCount() > 0 }
+
+// splitAdvanced reports whether this tool's advanced options get their own
+// pane: only when it has more than fewAdvanced of them.
+func (a *ToolApp) splitAdvanced() bool {
+	return a.advancedInOwnPane() && a.advancedCount() > fewAdvanced
 }
 
 // dropEmpty hides sections that have no rows, so a pane is never padded
@@ -63,12 +80,12 @@ func appendPane(panes []*mint.Pane, p *mint.Pane) []*mint.Pane {
 }
 
 // layoutMain stacks Basic Options, then at most one Advanced + Additional
-// pane, then any pane whose job is neither options nor output,
+// pane (for a tool with many advanced options), then any pane whose job is neither options nor output,
 // then Output. The run command is docked under Output.
 func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, interval time.Duration) {
 	basic, advanced := a.optionSections()
 	var panes []*mint.Pane
-	if a.advancedInOwnPane() && a.hasAdvancedOptions() {
+	if a.splitAdvanced() {
 		panes = appendPane(panes, onePane(titleAdvanced, advanced))
 	}
 	panes = append(panes, a.rolePanes()...)
@@ -81,11 +98,11 @@ func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, inte
 	scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, canPoll, interval)})
 }
 
-// optionSections is the ordinary options, and the advanced ones for their
-// own pane. With nothing advanced, the second list
+// optionSections is the ordinary options, and the advanced ones when they
+// get their own pane. With nothing advanced, the second list
 // is empty and Extra arguments stay with the ordinary options.
 func (a *ToolApp) optionSections() (basic, advanced []mint.Section) {
-	split := a.advancedInOwnPane() && a.hasAdvancedOptions()
+	split := a.splitAdvanced()
 	var flags, adv []mint.Section
 	if split {
 		flags, adv = a.splitFlagSections()
