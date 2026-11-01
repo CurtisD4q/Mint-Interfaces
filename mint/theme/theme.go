@@ -14,11 +14,14 @@ package theme
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Palette is a complete set of colour roles, each a ready-made SGR sequence.
@@ -212,14 +215,73 @@ var ConfigPath = func() string {
 	return base + "/mint-interfaces/theme.conf"
 }()
 
+// defaultConfigPath is ConfigPath as it starts; a caller (or a test) that
+// sets ConfigPath itself is always read from there.
+var defaultConfigPath = ConfigPath
+
+// ReadPath is the file the theme is read from. It is ConfigPath, except
+// when Mint runs as root through sudo and root has no theme file of its
+// own: then it is the theme file of the user who ran sudo, so a sudo run
+// keeps that user's colours. That file is only read, never written (Set
+// writes ConfigPath), and only when it is a regular file, not a link,
+// owned by that user or by root.
+func ReadPath() string {
+	if ConfigPath != defaultConfigPath {
+		return ConfigPath
+	}
+	if _, err := os.Stat(ConfigPath); err == nil {
+		return ConfigPath
+	}
+	if p := sudoUserConfigPath(); p != "" {
+		return p
+	}
+	return ConfigPath
+}
+
+// lookupUser finds a user's home; tests replace it.
+var lookupUser = user.Lookup
+
+// sudoUserConfigPath is the theme file of the user who ran sudo, or "".
+func sudoUserConfigPath() string {
+	if os.Geteuid() != 0 {
+		return ""
+	}
+	name := os.Getenv("SUDO_USER")
+	if name == "" || name == "root" {
+		return ""
+	}
+	u, err := lookupUser(name)
+	if err != nil || u.HomeDir == "" || !filepath.IsAbs(u.HomeDir) {
+		return ""
+	}
+	p := filepath.Join(u.HomeDir, ".config", "mint-interfaces", "theme.conf")
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		uid, err := strconv.ParseUint(u.Uid, 10, 32)
+		if err != nil || (uint64(st.Uid) != uid && st.Uid != 0) {
+			return ""
+		}
+	}
+	return p
+}
+
 // Names lists the selectable themes.
 var Names = []string{"default", "terminal", "nord", "gruvbox", "dracula", "catppuccin", "custom"}
 
 const sp = `[ \t\n\v\f\r]`
 
 var (
-	roleLine  = regexp.MustCompile(`^` + sp + `*([A-Za-z]+)` + sp + `*=` + sp + `*(\d+)` + sp + `+(\d+)` + sp + `+(\d+)`)
-	themeLine = regexp.MustCompile(`^` + sp + `*theme` + sp + `*=` + sp + `*([A-Za-z]+)`)
+	// "accent = 1 2 3"; any case, = or :.
+	roleLine = regexp.MustCompile(`^` + sp + `*([A-Za-z]+)` + sp + `*[=:]` + sp + `*(\d+)` + sp + `+(\d+)` + sp + `+(\d+)`)
+	// "theme = nord", and the ways people also write it: Theme = Nord,
+	// theme: nord, theme = "nord". The name is read up to the first
+	// character that cannot be in one.
+	themeLine = regexp.MustCompile(`(?i)^` + sp + `*theme` + sp + `*[=:]` + sp + `*["']?` + sp + `*([A-Za-z0-9_-]*)`)
+	// A line that is only a theme's name ("nord").
+	bareLine = regexp.MustCompile(`^` + sp + `*["']?([A-Za-z]+)["']?` + sp + `*$`)
 )
 
 func readLines(path string) ([]string, bool) {
@@ -229,7 +291,8 @@ func readLines(path string) ([]string, bool) {
 	}
 	defer f.Close()
 	var out []string
-	sc := bufio.NewScanner(f)
+	// A theme file is a few lines; read no more than 64 KiB of it.
+	sc := bufio.NewScanner(io.LimitReader(f, 64<<10))
 	for sc.Scan() {
 		out = append(out, sc.Text())
 	}
@@ -251,14 +314,14 @@ func clamp255(s string) int {
 }
 
 func themeCustom() (Palette, bool) {
-	lines, ok := readLines(ConfigPath)
+	lines, ok := readLines(ReadPath())
 	if !ok {
 		return Palette{}, false
 	}
 	spec := rgbSpec{}
 	for _, line := range lines {
 		if m := roleLine.FindStringSubmatch(line); m != nil {
-			spec[m[1]] = [3]int{clamp255(m[2]), clamp255(m[3]), clamp255(m[4])}
+			spec[strings.ToLower(m[1])] = [3]int{clamp255(m[2]), clamp255(m[3]), clamp255(m[4])}
 		}
 	}
 	fallback := rgbSpec{
@@ -279,23 +342,59 @@ func themeCustom() (Palette, bool) {
 	return fromRGB(spec), true
 }
 
-func readSelectedName() string {
-	lines, ok := readLines(ConfigPath)
+// readSelected is the theme the file names (lower case, the last one if
+// several), or "" when it names none. A line that is only a theme's name
+// counts when no theme = line does.
+func readSelected() string {
+	lines, ok := readLines(ReadPath())
 	if !ok {
-		return "default"
+		return ""
 	}
-	name := "default"
+	name, bare := "", ""
 	for _, line := range lines {
 		if m := themeLine.FindStringSubmatch(line); m != nil {
-			name = m[1]
+			name = strings.ToLower(m[1])
+		} else if m := bareLine.FindStringSubmatch(line); m != nil && known(strings.ToLower(m[1])) {
+			bare = strings.ToLower(m[1])
 		}
 	}
+	if name == "" {
+		name = bare
+	}
 	return name
+}
+
+func readSelectedName() string {
+	if name := readSelected(); known(name) {
+		return name
+	}
+	return "default"
+}
+
+func known(name string) bool {
+	for _, n := range Names {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Problem says what is wrong with the theme ConfigPath names, or "" when
+// it names a theme (or nothing, which is the default).
+func Problem() string {
+	name := readSelected()
+	if name == "" || known(name) {
+		return ""
+	}
+	return fmt.Sprintf("%s names the theme %q, which Mint does not have, so it uses default. Themes: %s.",
+		ReadPath(), name, strings.Join(Names, ", "))
 }
 
 // Load returns the palette for a theme name. An empty name means the theme
 // selected in ConfigPath. Unknown names fall back to the default purple.
 func Load(name string) Palette {
+	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		name = readSelectedName()
 	}
@@ -322,7 +421,7 @@ func Current() string { return readSelectedName() }
 // Set writes the selected theme to ConfigPath, keeping any custom RGB lines.
 func Set(name string) error {
 	var roles []string
-	if lines, ok := readLines(ConfigPath); ok {
+	if lines, ok := readLines(ReadPath()); ok {
 		for _, l := range lines {
 			if roleLine.MatchString(l) {
 				roles = append(roles, l)

@@ -159,6 +159,9 @@ func ThemeScreen() *Screen {
 			}},
 		},
 	}
+	scr.Sections = append(scr.Sections, Section{Name: "Theme file", Rows: themeFileRows()})
+	// A file that names a theme Mint does not have says so.
+	scr.Banner = theme.Problem()
 	scr.onLeave = func() { C, shownTheme = before, beforeName }
 	return scr
 }
@@ -180,4 +183,14 @@ func themeFlag(args []string) (name string, rest []string, ok bool) {
 		return strings.TrimPrefix(arg, "--theme="), args[1:], true
 	}
 	return "", args, false
+}
+
+// themeFileRows say where the theme is saved, and where it was read from
+// when that is somewhere else (a sudo run reads the user's file).
+func themeFileRows() []Row {
+	rows := []Row{Note("Saved in " + theme.ConfigPath)}
+	if rp := theme.ReadPath(); rp != theme.ConfigPath {
+		rows = append(rows, Note("Running as root: using the colours in "+rp+" until you save one here"))
+	}
+	return rows
 }
