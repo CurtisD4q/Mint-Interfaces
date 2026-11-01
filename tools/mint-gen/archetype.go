@@ -32,6 +32,10 @@ type ArchetypeScore struct {
 	ID    appkit.ArchetypeID
 	Score float64
 	Hits  []string
+	// Score in two parts: behaviour cues (how the program works: its
+	// usage, subcommands and options), and words (its phrases, subject
+	// and related programs). Score is their sum.
+	Cues, Words float64
 }
 
 // archetypeSignals are each archetype's phrases, in the notation of
@@ -459,6 +463,9 @@ type archWeights struct {
 	BroadShare  float64       // percent of an archetype's broad-phrase score that is added to it
 	Related     float64       // per related program (SEE ALSO) on the archetype lists, at most two per archetype
 	ClearLead   float64       // the lead over the next archetype a clear choice needs
+	// PackageShare is the percent of the package description's phrase
+	// points (scored like a summary and description) added to an archetype.
+	PackageShare float64
 }
 
 // defaultArchWeights give behaviour cues and phrases alike their points
@@ -484,7 +491,10 @@ var defaultArchWeights = archWeights{
 	},
 	BroadShare: 22.5,
 	Related:    10, // SEE ALSO is in the rest of the help
-	ClearLead:  34, // calibrated: clear choices are right about 85% of the time
+	ClearLead:  20, // calibrated: clear choices are right about 85% of the time (with contrastLinks)
+	// Package descriptions count for half, from packages of at most 10
+	// programs; chosen by 5-fold cross-validation over 0-100% and 3 or 10.
+	PackageShare: 50,
 }
 
 // archEvidence is what was found in a program's help, before weighing.
@@ -493,16 +503,22 @@ type archEvidence struct {
 	words   phraseEvidence // archetype phrases
 	broad   phraseEvidence // broader archetype phrases
 	related map[appkit.ArchetypeID][]string
+	// The same phrases in the package description, read as its summary and
+	// description (see packageText).
+	pkgWords, pkgBroad phraseEvidence
 }
 
 func findArchEvidence(p programText) archEvidence {
 	q := p // archetype phrases are read in the body sections only
 	q.Body = p.ArchBody
+	pq := programText{Summary: p.PackageSummary, Description: p.PackageDescription}
 	return archEvidence{
-		cues:    archetypeCues(p),
-		words:   findEvidenceIn(archetypeSignalList, q),
-		broad:   findEvidenceIn(broadSignalList, q),
-		related: relatedArchetypes(p.Name, p.Related),
+		cues:     archetypeCues(p),
+		words:    findEvidenceIn(archetypeSignalList, q),
+		broad:    findEvidenceIn(broadSignalList, q),
+		related:  relatedArchetypes(p.Name, p.Related),
+		pkgWords: findEvidenceIn(archetypeSignalList, pq),
+		pkgBroad: findEvidenceIn(broadSignalList, pq),
 	}
 }
 
@@ -534,27 +550,47 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 			broad[appkit.ArchetypeID(s.ID)] = s
 		}
 	}
+	pkgWords, pkgBroad := map[appkit.ArchetypeID]PhraseScore{}, map[appkit.ArchetypeID]PhraseScore{}
+	if w.PackageShare > 0 {
+		for _, s := range scoreEvidenceIn(archetypeSignalList, w.Words, ev.pkgWords) {
+			pkgWords[appkit.ArchetypeID(s.ID)] = s
+		}
+		for _, s := range scoreEvidenceIn(broadSignalList, w.Broad, ev.pkgBroad) {
+			pkgBroad[appkit.ArchetypeID(s.ID)] = s
+		}
+	}
 	var out []ArchetypeScore
 	for _, def := range appkit.AllArchetypeDefs() {
 		s := ArchetypeScore{ID: def.ID}
 		for _, h := range ev.cues[def.ID] {
-			s.Score += float64(w.CueZone[h.zone]) * float64(w.CueStrength[h.level]) / 100
+			s.Cues += float64(w.CueZone[h.zone]) * float64(w.CueStrength[h.level]) / 100
 			s.Hits = append(s.Hits, h.why)
 		}
 		if ws, ok := words[def.ID]; ok {
-			s.Score += float64(ws.Score)
+			s.Words += float64(ws.Score)
 			s.Hits = append(s.Hits, ws.Hits...)
 		}
 		if bs, ok := broad[def.ID]; ok {
 			if pts := float64(bs.Score) * w.BroadShare / 100; pts > 0 {
-				s.Score += pts
+				s.Words += pts
 				s.Hits = append(s.Hits, fmt.Sprintf("its subject (%s): %s", points(pts), strings.Join(bs.Hits, ", ")))
 			}
 		}
 		for _, r := range ev.related[def.ID] {
-			s.Score += w.Related
+			s.Words += w.Related
 			s.Hits = append(s.Hits, "related: "+r)
 		}
+		if ps, ok := pkgWords[def.ID]; ok {
+			pts := float64(ps.Score)
+			if bs, ok := pkgBroad[def.ID]; ok {
+				pts += float64(bs.Score) * w.BroadShare / 100
+			}
+			if pts *= w.PackageShare / 100; pts > 0 {
+				s.Words += pts
+				s.Hits = append(s.Hits, fmt.Sprintf("its package (%s): %s", points(pts), strings.Join(ps.Hits, ", ")))
+			}
+		}
+		s.Score = s.Cues + s.Words
 		out = append(out, s)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
@@ -563,7 +599,7 @@ func scoreArchEvidence(w archWeights, ev archEvidence) []ArchetypeScore {
 
 // scoreArchetypes ranks the 35 archetypes for a program, best first.
 func scoreArchetypes(p programText) []ArchetypeScore {
-	return scoreArchEvidence(defaultArchWeights, findArchEvidence(p))
+	return applyContrast(p, scoreArchEvidence(defaultArchWeights, findArchEvidence(p)))
 }
 
 // Confidence of a choice.
