@@ -240,7 +240,7 @@ func scanOptionLine(line string) []OptionText {
 		}
 		return []OptionText{{Names: names, Placeholder: ParsePlaceholder(m[3]), Desc: strings.TrimSpace(m[4])}}
 	}
-	return nil
+	return scanGenericOptionLine(line)
 }
 
 // ScanOptions reads every option line of a help text, with both the main
