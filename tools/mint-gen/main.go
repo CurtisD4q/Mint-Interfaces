@@ -12,6 +12,7 @@ import (
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/theme"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func runCLI(args []string) int {
 		checkTarget    string
 		explainTarget  string
 		archetypeFlag  string
+		themeFlag      string
 		listArchetypes bool
 		listApps       bool
 		force          bool
@@ -49,6 +51,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
 	fs.BoolVar(&rootFlag, "sudo", false, "With --run: start the app with sudo without asking (sudo asks for the password)")
 	fs.BoolVar(&noRootFlag, "no-sudo", false, "With --run: start the app without sudo, without asking")
+	fs.StringVar(&themeFlag, "theme", "", "Build the app with this colour theme (implies --build); it starts in it when its user has no theme of their own: default, terminal, nord, gruvbox, dracula, catppuccin or custom")
 	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
 	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
 	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
@@ -136,8 +139,25 @@ func runCLI(args []string) int {
 
 	program := fs.Arg(0)
 	var appArgs []string
+	if themeFlag != "" {
+		themeFlag = strings.ToLower(strings.TrimSpace(themeFlag))
+		if !knownThemeName(themeFlag) {
+			fmt.Fprintf(os.Stderr, "mint-gen: unknown theme %q. Themes: %s\n", safeTerminalText(themeFlag), strings.Join(theme.Names, ", "))
+			return 2
+		}
+		// The theme is built into the app, so build it: mint-gen --theme
+		// nord nmap leaves an nmap-mint that starts in nord.
+		if !removeApp {
+			buildBin = true
+		}
+	}
 	if runApp {
 		appArgs = fs.Args()[1:]
+		// mint-gen --theme NAME --run tool: this run is in that theme,
+		// whatever the user has saved.
+		if themeFlag != "" {
+			appArgs = append([]string{"--theme", themeFlag}, appArgs...)
+		}
 	} else if outDir == "" && fs.NArg() >= 2 {
 		outDir = fs.Arg(1)
 	}
@@ -169,6 +189,7 @@ func runCLI(args []string) int {
 
 	spec, model := ParseProgramIO(program)
 	printHelpNotes(model.HelpNotes)
+	spec.Theme = themeFlag
 
 	if archetypeFlag != "" {
 		a, ok := resolveArchetypeFlag(archetypeFlag)
@@ -616,4 +637,14 @@ func safeTerminalText(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// knownThemeName reports whether name is one of Mint's themes.
+func knownThemeName(name string) bool {
+	for _, n := range theme.Names {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }

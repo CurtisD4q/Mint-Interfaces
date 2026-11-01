@@ -182,6 +182,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if len(spec.ColourArgs) > 0 {
 		fmt.Fprintf(&buf, "\t\tColourArgs:        %s,\n", goStrings(spec.ColourArgs))
 	}
+	if spec.Theme != "" {
+		fmt.Fprintf(&buf, "\t\tTheme:             %q,\n", spec.Theme)
+	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)
 	if spec.TargetDefault != "" {

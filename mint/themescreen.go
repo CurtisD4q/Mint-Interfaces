@@ -76,7 +76,7 @@ func (a *App) items() []HomeItem {
 // theme" saves it. Leaving without saving restores the colours in use when
 // the screen opened.
 func ThemeScreen() *Screen {
-	before := C
+	before := basePalette
 	saved := theme.Current()
 	if !knownTheme(saved) {
 		saved = "default"
@@ -141,7 +141,7 @@ func ThemeScreen() *Screen {
 							return
 						}
 						saved = showing
-						before, beforeName = C, showing
+						before, beforeName = basePalette, showing
 						Toast(fmt.Sprintf("Theme %s saved", showing))
 					},
 				}),
@@ -149,7 +149,8 @@ func ThemeScreen() *Screen {
 					ID:    "undo",
 					Label: "Undo preview",
 					OnActivate: func(c *Ctx) {
-						C, shownTheme = before, beforeName
+						SetPalette(before)
+						shownTheme = beforeName
 						showing = saved
 						if beforeName != "" {
 							showing = beforeName
@@ -162,7 +163,10 @@ func ThemeScreen() *Screen {
 	scr.Sections = append(scr.Sections, Section{Name: "Theme file", Rows: themeFileRows()})
 	// A file that names a theme Mint does not have says so.
 	scr.Banner = theme.Problem()
-	scr.onLeave = func() { C, shownTheme = before, beforeName }
+	scr.onLeave = func() {
+		SetPalette(before)
+		shownTheme = beforeName
+	}
 	return scr
 }
 

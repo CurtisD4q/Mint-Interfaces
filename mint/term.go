@@ -54,7 +54,7 @@ func ScreenEnter() {
 	}
 	rt.profile = loadOrProbeTermProfile(false)
 	rt.initSignals()
-	C = rt.quantizePalette(loadPalette())
+	C = rt.quantizePalette(basePalette)
 	if t, err := tcget(0); err == nil {
 		saved := *t
 		savedTermios = &saved

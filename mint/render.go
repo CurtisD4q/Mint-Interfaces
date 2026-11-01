@@ -17,7 +17,14 @@ import (
 // not been filled in yet, so quantising would read a colour depth of 0 and
 // strip the colour from every role. ScreenEnter re-quantises once the
 // profile is known.
-var C = loadPalette()
+var C = basePalette
+
+// basePalette is the palette in use before it is fitted to the terminal:
+// the theme file's, or the one SetPalette (a --theme flag, the Theme
+// screen, an app's own default) chose. ScreenEnter fits it to the
+// terminal; it does not read the theme file again, so a theme chosen
+// before the screen opened is kept.
+var basePalette = loadPalette()
 
 // loadPalette picks the theme from ~/.config/mint-interfaces/theme.conf,
 // then applies any colours given in the MINT_PALETTE environment variable
@@ -44,7 +51,13 @@ func SetPalette(p theme.Palette) bool {
 	if !p.Complete() {
 		return false
 	}
-	C = rt.quantizePalette(p)
+	basePalette = p
+	if screenActive {
+		C = rt.quantizePalette(p)
+	} else {
+		// The terminal is not known yet; ScreenEnter fits it.
+		C = p
+	}
 	return true
 }
 
