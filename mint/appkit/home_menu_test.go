@@ -209,11 +209,12 @@ func TestActionsUseConfirm(t *testing.T) {
 }
 
 func TestHelpFallsBackToShortFlag(t *testing.T) {
-	dir := t.TempDir()
+	dir := helpTestDir(t)
 	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\necho 'no manual entry'\n")
 	prependPath(t, dir)
 	bin := filepath.Join(dir, "zzminthelpfix")
 	argsLog := filepath.Join(dir, "args")
+	allowHelpUserToWrite(t, argsLog)
 	script := "#!/bin/sh\necho \"$*\" >> " + argsLog + "\ncase \"$1\" in\n--help) exit 0 ;;\n-h) echo 'fallback help text'; exit 0 ;;\nesac\n"
 	writeExe(t, bin, script)
 	text, how := captureToolHelp(bin)
@@ -263,7 +264,7 @@ func TestEveryToolHomeHasManual(t *testing.T) {
 }
 
 func TestManualWidthFollowsTerminal(t *testing.T) {
-	dir := t.TempDir()
+	dir := helpTestDir(t)
 	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\nprintf '%s\\n' NAME '    wide - manual' \"WIDTH=$MANWIDTH\"\n")
 	prependPath(t, dir)
 	bin := filepath.Join(dir, "wide")
@@ -278,7 +279,7 @@ func TestManualWidthFollowsTerminal(t *testing.T) {
 }
 
 func TestManualOpensViewLogWithFullText(t *testing.T) {
-	dir := t.TempDir()
+	dir := helpTestDir(t)
 	t.Setenv("SECRET", "hunter2")
 	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
 printf '%s\n' 'NAME' '    longman - a long manual' "WIDTH=$MANWIDTH" "SECRET=${SECRET-unset}" "TTY=$(test -t 0 && echo yes || echo no)"
@@ -321,8 +322,9 @@ printf '%s\n' 'ENDMARKER-PR85'
 }
 
 func TestToolkitManualUsesSelectedSubcommand(t *testing.T) {
-	dir := t.TempDir()
+	dir := helpTestDir(t)
 	log := filepath.Join(dir, "calls")
+	allowHelpUserToWrite(t, log)
 	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
 printf '%s\n' "$*" >> `+fmt.Sprintf("%q", log)+`
 page=
@@ -369,7 +371,7 @@ esac
 	}
 
 	// No subcommand page: ask the tool with --help, never --man.
-	_ = os.Remove(log)
+	resetHelpLog(t, log)
 	writeExe(t, filepath.Join(dir, "man"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+fmt.Sprintf("%q", log)+"\necho 'no manual entry'\n")
 	c := newTestApp(t, spec)
 	c.ActiveSubcommand = "run"
@@ -386,7 +388,7 @@ esac
 	}
 
 	// A records tool keeps the tool manual even when a subcommand is selected.
-	_ = os.Remove(log)
+	resetHelpLog(t, log)
 	writeExe(t, filepath.Join(dir, "man"), `#!/bin/sh
 printf '%s\n' "$*" >> `+fmt.Sprintf("%q", log)+`
 page=
@@ -405,6 +407,48 @@ esac
 	if got := viewerText(t, rec.ManualScreen()); !strings.Contains(got, "TOOL-MANUAL") || strings.Contains(got, "SUB-MANUAL") {
 		t.Fatalf("records used the subcommand manual:\n%s", got)
 	}
+}
+
+// helpTestDir is a folder for fake programs the manual runs. As root, the
+// manual runs them as nobody (help.go drops privileges), and t.TempDir is
+// private to root, so the folder is made readable by everyone instead.
+func helpTestDir(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() != 0 {
+		return t.TempDir()
+	}
+	dir, err := os.MkdirTemp("", "mint-help-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// allowHelpUserToWrite creates path so that a fake program run by the
+// manual (as nobody, when the tests run as root) can append to it.
+func allowHelpUserToWrite(t *testing.T, path string) {
+	t.Helper()
+	if os.Geteuid() != 0 {
+		return
+	}
+	if err := os.WriteFile(path, nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// resetHelpLog empties a log the fake programs append to, keeping it
+// writable for them (see allowHelpUserToWrite).
+func resetHelpLog(t *testing.T, path string) {
+	t.Helper()
+	_ = os.Remove(path)
+	allowHelpUserToWrite(t, path)
 }
 
 func writeExe(t *testing.T, path, body string) {
