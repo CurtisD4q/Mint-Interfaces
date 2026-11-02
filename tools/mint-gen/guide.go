@@ -35,13 +35,13 @@ Using a Mint app
 
 The app opens on a home menu. Up and down move through the items, Enter opens one, b goes back, and q quits.
 
-The main screen is where you set the command up. Choose the target, switch flags on or off, and fill in values. Then run the command from that screen.
+The main screen is where you set the command up. Choose the target, switch flags on or off, and fill in values. Then run the command from that screen. Extra arguments, at the top, takes any options the app has no box for.
 
 Some screens stack into panes. Tab and Shift-Tab move between panes. [ shrinks the focused pane and ] grows it. | hides the focused pane, and | again shows it. Click a pane to focus it.
 
 On a wide table, ← and → scroll sideways. H narrows the column you are on and L widens it.
 
-Presets stores the options you have set, so you can bring them back. Run History is the list of earlier runs and the output they kept.
+Presets stores the options you have set, so you can bring them back. Run History is the list of earlier runs and the output they kept. Theme, at the bottom of the home menu, sets the colours for every Mint app (so does mint-gen --theme nord).
 
 The Manual item on the home menu opens the program's full manual. --man opens that same screen from the command line (for example, ps-mint --man). The app's own --help is only a short usage list. This guide stays here.
 `
