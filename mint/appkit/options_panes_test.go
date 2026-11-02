@@ -36,16 +36,20 @@ func TestOptionsSplitWhenManyAdvanced(t *testing.T) {
 	if strings.Count(strings.Join(got, "|"), titleAdvanced) != 1 {
 		t.Fatalf("advanced pane repeated in %v", got)
 	}
-	// Ordinary flags stay in the top pane. The advanced heading and the
-	// More Options collapsible, plus Extra arguments, are the one pane.
+	// Ordinary flags stay in the top pane, under Extra arguments, which
+	// come first. The advanced heading and the More Options collapsible
+	// are the one pane.
 	if !hasSection(s, "Options") || sectionIn(s.Sections, "Quality (Advanced)") {
 		t.Fatalf("basic sections %v", namesOf(s.Sections))
+	}
+	if len(s.Sections) == 0 || s.Sections[0].Name != "Extra arguments" {
+		t.Fatalf("Extra arguments is not first in Basic Options: %v", namesOf(s.Sections))
 	}
 	adv := s.Panes[0]
 	if adv.Title != titleAdvanced {
 		t.Fatalf("second pane %q", adv.Title)
 	}
-	if !sectionIn(adv.Sections, "Quality (Advanced)") || !sectionIn(adv.Sections, "Extra arguments") {
+	if !sectionIn(adv.Sections, "Quality (Advanced)") || sectionIn(adv.Sections, "Extra arguments") {
 		t.Fatalf("advanced sections %v", namesOf(adv.Sections))
 	}
 	if _, ok := rowByID(s, "extra_args"); !ok {
@@ -161,4 +165,31 @@ func orderedPaneTitles(s *mint.Screen) []string {
 	}
 	out = append(out, paneTitles(s)...)
 	return out
+}
+
+// Extra arguments are the first thing in Basic Options for every
+// archetype, with or without the advanced pane, and appear once.
+func TestExtraArgumentsAtTheTopOfBasicOptions(t *testing.T) {
+	for _, def := range AllArchetypeDefs() {
+		for _, many := range []bool{false, true} {
+			spec := ToolSpec{Name: string(def.ID), Bin: "echo", ArchetypeID: string(def.ID), Flags: []FlagSpec{
+				{Flag: "--a", Kind: FlagBool, Label: "A", Section: "Options"},
+			}}
+			if many {
+				spec.Flags = append(spec.Flags, manyAdvanced()...)
+			}
+			s := newTestApp(t, spec).MainScreen()
+			if len(s.Sections) == 0 || s.Sections[0].Name != "Extra arguments" {
+				t.Fatalf("%s (many advanced=%v): first section %v", def.ID, many, namesOf(s.Sections))
+			}
+			if _, ok := rowByID(s, "extra_args"); !ok {
+				t.Fatalf("%s: no Extra arguments box", def.ID)
+			}
+			for _, p := range s.Panes {
+				if sectionIn(p.Sections, "Extra arguments") {
+					t.Fatalf("%s: Extra arguments also in pane %q", def.ID, p.Title)
+				}
+			}
+		}
+	}
 }

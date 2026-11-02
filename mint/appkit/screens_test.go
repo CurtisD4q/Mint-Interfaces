@@ -187,7 +187,7 @@ func TestArchetypeLabelsReplaceLayoutLabels(t *testing.T) {
 	if strings.Contains(devLabels, "Apply configuration") || !strings.Contains(devLabels, "Apply (als)") {
 		t.Fatalf("device button: %q", devLabels)
 	}
-	if !hasSection(dev, "Device") || !hasSection(dev, "Current state") {
+	if !hasSection(dev, "Extra arguments") || !hasSection(dev, "Current state") {
 		t.Fatalf("device sections: %v", sectionNames(dev))
 	}
 
@@ -248,7 +248,7 @@ func TestComposableZones(t *testing.T) {
 	if !strings.Contains(devLabels, "No read-only status command") {
 		t.Fatalf("device without StatusArgs: %q", devLabels)
 	}
-	if !hasSection(dev, "Device") || !hasSection(dev, "Current state") || hasSection(dev, "Live") {
+	if !hasSection(dev, "Extra arguments") || !hasSection(dev, "Current state") || hasSection(dev, "Live") {
 		t.Fatalf("device sections: %v", sectionNames(dev))
 	}
 	withStatus := newTestApp(t, ToolSpec{Name: "als", Bin: "echo", ArchetypeID: "device", StatusArgs: []string{"--show"}})
