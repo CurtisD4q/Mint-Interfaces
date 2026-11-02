@@ -28,8 +28,10 @@ go run ./examples/features  # the additions, including a background job
 </p>
 
 **Emacs**
+<p align="center">
   <img src="screenshots/mint-emacs-img1.png" width="48%" alt="Mint interface 1">
   <img src="screenshots/mint-emacs-img2.png" width="48%" alt="Mint interface 2">
+</p>
 
 ## Quickstart: Wrap any CLI program in 3 steps
 
