@@ -88,6 +88,44 @@
   (should (null (mint--hex "unspecified-fg")))
   (should (null (mint--hex nil))))
 
+;; term decides it is in char mode by comparing the local map with
+;; `term-raw-map'.  If it thinks it is in line mode, it keeps output below
+;; the screen and the buffer grows with every redraw.
+(ert-deftest mint-term-buffer-is-in-char-mode ()
+  (let* ((buf (make-term "mint-char-mode-test" "sleep" nil "5"))
+         (kill-buffer-query-functions nil))
+    (unwind-protect
+        (progn
+          (mint--configure-term-buffer buf)
+          (with-current-buffer buf
+            (should (term-in-char-mode))
+            ;; Our own keys are still there.
+            (should (eq (key-binding [escape]) #'mint--send-escape))
+            ;; The global map is untouched.
+            (should-not (eq (default-value 'term-raw-map) term-raw-map))))
+      (kill-buffer buf))))
+
+;; A full app in term mode: however much it redraws, the buffer is never
+;; taller than the window.
+(ert-deftest mint-term-mode-buffer-stays-the-window-height ()
+  (let* ((mint-display 'term)
+         (mint-close-buffer-on-exit t)
+         (kill-buffer-query-functions nil)
+         (buf (mint-run (mint-tests--demo) "demo-height-test")))
+    (setq buf (or (and (bufferp buf) buf) (get-buffer "*demo-height-test*")
+                  (seq-find #'get-buffer-process (buffer-list))))
+    (unwind-protect
+        (with-current-buffer buf
+          (let ((proc (get-buffer-process buf)))
+            (accept-process-output proc 2)
+            (dotimes (_ 8)
+              (term-send-raw-string "\e[B")
+              (accept-process-output proc 0.3))
+            (accept-process-output proc 1)
+            (should (term-in-char-mode))
+            (should (<= (count-lines (point-min) (point-max)) term-height))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
 (ert-deftest mint-term-filter-holds-back-split-characters ()
   ;; "━" is three bytes; send it in two pieces right after an escape code.
   (let* ((buf (generate-new-buffer " *mint-term-test*"))
