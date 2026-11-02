@@ -15,7 +15,7 @@ import (
 )
 
 // Version of the library.
-const Version = "0.1.0"
+const Version = "1.0.0"
 
 // HomeItem is one entry on the home list: an icon, a bold label, and a dim
 // description. Open returns the screen to show (nil stays on the list).
