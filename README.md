@@ -676,7 +676,7 @@ Tests: `emacs -Q --batch -L emacs -l emacs/mint-tests.el -f ert-run-tests-batch-
 
 ### Running an app in Emacs's terminals (`term`, `ansi-term`, `vterm`)
 
-You can also start a Mint app yourself inside `M-x term`, `M-x ansi-term` or [vterm](https://github.com/akermu/emacs-libvterm). Tested at 100×30 and 100×48: drawing, box lines, colours and resizing are right in all three, and arrows, Enter, Tab and typing work. The differences are in which keys Emacs keeps:
+You can also start a Mint app yourself inside `M-x term`, `M-x ansi-term` or [vterm](https://github.com/akermu/emacs-libvterm). Tested on Emacs 29.3 and 30.1 at 100×30 and 100×48: drawing, box lines, colours and resizing are right in all three, and arrows, Enter, Tab and typing work. The differences are in which keys Emacs keeps:
 
 | | `term` | `ansi-term` | `vterm` |
 |---|---|---|---|
@@ -695,7 +695,7 @@ You can also start a Mint app yourself inside `M-x term`, `M-x ansi-term` or [vt
 
 - **Esc in `vterm`:** `vterm` sends a double Esc as Ctrl+Alt+`[`, which Mint reads as Esc. To send one Esc at a time, bind `vterm-send-escape`, for example `(define-key vterm-mode-map (kbd "<escape>") #'vterm-send-escape)` in graphical Emacs.
 - **Keys Emacs keeps:** with the `emacs` key profile, `C-g` (back) never reaches an app in `vterm`. Run apps there with the default profile (`MINT_KEYS=default`), whose keys Emacs leaves alone, or use `b` and `q`, which always work.
-- **Colours:** `vterm` draws 256-colour numbers from its own palette, so the `default` theme's purple can look slightly darker there. Themes with RGB colours (`nord`, `dracula`…) come through exactly.
+- **Colours:** in terminal Emacs, `vterm` turns a 256-colour number into RGB, and Emacs then shows the nearest colour its own terminal has. The `default` theme's purple (141) goes through that round trip and comes out as 99, slightly darker. Themes with RGB colours (`nord`, `dracula`…) are matched only once and look as expected.
 
 For the closest match to a real terminal inside an Emacs buffer, use `mint.el` itself: `M-x mint` with `mint-display` set to `term`. It sends a single Esc straight to the app, keeps the screen the window's size, and passes clicks to the app at the right position.
 
