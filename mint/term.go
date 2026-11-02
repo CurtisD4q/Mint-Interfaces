@@ -240,6 +240,12 @@ func decodeKittyCSIu(params string) *Key {
 	switch code {
 	case 27:
 		return named("esc")
+	case '[':
+		// Ctrl+[ is Esc. Some terminals send Esc this way: vterm sends
+		// ESC [ 91 ; 7 u (Ctrl+Alt+[) when Esc is pressed twice.
+		if (mod-1)&4 != 0 {
+			return named("esc")
+		}
 	case 13:
 		return char("\r")
 	case 9:
