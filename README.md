@@ -248,7 +248,7 @@ Override the footer with `Hints` on a screen, or `ScreenHints` on the app. The d
 
 #### Themes
 
-There are seven themes:
+There are seven themes. A theme colours the frame, titles, selection and status colours, and the lines that divide the title, the panes, the run bar and the footer (drawn in the theme's accent, dimmed):
 
 | Theme | Look |
 |---|---|

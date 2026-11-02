@@ -118,8 +118,15 @@ func (c *canvas) frame(h, w int) {
 // same dim rule as the gaps between sections.
 func (c *canvas) titleRule(w int) { paintRule(c, 3, w) }
 
-// paintRule draws a dim, full-width line of ─ across the content width
-// (inside the frame, stopping before the scrollbar column).
+// ruleStyle is how every dividing line is drawn: the line under the
+// title, the lines between panes and above the run bar and footer, and
+// Divider rows. It is the theme's accent colour, dimmed, so the lines
+// follow the theme without competing with the frame. With no colour
+// (NO_COLOR, a monochrome terminal) it is plain.
+func ruleStyle() string { return C.Accent + C.Dim }
+
+// paintRule draws a full-width line of ─ across the content width (inside
+// the frame, stopping before the scrollbar column), in ruleStyle.
 func paintRule(c *canvas, row, w int) {
 	if c == nil || w < 4 || row < 1 {
 		return
@@ -128,7 +135,7 @@ func paintRule(c *canvas, row, w int) {
 	if n < 1 {
 		return
 	}
-	c.put(row, 2, C.Dim+dividerLine("─", n)+Reset)
+	c.put(row, 2, ruleStyle()+dividerLine("─", n)+Reset)
 }
 
 func (c *canvas) chromeTitle(w int, title, crumb string) {
