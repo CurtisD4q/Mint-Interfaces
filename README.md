@@ -19,14 +19,6 @@ go run ./examples/features  # the additions, including a background job
 ```
 ## Screenshots
 
-**Terminal**
-<p align="center">
-  <img src="screenshots/mint-img2.png" width="48%" alt="Mint interface 1">
-  <img src="screenshots/mint-img3.png" width="48%" alt="Mint interface 2">
-  <img src="screenshots/mint-img5.png" width="48%" alt="Mint interface 1">
-  <img src="screenshots/mint-img6.png" width="48%" alt="Mint interface 2">
-</p>
-
 **Emacs**
 <p align="center">
   <img src="screenshots/mint-emacs-img1.png" width="48%" alt="Mint interface 1">
