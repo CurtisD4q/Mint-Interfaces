@@ -2,9 +2,9 @@
 
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
-The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded purple frame with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
+The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded frame (purple by default, with six more [colour themes](#colour)) with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
 
-On top of the original, it adds dividers and spacing, text styles, collapsible sections, slider ranges and units, progress bars, number steppers, checkboxes, radio groups, toasts, status badges, a loading spinner, background jobs with live output, and a catalogue for building interfaces for command-line programs. See [Additions](#additions). Every app also gets standard command-line flags, emacs and vim key profiles, and can be launched from Emacs, matching its theme. See [Standalone binaries and flags](#standalone-binaries-and-flags), [Keys](#keys) and [Running from Emacs](#running-from-emacs-emacsmintel).
+On top of the original, it adds dividers and spacing, text styles, collapsible sections, slider ranges and units, progress bars, number steppers, checkboxes, radio groups, toasts, status badges, a loading spinner, background jobs with live output, and a catalogue for building interfaces for command-line programs. See [Additions](#additions). Every app also gets standard command-line flags, a Theme screen, emacs and vim key profiles, and can be launched from Emacs, matching its theme. See [Standalone binaries and flags](#standalone-binaries-and-flags), [Keys](#keys) and [Running from Emacs](#running-from-emacs-emacsmintel).
 
 There is no settings logic and no system backend in the library. An app describes screens as structs and handles its own data.
 
@@ -78,10 +78,16 @@ Once installed, the steps from any directory are:
    ```sh
    mint-gen --purge
    ```
-6. **See what mint-gen understood (optional):** which archetype it chose, how sure it is and the evidence that decided it, what the program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
+7. **See what mint-gen understood (optional):** which archetype it chose, how sure it is and the evidence that decided it, what the program reads and writes, where "Save output to file" will send the file, and the evidence behind every option's role.
    ```sh
    mint-gen --explain ffmpeg
    ```
+8. **Set the colours for every app (optional):** save one of the seven [themes](#colour) for every Mint app.
+   ```sh
+   mint-gen --theme nord
+   ```
+
+Other flags: `--archetype` chooses the archetype yourself, `--out DIR` builds somewhere other than `apps/<tool>`, `--force` builds a program the compatibility check refused, `--sudo` / `--no-sudo` answer `--run`'s sudo question in advance, `--root` points at the repository when it isn't found automatically, and `--tui` opens mint-gen's own interface.
 
 `mint-gen --help` is the one guide for Mint-Interfaces. It covers scaffolding and running an app (`mint-gen ps`, `mint-gen --build ps`, `mint-gen --run ps`, and the other flags), then how to use the app: the home menu, setting options and running a command, pane keys (Tab, Shift-Tab, `[`, `]`, `|`, and a click to focus), table keys (left and right to scroll sideways, H and L to narrow or widen a column), Presets, Run History, and Manual / `--man` for the program's full manual. The flag list follows the guide. A generated app's own `--help` stays a short usage list; `--man` still opens that app's Manual screen.
 
@@ -115,7 +121,7 @@ The details:
 
 - **Systems:** Linux, macOS and the BSDs. Windows is not supported natively; apps work inside WSL (Windows Subsystem for Linux), for example in Windows Terminal.
 - **Terminal:** any terminal with 256 colours and SGR mouse reporting, which is any modern terminal (GNOME Terminal, Konsole, kitty, Alacritty, iTerm2, Windows Terminal, tmux). 24-bit colour is used only when a theme asks for it and `$COLORTERM` is `truecolor` or `24bit`; if `$COLORTERM` is unset, RGB colours fall back to their nearest 256-colour approximation.
-- **Font:** one with the box-drawing and symbol characters Mint draws (`╭─╮ ━ ● ▸ ☑ ◉`). Most monospace fonts have them.
+- **Font:** one with the box-drawing and symbol characters Mint draws (`╭─╮ ━ ● ▸ ◆ ☑ ◉`). Most monospace fonts have them.
 - **Locale:** a UTF-8 locale, which is the default almost everywhere.
 - **Programs the app wraps:** whatever it lists in `Require`. Missing ones are named on its home screen.
 
@@ -186,6 +192,8 @@ func main() {
 ```
 
 `Sections` is a list of `{Name, Rows}`. The heading style the settings manager uses (`┄ Heading`) is drawn for you. Returning a screen from `Open` pushes it, `b` pops it, and `q` quits.
+
+Mint adds a **Theme** item at the end of every home list, where the person running the app chooses its colours (see [Colour](#colour)). Set `NoThemeItem: true` on the `App` to leave it out; an app with its own item called "Theme" keeps its own.
 
 From a row callback, `ctx` can open another screen or a dialog:
 
@@ -319,17 +327,28 @@ mint/footer.go                 status badges, toasts, the loading spinner
 mint/log.go                    the output view and full-screen viewer
 mint/keys.go                   key profiles (default, emacs, vim)
 mint/render.go                 palette, frame, title, footer, scrollbar, wrapping
+mint/split.go, split_layout.go panes stacked on one screen, with Tab, [ ] and | keys
+mint/styled.go                 text coloured by role, never by escape sequences
+mint/colour.go                 a program's own colours, kept safely
+mint/themescreen.go            the Theme item and the --theme flag
 mint/term.go                   raw mode, terminal size, key and mouse decoding
+mint/runtime.go                what the terminal can do, cached in termcaps.json
 mint/term_linux.go, term_bsd.go    the termios ioctls per platform
-mint/theme/                    palettes and MINT_PALETTE
+mint/theme/                    themes, the theme file and MINT_PALETTE
 mint/util/                     quoting, process spawn, JSON, width helpers
 mint/secure/                   secure store for passwords and keys while an app runs
 mint/runner/                   background jobs, JobScreen
 mint/eventcache/               values refreshed by a stream of events
 mint/collapsible.go            inline foldable sections and large-text chunking
 mint/table.go                  aligned multi-column tables and CLI table parser
-mint/appkit/                   turnkey 4-screen CLI wrapper and output directory browser
+mint/appkit/                   turnkey CLI wrapper: 38 archetypes, one main screen, home items
+mint/diff/, findings/, fileplan/, follow/, transcript/, reorder/, procnet/
+                               what the add-ons read: diff output, audit reports, what rm/cp/mv
+                               would do, a growing log, an interactive session, rule order,
+                               the sockets a server listens on
 templates/app/                 starter for a new interface (main.go, cli.go, app.el)
+templates/config/, runner/, scanner/, monitor/, explorer/, suite/
+                               appkit starters for common archetypes (templates/README.md)
 tools/mint-gen/                man-page & --help interface generator + TUI exclusion checker
 emacs/mint.el                  launching apps from Emacs
 emacs/mint-tests.el            tests for mint.el
@@ -444,7 +463,7 @@ Status: job.Badges, // ● rsync 45% · 0:42 → ● rsync done in 1:03 / failed
 What the runner takes care of:
 
 - **Stopping everything.** `job.Stop()` and `Timeout` end the program *and every process it started*: SIGTERM first (or `Cmd.StopSignal`, such as `syscall.SIGINT` for programs that only clean up on Ctrl+C), then SIGKILL three seconds later for anything still alive. Call `runner.StopAll()` after `app.Run()` so nothing outlives the interface.
-- **Progress lines that redraw in place.** Programs like curl and rsync rewrite one line with a carriage return. The runner keeps that as a single updating line, shows each update immediately, and strips colour codes and other control characters.
+- **Progress lines that redraw in place.** Programs like curl and rsync rewrite one line with a carriage return. The runner keeps that as a single updating line, shows each update immediately, and removes every control character. A program's colours are kept safely: the runner records them as colour runs (`LogLine.Colours`) and Mint redraws them with its own codes (see [Colour](#colour)).
 - **No terminal access.** Each job runs detached from the terminal, so it can never read the keyboard or draw over the interface. A program that insists on asking a question fails, rather than hanging the screen. Answer prompts with `Cmd.Input: true` and `job.SendLine(...)`, which is also how to pass a password (for example to a `--password-stdin` option) without it appearing on the command line.
 - **Bounded memory.** It keeps the newest 50,000 lines (`MaxLines`, configurable per `Cmd`), with `Job.TailLines(n)` and `Job.Slice(start, count)` for windowed inspection.
 - **Results.** `job.Output()` returns stdout once the job is done; `job.State()`, `ExitCode()`, `Err()` and `Elapsed()` describe how it ended; `OnExit` runs when it finishes (toasts are safe from there).
@@ -499,7 +518,8 @@ python3 tools/check_catalogue.py
    - Ensures your terminal capability profile is cached in `~/.config/mint-interfaces/termcaps.json` (keyed by `$TERM`, `$TERM_PROGRAM`, and `$TMUX`).
    - Reads `man nmap` and `nmap --help` to extract its summary, synopsis, target input, file-output flags (`-oN`, `-oX`, `-o`, etc.), subcommands, and option flags.
    - Recognises what kind of program it is (for `nmap`, the **Probe** archetype: many targets, one result row each, with a results table, profiles, file output and history). A program on the archetype lists gets its listed archetype. Any other gets the archetype its behaviour and words point to: what its usage takes (`HOST...`, `PATTERN`, `FILE1 FILE2`, `COMMAND [ARG]...`, an interval), what its subcommands are called (install/remove, commit/log, start/stop), options such as `--follow` or `--listen`, and each archetype's phrases in its summary, description, usage and help. Clues and phrases alike count by where they were found: usage 30, summary 25, description 20, name 15, the rest of the help 10. It always gets one, marked as a clear choice or a close call; for a close call the build output names the likely alternatives and the `--archetype` command to switch. Measured blind (with the archetype lists switched off): on 153 installed programs never used for tuning (119 everyday ones and 34 for archetypes the other sets lacked), it chooses the right archetype for 114 (75%); 78% are marked clear choices, and those are right about 4 times in 5. On the 353 programs used for tuning it gets 280 right (79%), up from 274 before Signal, Record sound and Backup were split out and close List/Inspect calls were settled by table options (`MINT_ARCHETYPE_BENCH=final go test -run TestArchetypeBenchmark -v ./tools/mint-gen`).
-   - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`, or interactive path/repeatable browsers) and groups secondary flags into collapsible sections (`mint.Collapsible`).
+   - Maps every flag to the right Mint control (`Checkbox`, `Stepper`, `Select`, `Text`, or interactive path/repeatable browsers) and folds advanced flags into collapsible **More Options** and "(Advanced)" sections.
+   - Reads what the help shows about how the program behaves. A program that draws its own full-screen interface (`htop`, `less`) is refused, unless it has a batch mode that prints plain text and exits: then the app runs it that way (`top -b -n 1` as a live view refreshed on a timer, `lynx -dump` once). A full-screen program built anyway with `--force` shows its command to run in a terminal instead of running it. A summary that says the program changes things (installs, removes, configures, kills processes…) makes the app ask before every run, and so do options that act on running processes by ID (`--pid` with `--signal`, `--priority` or `--class`), whatever the archetype.
    - Generates a self-contained folder at `apps/nmap/` (`go.mod`, `main.go`, `spec.go`, and `nmap-mint.el`) and compiles the static binary at `apps/nmap/nmap-mint` via `tools/build.sh`.
 
 3. **Run your new interface immediately**
@@ -507,7 +527,9 @@ python3 tools/check_catalogue.py
    ```bash
    ./apps/nmap/nmap-mint
    ```
-   You immediately get the full multi-screen interface: **Configure & Run** (target, presets, flags, collapsible sections, and output file naming), **Live / Last Output** (progress bar, live parsed `mint.Table`, collapsible large-text chunks, and full-screen `ViewLog` with `←`/`→` horizontal pan, `/` search, and `s` save), **Output Directory Browser**, and **Saved Runs History**.
+   The home list starts with the archetype's main item (for nmap, **Probe**; otherwise named for how the tool runs: once, as a live view, as a state editor, or as a set of commands), then any items the tool adds (Status, Actions, one per subcommand), **Presets** and **Manual**, items for the add-ons (Findings, Compare, Rule order, Server, Live log), **Live Run & Output**, the **Output Directory** when the tool saves files, **Run History**, and **Theme**.
+
+   The main screen is stacked panes. **Basic Options** holds the target and the everyday options. A tool with more than 10 advanced options gets a second pane, **Advanced + Additional**, with them and Extra arguments; a simpler tool keeps its few advanced options in Basic Options. Then come any panes with their own job (**Findings** for an audit, **What will change** for a mirror or file edit), then **Output**: progress, a live parsed `mint.Table`, collapsible large-text chunks, and the full-screen viewer with `←`/`→` horizontal pan, `/` search and `s` save. The command preview and Run button stay pinned under Output. Tab and Shift-Tab move between panes, `[` and `]` resize the focused one, and `|` hides it.
 
 ### Icons
 
@@ -521,10 +543,11 @@ Generated interfaces are built to keep passwords, tokens and keys away from othe
 
 - **Nothing runs unless you ask, except commands that only read.** A monitor polls, and a settings screen shows "Refresh live state", only when the tool has a read-only way to show its state: `StatusArgs` (for example `systemctl list-units`, `ufw status`, `sysctl -a`), or a tool that only reports (`ReadOnly`, such as `ps`, `df` or `journalctl`). Common tools get these automatically. For anything else, such as `pkill` or `kill`, the monitor becomes an ordinary screen with a Run action and the usual confirmations.
 - **Commands appkit runs itself have time limits and run in the background.** Polling never freezes the screen (a `tail -f` that never ends is stopped after 15 seconds), row actions and refreshes show the loading spinner, and anything still running when the app closes is stopped.
+- **Tools that change things ask first.** A tool whose help says it changes things (installs, removes, configures, kills processes, starts and stops services…), or whose options act on running processes by ID, asks before every run whatever its archetype, and is not treated as read-only unless it is on Mint's checked list of read-only tools.
 - **Irreversible tools need the target typed to confirm.** `dd`, `shred`, `rm`, `wipefs`, `mkfs.*`, `kill`, `pkill`, `killall` and similar are marked `Irreversible`.
 - **Secrets stay secret.** Options whose value is a password, token or key are `FlagSecret`: asked for with a password dialog, kept for the session only (never in settings, presets or history), and masked in the command preview. Each secret takes the safest route the tool offers: standard input for a `--password-stdin` style option (never visible), then an environment variable such as `RESTIC_PASSWORD`, `PGPASSWORD` or `GH_TOKEN` (only you and root can read a program's environment), and only as a last resort the command line, where other users can see it with `ps`; then the app says so and asks before running. Environment variables come from a built-in list of well-known tools (restic, borg, kopia, duplicity, rclone, psql and the pg_ tools, gh, glab, sshpass) and from the man page's ENVIRONMENT section. Settings and history files are readable only by you.
 - **Secrets are hidden in the output.** Every secret a run uses, and any typed into a text box, is replaced by `••••••` in the program's output before it is shown, saved or used in a message. So are well-known token formats (GitHub, GitLab, AWS, Slack, Google, `sk-…` keys, private keys), `Authorization:` and API-key header values (such as the `Basic` header `curl -v` prints), and passwords in URLs. Mint keeps only a salted fingerprint of each secret for this, not the secret itself. Secrets shorter than 4 characters are not hidden, since they would blank out ordinary words. A file the program writes itself (through its own output option) is not changed.
-- **Sensitive results are kept private.** Each tool has a data level, shown as a badge: *sensitive* for packet captures, logs, security audits, database dumps and tracers, and *secret* for password managers and key and crypto tools. The level comes from the tool, its archetype (Look up, Record, Audit and Follow are sensitive), what its help is about (keys and passwords make it secret; captured traffic, people and organisations, security findings and logs make it sensitive; this only ever raises a level, and a topic counts only when it clearly leads the other subjects of the help), or `ToolSpec.Data`. Options that print secrets (`--export-secret-keys`, `-d` "Decrypt data", `--show-password`) make a run secret, and so does output that contained a private key, a login token (JWT), a password hash or another recognised secret. For sensitive results, new results folders are private (0700) and result files, including ones the tool writes itself, are readable only by you. Secret tools keep results in a private in-memory folder by default ("Keep results in memory only"): `$XDG_RUNTIME_DIR`, cleared at logout, or `/dev/shm`, cleared at restart. "Encrypt the output" seals the output file (or the captured output) with a passphrase and removes the original. The Output Directory opens sealed files after asking for the passphrase, decrypted in memory only. `mint-gen`'s safety report shows the level and the revealing options.
+- **Sensitive results are kept private.** Each tool has a data level, shown as a badge: *sensitive* for packet captures, logs, security audits, database dumps and tracers, and *secret* for password managers and key and crypto tools. The level comes from the tool, its archetype (Look up, Follow, Record, Record sound, Audit and Backup are sensitive), what its help is about (keys and passwords make it secret; captured traffic, people and organisations, security findings and logs make it sensitive; this only ever raises a level, and a topic counts only when it clearly leads the other subjects of the help), or `ToolSpec.Data`. Options that print secrets (`--export-secret-keys`, `-d` "Decrypt data", `--show-password`) make a run secret, and so does output that contained a private key, a login token (JWT), a password hash or another recognised secret. For sensitive results, new results folders are private (0700) and result files, including ones the tool writes itself, are readable only by you. Secret tools keep results in a private in-memory folder by default ("Keep results in memory only"): `$XDG_RUNTIME_DIR`, cleared at logout, or `/dev/shm`, cleared at restart. "Encrypt the output" seals the output file (or the captured output) with a passphrase and removes the original. The Output Directory opens sealed files after asking for the passphrase, decrypted in memory only. `mint-gen`'s safety report shows the level and the revealing options.
 - **Passwords typed into text boxes are caught.** Before a run, the Extra arguments and Target boxes are checked for passwords in URLs (`https://user:pass@host`), `--password=…` / `--token …` style options, the tool's own secret options typed by hand, `--user name:pass`, `Authorization:` and API-key headers, `PASSWORD=…` assignments and well-known token formats. If one is found, the app explains that it will be visible on the command line, points to the tool's own secret option if there is one, and asks before running. Such values are hidden in the command preview, settings and history and are never written to disk; in the next session the box shows `••••••` and the app asks you to type it again rather than running with it.
 - **Mint never asks for your sudo password.** A tool that needs root runs when the whole app is started with sudo (`sudo apps/tcpdump/tcpdump`), so the password goes to sudo's own prompt before Mint starts. `mint-gen --run` asks "Start it with sudo? [y/N]" for tools that usually need root (answer in advance with `--sudo` or `--no-sudo`). The app's "Root access" section shows whether it runs as root and, if not, the exact command to restart it with sudo; when a run fails with "permission denied" or similar, the app says the same. Started with sudo, the app still keeps its settings, history and results in your home and makes them belong to you, not to root.
 - **`mint-gen` reads a program's help without trusting it.** To learn a program's options it runs `man` and the program's `--help` (or `-h`), plus fuller help such as curl's `--help all` or the `dig -h` that dig's `--help` points to, but only when the program's own help mentions it, only with help arguments from a fixed list, and at most six runs in all. Each run is passed as a list of arguments (never through a shell), in its own session with no terminal and input closed, inside an empty temporary folder that is also its `HOME`, with a cleaned environment (your tokens and passwords are not passed on), a 5-second limit and a 2 MB output cap. Anything it leaves running afterwards is stopped. It never runs as root: under sudo it runs as you, and as plain root it runs as `nobody`.
@@ -622,8 +645,9 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
   - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 0.1.0)`, using `App.Version`.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
+  - `--theme NAME` uses one of the seven [themes](#colour) for this run only. It may come before any of the others: `mytool --theme nord --screen Run`.
 
-  Only the first argument is checked, so `mytool somefile -v` is left alone. An app that parses its own arguments sets `NoFlags: true` to turn these off.
+  Only the first argument is checked (after `--theme NAME`), so `mytool somefile -v` is left alone. An app that parses its own arguments sets `NoFlags: true` to turn these off.
 - **Required programs.** `Require: []string{"rsync"}` checks `PATH`, and any missing program is named at the top of the home list, ahead of the app's own `Note`.
 - **No terminal.** Started without one (input redirected, or launched from a non-terminal tool), the app explains that it needs a terminal and exits with status 2, instead of spinning.
 - **Lost terminal.** If the terminal disappears while the app runs (window closed, Emacs killed), `Run` returns so the app can clean up (for example `runner.StopAll()`), rather than lingering.
@@ -639,6 +663,8 @@ A key profile adds a familiar set on top:
 | `default` | ↑ ↓ | ← → Space | Esc, b | Home, End | PgUp, PgDn |
 | `emacs` | `C-n` `C-p` | `C-f` `C-b` | `C-g` | `C-a`/`M-<`, `C-e`/`M->` | `M-v`, `C-v` |
 | `vim` | `j` `k` | `h` `l` | Esc, b | `g`, `G` | `C-u`/`C-b`, `C-d`/`C-f` |
+
+On a screen with panes, Tab and Shift-Tab move between them, `[` and `]` shrink and grow the focused pane, `|` hides or shows it, and a click focuses one. In tables, ← and → scroll sideways and `H` and `L` narrow or widen a column.
 
 The person running the app chooses with the `MINT_KEYS` environment variable (`export MINT_KEYS=vim`). An app can set its own default with `App.Keys`. In the vim profile, letters only act as keys outside text fields, so typing still works. The footer hints follow the profile.
 
