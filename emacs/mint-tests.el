@@ -6,6 +6,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'mint)
 
 (defconst mint-tests-root
@@ -125,6 +126,51 @@
             (should (term-in-char-mode))
             (should (<= (count-lines (point-min) (point-max)) term-height))))
       (when (buffer-live-p buf) (kill-buffer buf)))))
+
+;; Esc is bound in a term buffer, so Emacs does not decode a mouse report:
+;; it arrives as Esc and typed keys, counted from the frame's top left.
+;; mint--send-escape reads it whole and passes it on at the window's
+;; position.
+(ert-deftest mint-mouse-report-moves-to-the-window ()
+  ;; A window whose body starts at column 0, line 9 of the frame.
+  (let ((edges '(0 9 100 29)))
+    (should (equal (mint--mouse-report-in-window "0;10;20" ?M edges) "\e[<0;10;11M"))
+    (should (equal (mint--mouse-report-in-window "0;10;20" ?m edges) "\e[<0;10;11m"))
+    (should (equal (mint--mouse-report-in-window "64;1;10" ?M edges) "\e[<64;1;1M"))   ; wheel, top left
+    (should (equal (mint--mouse-report-in-window "0;100;29" ?M edges) "\e[<0;100;20M")) ; bottom right
+    (should-not (mint--mouse-report-in-window "0;10;9" ?M edges))   ; above: another window
+    (should-not (mint--mouse-report-in-window "0;10;30" ?M edges))  ; below
+    (should-not (mint--mouse-report-in-window "0;101;20" ?M edges)) ; to the right
+    (should-not (mint--mouse-report-in-window "0;10" ?M edges))     ; not a report
+    (should-not (mint--mouse-report-in-window "a;b;c" ?M edges))))
+
+(ert-deftest mint-send-escape-reads-mouse-reports-and-keeps-keys ()
+  (let (sent)
+    (cl-letf (((symbol-function 'term-send-raw-string) (lambda (s) (push s sent)))
+              ((symbol-function 'window-body-edges) (lambda (&rest _) '(0 9 100 29))))
+      ;; A click inside the window.
+      (let ((unread-command-events (append "[<0;10;20M" nil)))
+        (mint--send-escape)
+        (should (equal (pop sent) "\e[<0;10;11M"))
+        (should (null unread-command-events)))
+      ;; A click in another window: nothing is sent.
+      (let ((unread-command-events (append "[<0;10;3M" nil)))
+        (mint--send-escape)
+        (should (null sent))
+        (should (null unread-command-events)))
+      ;; Esc on its own.
+      (let ((unread-command-events nil))
+        (mint--send-escape)
+        (should (equal (pop sent) "\e")))
+      ;; Esc then a key that is not a report: the key is put back.
+      (let ((unread-command-events (append "OA" nil)))
+        (mint--send-escape)
+        (should (equal (pop sent) "\e"))
+        (should (equal unread-command-events (append "OA" nil))))
+      (let ((unread-command-events (append "[A" nil)))
+        (mint--send-escape)
+        (should (equal (pop sent) "\e"))
+        (should (equal unread-command-events (append "[A" nil)))))))
 
 (ert-deftest mint-term-filter-holds-back-split-characters ()
   ;; "━" is three bytes; send it in two pieces right after an escape code.
