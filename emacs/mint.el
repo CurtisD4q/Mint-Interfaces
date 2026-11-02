@@ -37,6 +37,7 @@
 ;;; Code:
 
 (require 'term)
+(require 'cl-lib)
 (require 'json)
 (require 'subr-x)
 
@@ -259,9 +260,58 @@ output when it follows an escape sequence, so complete it first."
         (term-emulate-terminal proc s)))))
 
 (defun mint--send-escape ()
-  "Send Esc to the app at once, rather than waiting for a Meta key."
+  "Send Esc to the app at once, rather than waiting for a Meta key.
+A mouse report also starts with Esc, and because Esc is bound here
+Emacs does not decode it: the rest arrives as typed keys.  So when Esc
+starts a report, read it whole and pass it on at the window's position
+\(see `mint--read-mouse-report')."
   (interactive)
-  (term-send-raw-string "\e"))
+  (let ((report (mint--read-mouse-report)))
+    (cond ((null report) (term-send-raw-string "\e"))
+          ((stringp report) (term-send-raw-string report))
+          ;; A click outside this window is not the app's.
+          (t nil))))
+
+(defconst mint--mouse-report-max 32
+  "The longest SGR mouse report read after Esc.")
+
+(defun mint--read-mouse-report ()
+  "Read an SGR mouse report that follows Esc, if one does.
+Return nil when the input is not one (it is put back to be read as
+usual), the report moved to this window's position as a string, or
+`outside' when the click was outside the window."
+  (let ((read nil) (ok t) (body nil) (final nil))
+    (cl-flet ((next () (let ((e (read-event nil nil 0.05))) (when e (push e read)) e)))
+      (if (not (and (eq (next) ?\[) (eq (next) ?<)))
+          (setq ok nil)
+        (while (and ok (not final))
+          (let ((e (next)))
+            (cond ((memq e '(?M ?m)) (setq final e))
+                  ((and (integerp e) (or (<= ?0 e ?9) (eq e ?\;))
+                        (< (length body) mint--mouse-report-max))
+                   (push e body))
+                  (t (setq ok nil)))))))
+    (if (not ok)
+        (progn (setq unread-command-events (append (nreverse read) unread-command-events))
+               nil)
+      (or (mint--mouse-report-in-window (concat (nreverse body)) final (window-body-edges))
+          'outside))))
+
+(defun mint--mouse-report-in-window (params final edges)
+  "The SGR mouse report PARAMS + FINAL moved from the frame to EDGES.
+PARAMS is \"BUTTON;X;Y\" with X and Y counted from 1 at the frame's top
+left; EDGES are the window's body edges (LEFT TOP RIGHT BOTTOM), counted
+from 0.  Return the report counted from the window's top left, or nil
+when it is outside the window or not a report."
+  (let ((parts (split-string params ";")))
+    (when (and (= (length parts) 3)
+               (cl-every (lambda (p) (string-match-p "\\`[0-9]+\\'" p)) parts))
+      (let* ((x (- (string-to-number (nth 1 parts)) (nth 0 edges)))
+             (y (- (string-to-number (nth 2 parts)) (nth 1 edges)))
+             (w (- (nth 2 edges) (nth 0 edges)))
+             (h (- (nth 3 edges) (nth 1 edges))))
+        (when (and (<= 1 x w) (<= 1 y h))
+          (format "\e[<%s;%d;%d%c" (nth 0 parts) x y final))))))
 
 (defun mint--configure-term-buffer (buf)
   "Set up BUF so a full-screen Mint app draws cleanly in `term'."
