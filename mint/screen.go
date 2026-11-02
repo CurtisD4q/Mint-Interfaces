@@ -1053,21 +1053,26 @@ func (screen *Screen) bind() {
 			finish(cv)
 			return
 		}
-		dockH := 0
+		// The dock (the run command and its preview) is always the bottom
+		// pane, however short the terminal. When rows are short the panes
+		// above give way first: the blank line under the dock's rule goes,
+		// then the panes shrink to a single row, and only then is the dock
+		// itself shortened (it scrolls to the row in use).
+		dockH, dockRule, dockGap := 0, 0, 0
 		if len(screen.Dock) > 0 {
 			dockH = screen.dockHeight(w)
-			// Reserve rows for the separator and the blank line below it,
-			// while leaving the panes enough rows to keep their minimum.
-			if keep := avail - paneMinRows - 2; dockH > keep {
-				dockH = keep
-			}
-			if dockH < 2 {
-				dockH = 0
-			}
 		}
-		dockRule, dockGap := 0, 0
 		if dockH > 0 {
 			dockRule, dockGap = 1, 1
+			if avail-dockH-dockRule-dockGap < paneMinRows {
+				dockGap = 0
+			}
+			if room := avail - dockRule - dockGap - 1; dockH > room {
+				dockH = room
+			}
+			if dockH < 1 {
+				dockH, dockRule, dockGap = 0, 0, 0
+			}
 		}
 		paneAvail := avail - dockH - dockRule - dockGap
 		screen.viewTop, screen.viewAvail, screen.viewWidth = contentTop, paneAvail, w
