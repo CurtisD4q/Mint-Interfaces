@@ -99,8 +99,9 @@ func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, inte
 }
 
 // optionSections is the ordinary options, and the advanced ones when they
-// get their own pane. With nothing advanced, the second list
-// is empty and Extra arguments stay with the ordinary options.
+// get their own pane. Extra arguments always come first in Basic Options,
+// above the target and the options, so they are easy to find whichever
+// pane the advanced options are in.
 func (a *ToolApp) optionSections() (basic, advanced []mint.Section) {
 	split := a.splitAdvanced()
 	var flags, adv []mint.Section
@@ -109,19 +110,12 @@ func (a *ToolApp) optionSections() (basic, advanced []mint.Section) {
 	} else {
 		flags = a.flagSections()
 	}
-	basic = a.inputAndFlags(flags, !split)
+	basic = append([]mint.Section{a.extraArgsSection()}, a.inputAndFlags(flags, false)...)
 	basic = a.withFileAndRoot(basic)
 	basic = dropEmpty(basic)
 	if !split {
 		return basic, nil
 	}
-	// Extra arguments are additional options, so they travel with the
-	// advanced pane. If that would leave Basic Options empty, they stay.
-	if len(basic) == 0 {
-		basic = dropEmpty([]mint.Section{a.extraArgsSection()})
-		return basic, dropEmpty(adv)
-	}
-	adv = append(adv, a.extraArgsSection())
 	return basic, dropEmpty(adv)
 }
 
