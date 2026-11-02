@@ -1149,7 +1149,7 @@ func (screen *Screen) bind() {
 			case it.wtype == "note":
 				cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
 			case it.wtype == "divider":
-				cv.put(r, left, C.Dim+dividerLine(it.divChar, max(0, w-4))+Reset)
+				cv.put(r, left, ruleStyle()+dividerLine(it.divChar, max(0, w-4))+Reset)
 			case it.wtype == "logline":
 				cv.logLine(r, w, it)
 			case it.wtype == "spacer":
