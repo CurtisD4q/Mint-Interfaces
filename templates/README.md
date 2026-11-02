@@ -27,7 +27,7 @@ These folders are small example programs. They are not separate screen types: ea
 | `WithFileOutput` | `OutputsFile`, `OutputFlag`, `DefaultExt` | Adds the **Output File** section (`Save directory`, editable `File name`, timestamped filename generator, post-run verification, and the **Output Directory Browser** screen) |
 | `WithTableOutput` | `TableOutput`, `TableColumns`, `RowActions` | Automatically parses tabular stdout (`mint.ParseTable`) into an interactive `mint.Table` with per-row detail or action modals |
 | `WithCollapsibleOutput` | `CollapsibleOutput`, `ChunkSize` | Automatically splits section-headed or long output into foldable `mint.Collapsible` blocks |
-| `WithProfiles` | `Profiles []ProfileSpec` | Adds a preset selector (`Default`, `Quick`, `Intense`, etc.) that populates flags and extra args |
+| `WithProfiles` | `Profiles []ProfileSpec` | Adds a preset selector that sets flags and extra arguments. Archetypes that run long jobs or rely on presets start with `Default`, `Fast / Quiet` and `Verbose`; the rest with `Default`. Your own presets are saved from the Presets screen |
 | `WithDynamicChoices` | `FlagSpec.ChoicesCmd []string` | Populates `FlagChoice` options at runtime by running a command (e.g., `ip -o link`, `lsblk -dn -o NAME`) |
 | `WithRootAuth` | `NeedsRoot` | Adds a "Root access" section: it shows whether the app runs as root and, if not, the `sudo` command that restarts it with root rights. Mint never asks for or handles the sudo password; `mint-gen --run` offers to start these apps with sudo |
 | `WithConfirm` | `ConfirmRun`, `ConfirmPrompt` | Asks before running (`mint.Confirm`). Tools marked `Irreversible` (`dd`, `shred`, `rm`, `kill`, `pkill`…) need the target typed instead (`mint.TypeToConfirm`) |
@@ -61,18 +61,18 @@ Each archetype says what a program takes, how it runs and what it shows. Its blu
 | `pack` | Pack | Make something | commands | Packs many files into one, or unpacks them. | table, file-output, confirm, progress | `7z`, `7za`, `ar`, `bzip2`, `cpio` |
 | `generate` | Generate | Make something | once | Makes something new from settings alone. | file-output, history | `qrencode` |
 | `build` | Build | Make something | once | Builds or tests a project. | collapsible, profiles, history, progress | `cargo`, `clang`, `cmake`, `g++`, `gcc` |
-| `transfer` | Transfer | Make something | once | Fetches or sends something over the network. | file-output, profiles, progress, target | `aria2c`, `axel`, `curl`, `http`, `scp` |
+| `transfer` | Transfer | Make something | once | Fetches or sends something over the network. | file-output, profiles, progress, target, two-inputs | `aria2c`, `axel`, `curl`, `http`, `scp` |
 | `present` | Present | Make something | once | Shows, plays, prints or announces something; that is its effect. | dynamic-choices, target |  |
 | `edit-files` | Edit files | Change things | once | Changes many files in place: copies, moves, renames, removes. | confirm, preview | `cp`, `install`, `mv`, `shred` |
-| `mirror` | Mirror | Change things | once | Makes a destination match a source. | profiles, confirm, preview, progress | `rsync` |
-| `settings` | Settings | Change things | state | Reads and sets named values. | table, row-actions | `dconf`, `gh-config`, `git-config`, `gsettings`, `hostnamectl` |
-| `device` | Device | Change things | state | Adjusts a device or session live. | dynamic-choices | `amixer`, `bluetoothctl`, `brightnessctl`, `hdparm`, `iwctl` |
-| `rules` | Rules | Change things | state | Edits an ordered list of rules or entries. | table, root, confirm, reorder, row-actions | `firewall-cmd`, `ip-route`, `ip-rule`, `ip6tables`, `iptables` |
-| `control` | Control | Change things | live | Lists running things and acts on each. | table, root, confirm, live-refresh, row-actions | `incus`, `loginctl`, `lxc`, `pct` |
+| `mirror` | Mirror | Change things | once | Makes a destination match a source. | profiles, confirm, preview, progress, two-inputs | `rsync` |
+| `settings` | Settings | Change things | state | Reads and sets named values. | table, state-edit, row-actions | `dconf`, `gh-config`, `git-config`, `gsettings`, `hostnamectl` |
+| `device` | Device | Change things | state | Adjusts a device or session live. | dynamic-choices, state-edit | `amixer`, `bluetoothctl`, `brightnessctl`, `hdparm`, `iwctl` |
+| `rules` | Rules | Change things | state | Edits an ordered list of rules or entries. | table, root, confirm, reorder, state-edit, row-actions | `firewall-cmd`, `ip-route`, `ip-rule`, `ip6tables`, `iptables` |
+| `control` | Control | Change things | live | Lists running things and acts on each. | table, root, confirm, live-refresh, row-actions | `incus`, `loginctl`, `lxc`, `pct`, `qm` |
 | `signal` | Signal | Change things | once | Sends a signal to running processes, or changes their priority, picking them by name or pattern. | root, confirm, history, target | `killall`, `pkill` |
 | `records` | Records | Manage a collection | commands | Adds, lists, changes and removes items in a store. | table, confirm, row-actions | `apk`, `apt`, `apt-get`, `brew`, `dnf` |
-| `history` | History | Manage a collection | commands | Keeps the versions of something: commits, branches, revisions. | table, confirm, history, row-actions | `fossil`, `git`, `hg` |
-| `backup` | Backup | Manage a collection | commands | Backs folders up to a repository, and restores them from snapshots. | table, confirm, row-actions, progress, profiles, target | `borg`, `duplicity`, `restic`, `snapper`, `timeshift` |
+| `history` | History | Manage a collection | commands | Keeps the versions of something: commits, branches, revisions. | table, confirm, history, row-actions | `fossil`, `git`, `hg`, `svn` |
+| `backup` | Backup | Manage a collection | commands | Backs folders up to a repository, and restores them from snapshots. | table, profiles, confirm, progress, row-actions | `borg`, `duplicity`, `kopia`, `restic`, `snapper` |
 | `toolkit` | Toolkit | Manage a collection | commands | Many unrelated commands under one name. | collapsible | `btrfs`, `csvtk`, `docker`, `gh`, `glab` |
 | `wrap` | Wrap | Run other things | once | Runs another command with changes: a limit, a priority, a timer. | collapsible, target |  |
 | `schedule` | Schedule | Run other things | commands | Runs something later or on a timetable. | table, confirm, row-actions | `anacron`, `at`, `atq`, `atrm`, `batch` |

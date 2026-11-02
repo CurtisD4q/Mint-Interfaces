@@ -276,7 +276,7 @@ There is one saved theme, shared by every Mint app. Which theme an app uses, str
 2. the theme saved in `theme.conf`, by `mint-gen --theme`, the Theme screen or by hand
 3. `default`, when nothing is saved
 
-`MINT_PALETTE` (below) is applied on top of the theme the file picks.
+`MINT_PALETTE` (below) is applied on top of the theme the file picks. Inside Emacs, `mint.el` passes the Emacs theme's colours this way, so apps it launches match Emacs rather than the saved theme; set `mint-match-theme` to `nil` to use the saved theme there too.
 
 #### The theme file
 
