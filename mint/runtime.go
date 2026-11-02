@@ -682,7 +682,7 @@ var asciiReplacer = strings.NewReplacer(
 	"▸", ">", "▾", "v", "‹", "<", "›", ">",
 	"●", "*", "○", "o", "◉", "(*)", "☐", "[ ]", "☑", "[x]",
 	"█", "#", "░", ".", "┃", "|", "◈", "*", "…", "~",
-	"✓", "+", "✕", "x",
+	"✓", "+", "✕", "x", "◆", "*",
 )
 
 func (l1 *level1Runtime) sanitizeGlyphs(s string) string {

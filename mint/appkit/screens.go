@@ -523,7 +523,7 @@ func (a *ToolApp) ActionsScreen() *mint.Screen {
 		rows = append(rows, mint.Note("  No actions."))
 	}
 	s := &mint.Screen{
-		Icon:     "▸",
+		Icon:     "◆",
 		Title:    "Actions",
 		Sections: []mint.Section{{Name: "Actions", Rows: rows}},
 	}
