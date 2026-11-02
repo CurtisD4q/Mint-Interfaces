@@ -1003,7 +1003,14 @@ func (a *ToolApp) executionZone(mode execMode, canPoll bool, interval time.Durat
 	switch mode {
 	case execPoll:
 		if canPoll {
+			// The command preview and Poll now come first, so they stay
+			// in view when the terminal is short.
 			return mint.Section{Name: "Live", Rows: []mint.Row{
+				mint.Value(mint.ValueOpts{
+					Label: "Command preview",
+					Get:   func() string { return a.CommandPreview() },
+				}),
+				a.refreshRow("Poll now"),
 				mint.Toggle(mint.ToggleOpts{
 					ID:    "monitor:pause",
 					Label: "Pause live polling",
@@ -1028,7 +1035,6 @@ func (a *ToolApp) executionZone(mode execMode, canPoll bool, interval time.Durat
 						return a.LastRefresh.Format("15:04:05")
 					},
 				}),
-				a.refreshRow("Poll now"),
 			}}
 		}
 		return mint.Section{Name: "Run", Rows: []mint.Row{
