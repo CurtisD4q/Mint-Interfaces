@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,6 +33,7 @@ func runCLI(args []string) int {
 		buildBin       bool
 		runApp         bool
 		removeApp      bool
+		purgeApps      bool
 		rootFlag       bool
 		noRootFlag     bool
 		outDir         string
@@ -49,6 +51,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
 	fs.BoolVar(&runApp, "run", false, "Launch the compiled <tool>-mint interface (builds it first if missing)")
 	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
+	fs.BoolVar(&purgeApps, "purge", false, "Remove every app in <repo>/apps that mint-gen created, after asking to confirm (y/n)")
 	fs.BoolVar(&rootFlag, "sudo", false, "With --run: start the app with sudo without asking (sudo asks for the password)")
 	fs.BoolVar(&noRootFlag, "no-sudo", false, "With --run: start the app without sudo, without asking")
 	fs.StringVar(&themeFlag, "theme", "", "Set the colour theme for every Mint app (saved in ~/.config/mint-interfaces/theme.conf): default, terminal, nord, gruvbox, dracula, catppuccin or custom")
@@ -96,6 +99,10 @@ func runCLI(args []string) int {
 
 	if listApps {
 		return printApps(os.Stdout, os.Stderr, repoRoot)
+	}
+
+	if purgeApps {
+		return purgeAllApps(os.Stdin, os.Stdout, os.Stderr, repoRoot)
 	}
 
 	if tuiMode {
@@ -610,6 +617,79 @@ func printApps(out, errOut io.Writer, repoRoot string) int {
 	if n == 0 {
 		fmt.Fprintf(errOut, "No apps yet in %s\n", dir)
 	}
+	return 0
+}
+
+// purgeAllApps removes every app in <repo>/apps that mint-gen created,
+// after listing them and asking to confirm (y/n). Only what --remove would
+// delete goes: folders mint-gen did not create are named and left alone,
+// and in an app folder only the files mint-gen wrote are removed. Anything
+// but y or yes (including no answer) removes nothing.
+func purgeAllApps(in io.Reader, out, errOut io.Writer, repoRoot string) int {
+	dir := filepath.Join(repoRoot, "apps")
+	if repoRoot == "" {
+		dir = "apps"
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(out, "No apps to remove (%s does not exist)\n", dir)
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	var apps, others []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		// A link is never followed: it is named and left alone.
+		if e.Type()&os.ModeSymlink != 0 {
+			others = append(others, name)
+			continue
+		}
+		if !e.IsDir() {
+			continue
+		}
+		// A real folder, named as mint-gen names one, that it created.
+		if sanitizeToolName(name) == name && isScaffold(filepath.Join(dir, name), name) {
+			apps = append(apps, name)
+		} else {
+			others = append(others, name)
+		}
+	}
+	if len(others) > 0 {
+		fmt.Fprintf(out, "Left alone (mint-gen did not create them): %s\n", safeTerminalText(strings.Join(others, ", ")))
+	}
+	if len(apps) == 0 {
+		fmt.Fprintf(out, "No apps to remove in %s\n", dir)
+		return 0
+	}
+	fmt.Fprintf(out, "This removes %d app(s) from %s, with their built programs:\n", len(apps), dir)
+	for _, a := range apps {
+		fmt.Fprintf(out, "  %s\n", a)
+	}
+	fmt.Fprint(out, "Remove them all? (y/n) ")
+	answer, _ := bufio.NewReader(in).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+	default:
+		fmt.Fprintln(out, "Nothing removed.")
+		return 1
+	}
+	failed := 0
+	for _, a := range apps {
+		if removeScaffoldedApp(a, "", repoRoot) != 0 {
+			failed++
+		}
+	}
+	if failed > 0 {
+		fmt.Fprintf(errOut, "mint-gen: %d of %d apps could not be removed\n", failed, len(apps))
+		return 1
+	}
+	fmt.Fprintf(out, "Removed %d app(s).\n", len(apps))
 	return 0
 }
 
