@@ -1,5 +1,7 @@
 # Mint Interfaces (Go)
 
+**Version 1.0.0**, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.0)`.
+
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
 The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded frame (purple by default, with six more [colour themes](#colour)) with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
@@ -108,7 +110,7 @@ Mint does not start a shell for this. `|`, `;`, `&&`, `$(...)`, backticks and gl
 | Terminal | 256 colours + SGR mouse | — | Any modern terminal. Mint remembers what it learned about yours; re-probe with `mint-gen --probe-term`. |
 | Locale and font | UTF-8; box-drawing glyphs | — | Without a UTF-8 locale, apps draw in ASCII. A font missing the glyphs shows gaps or boxes. |
 | `man` | any | — | mint-gen reads a program's man page as well as its `--help`; without `man` it uses `--help` alone. |
-| Emacs | 27.1 | 30.1 | For `emacs/mint.el`. 31 untested as of v0.1.x. |
+| Emacs | 27.1 | 30.1 | For `emacs/mint.el`. 31 untested as of v1.0. |
 | vterm (optional) | — | libvterm 0.3.3 | For running apps in `vterm`; see [Running from Emacs](#running-from-emacs-emacsmintel). |
 | Vim | 9.1 | 9.1 | `set ttimeout ttimeoutlen=50`, or Esc waits a second. |
 | Neovim | 0.9.5 | 0.10 | Esc is passed on at once. |
@@ -642,7 +644,7 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 - **Flags.** The first argument may be one of Mint's flags:
   - `--help` (`-h`) lists the app's screens and usage, and points at `mint-gen --help` for the guide. It does not repeat that guide.
   - `--man` opens the Manual screen, the program's full manual. `--help` still prints usage. The same screen is the Manual item on the home menu.
-  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 0.1.0)`, using `App.Version`.
+  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.0)`, using `App.Version` for the app's own version.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
   - `--theme NAME` uses one of the seven [themes](#colour) for this run only. It may come before any of the others: `mytool --theme nord --screen Run`.
