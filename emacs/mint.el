@@ -282,7 +282,13 @@ output when it follows an escape sequence, so complete it first."
       (define-key map [escape] #'mint--send-escape)
       (define-key map (kbd "ESC") #'mint--send-escape)
       (define-key map (kbd "C-x") ctl-x-map)
-      (use-local-map map))))
+      (use-local-map map)
+      ;; term decides it is in char mode by comparing the local map with
+      ;; `term-raw-map'.  With our own copy that test failed, so term
+      ;; treated the buffer as line mode: it kept output below the screen
+      ;; and the buffer grew with every redraw.  Make our copy this
+      ;; buffer's raw map.
+      (setq-local term-raw-map map))))
 
 (defun mint--run-in-term (exe args name)
   "Run EXE with ARGS in a `term' buffer named after NAME."
