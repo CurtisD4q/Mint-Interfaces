@@ -95,6 +95,22 @@ Mint does not start a shell for this. `|`, `;`, `&&`, `$(...)`, backticks and gl
 
 ## Prerequisites
 
+| Component | Minimum | Tested up to | Notes |
+|---|---|---|---|
+| Go | 1.21 | 1.24 / stable | Only to build apps. Standard library only: no outside modules, not even `golang.org/x`. |
+| Operating system | Linux, macOS, the BSDs | — | Windows through WSL only. |
+| Terminal | 256 colours + SGR mouse | — | Any modern terminal. Mint remembers what it learned about yours; re-probe with `mint-gen --probe-term`. |
+| Locale and font | UTF-8; box-drawing glyphs | — | Without a UTF-8 locale, apps draw in ASCII. A font missing the glyphs shows gaps or boxes. |
+| `man` | any | — | mint-gen reads a program's man page as well as its `--help`; without `man` it uses `--help` alone. |
+| Emacs | 27.1 | 30.1 | For `emacs/mint.el`. 31 untested as of v0.1.x. |
+| vterm (optional) | — | libvterm 0.3.3 | For running apps in `vterm`; see [Running from Emacs](#running-from-emacs-emacsmintel). |
+| Vim | 9.1 | 9.1 | `set ttimeout ttimeoutlen=50`, or Esc waits a second. |
+| Neovim | 0.9.5 | 0.10 | Esc is passed on at once. |
+| tmux | 3.4 | 3.5 | Needs `set -sg escape-time 10` and `set -g mouse on`. |
+| Python 3 (optional) | 3 | — | Only for `tools/check_catalogue.py`. |
+
+The details:
+
 **To run a Mint app:** nothing to install. Apps are single static binaries.
 
 - **Systems:** Linux, macOS and the BSDs. Windows is not supported natively; apps work inside WSL (Windows Subsystem for Linux), for example in Windows Terminal.
@@ -105,7 +121,7 @@ Mint does not start a shell for this. `|`, `;`, `&&`, `$(...)`, backticks and gl
 
 **To build apps:**
 
-- **Go 1.21 or newer.** No C compiler or other tools: cross-compiling for another system or processor is just a setting.
+- **Go 1.21 or newer** (checked: nothing in the code needs a newer Go). No C compiler or other tools: cross-compiling for another system or processor is just a setting.
 - **Python 3**, only for `tools/check_catalogue.py`.
 
 **For the Emacs integration (`emacs/mint.el`):**
@@ -705,7 +721,7 @@ For the closest match to a real terminal inside an Emacs buffer, use `mint.el` i
 
 ## Running in Vim, Neovim and tmux
 
-Mint apps are ordinary terminal programs, so they work inside the terminals built into Vim and Neovim and inside tmux. Each of these was tested with Vim 9.1, Neovim 0.9.5 and tmux 3.4: drawing, colours, every key including a single Esc, mouse clicks, animation, resizing, and quitting.
+Mint apps are ordinary terminal programs, so they work inside the terminals built into Vim and Neovim and inside tmux. Each of these was tested with Vim 9.1, Neovim 0.9.5 and tmux 3.4 (see [Prerequisites](#prerequisites) for the newest versions tested): drawing, colours, every key including a single Esc, mouse clicks, animation, resizing, and quitting.
 
 | Where | How | Notes |
 |---|---|---|
