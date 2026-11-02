@@ -2324,7 +2324,10 @@ func (a *ToolApp) HistoryScreen() *mint.Screen {
 // BuildApp returns a configured *mint.App ready for Run().
 func (a *ToolApp) BuildApp() *mint.App {
 	primaryLabel := "Run"
-	primaryIcon := "▸"
+	// Not "▸": the home list marks the selected row with "▸ ", and the
+	// same glyph as the icon read as "▸ ▸ Run". "◆" never turns into an
+	// emoji, so it stays one cell wide.
+	primaryIcon := "◆"
 	switch a.executionMode() {
 	case execState:
 		primaryLabel = "State"
@@ -2360,7 +2363,7 @@ func (a *ToolApp) BuildApp() *mint.App {
 	}
 	if len(a.Spec.RowActions) > 0 {
 		items = append(items, mint.HomeItem{
-			Icon:  "▸",
+			Icon:  "◆",
 			Label: "Actions",
 			Desc:  "Run an action on a unit, package or id",
 			Open:  a.ActionsScreen,

@@ -62,6 +62,10 @@ func TestLevel1QuantiserAndASCIIFallback(t *testing.T) {
 	if strings.ContainsRune(got, '╭') || strings.ContainsRune(got, '●') {
 		t.Fatalf("expected ASCII fallback glyphs, got %q", got)
 	}
+	// The Run and Actions icon is not the selection marker in ASCII either.
+	if got := r.sanitizeGlyphs("▸ ◆ Run"); got != "> * Run" {
+		t.Fatalf("selected Run row in ASCII = %q, want \"> * Run\"", got)
+	}
 }
 
 func TestLineBufferCursorAndBracketedPaste(t *testing.T) {

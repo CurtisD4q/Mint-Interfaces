@@ -533,3 +533,21 @@ func paneTitles(s *mint.Screen) []string {
 	}
 	return out
 }
+
+// The home list marks the selected row with "▸ ". No item may use that
+// glyph as its icon, or the selected row reads "▸ ▸ Run".
+func TestNoHomeIconLooksLikeTheSelectionMarker(t *testing.T) {
+	for _, def := range AllArchetypeDefs() {
+		for _, rowActions := range []bool{false, true} {
+			spec := ToolSpec{Name: string(def.ID), Bin: "echo", ArchetypeID: string(def.ID)}
+			if rowActions {
+				spec.RowActions = []RowActionSpec{{Label: "Show", Subcommand: []string{"show"}}}
+			}
+			for _, it := range newTestApp(t, spec).BuildApp().Items {
+				if it.Icon == "▸" || it.Icon == ">" {
+					t.Fatalf("%s: %q uses the selection marker %q as its icon", def.ID, it.Label, it.Icon)
+				}
+			}
+		}
+	}
+}
