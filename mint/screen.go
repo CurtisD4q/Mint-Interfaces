@@ -99,6 +99,8 @@ type Screen struct {
 	redraw   func(int, int)
 	onKey    func(*Key, *int, *int, *int) (*screenResult, bool)
 	frameBuf *strings.Builder
+	// ptrSeen is the pointer as of the last frame (hover and pressed).
+	ptrSeen pointerWatch
 
 	// viewerLines is the text a full-screen log viewer shows. ViewLog sets
 	// it; every other screen leaves it nil.
@@ -1117,134 +1119,8 @@ func (screen *Screen) bind() {
 		if maxScroll := max(0, len(items)-paneAvail); st.scroll > maxScroll {
 			st.scroll = maxScroll
 		}
-		st.hit = map[int]hitEntry{}
-		const left = 3
-		for _, pl := range layoutContent(items, st.scroll, contentTop, paneAvail) {
-			i := pl.index + 1
-			it := &items[pl.index]
-			r := pl.row
-			selected := screen.focus == 0 && i == selItem
-			switch {
-			case it.kind == "section" && it.collapsible:
-				arrow := "▾"
-				if it.collapsed {
-					arrow = "▸"
-				}
-				right := it.badge
-				if it.collapsed && right == "" {
-					right = fmt.Sprintf("%d hidden", it.hidden)
-				}
-				name := Truncate(it.name, max(4, w-8-VLen(right)))
-				rx := (w - 2) - VLen(right) + 1
-				st.hit[r] = hitEntry{idx: i, header: true}
-				if selected {
-					cv.selBar(r, w)
-					cv.put(r, left, C.SelBg+C.Accent+C.Bold+arrow+" "+C.Bright+name+Reset)
-					if right != "" {
-						cv.put(r, rx, C.SelBg+C.Muted+right+Reset)
-					}
-				} else {
-					cv.put(r, left, C.Accent+C.Bold+arrow+" "+name+Reset)
-					if right != "" {
-						cv.put(r, rx, C.Muted+right+Reset)
-					}
-				}
-			case it.kind == "section":
-				cv.put(r, left, C.Accent+C.Bold+"┄ "+Truncate(it.name, w-8)+Reset)
-			case it.wtype == "note":
-				cv.put(r, left, C.Dim+Truncate(it.label, w-8)+Reset)
-			case it.wtype == "divider":
-				cv.put(r, left, ruleStyle()+dividerLine(it.divChar, max(0, w-4))+Reset)
-			case it.wtype == "logline":
-				cv.logLine(r, w, it)
-			case it.wtype == "spacer":
-			case it.wtype == "label":
-				cv.put(r, left+it.indent, labelStyle(it.style)+Truncate(it.label, w-6-it.indent)+Reset)
-			default:
-				wt := widget(it, i)
-				wv := plainLen(wt)
-				wx := (w - 2) - wv + 1
-				if wx < left+16 {
-					wx = left + 16
-				}
-				room := max(4, wx-left-4)
-				if wv == 0 {
-					room = max(4, w-8)
-				}
-				mark, markCol := "", ""
-				switch it.wtype {
-				case "check":
-					mark, markCol = "☐", C.Muted
-					if marked(it, i) {
-						mark, markCol = "☑", C.On
-					}
-				case "radio":
-					mark, markCol = "○", C.Muted
-					if marked(it, i) {
-						mark, markCol = "◉", C.On
-					}
-				}
-				if mark != "" {
-					room = max(2, room-2)
-				}
-				label := Truncate(it.label, room)
-				if it.isSelectable() {
-					entry := hitEntry{idx: i, mark: mark != ""}
-					switch it.wtype {
-					case "slider":
-						entry.slider, entry.sx0, entry.sw = true, wx, 13
-					case "stepper":
-						if st.editing == nil || st.editing.idx != i {
-							entry.stepper, entry.minusCol, entry.plusCol = true, wx, wx+wv-1
-						}
-					}
-					st.hit[r] = entry
-				}
-				switch {
-				case it.alert && selected:
-					cv.selBar(r, w)
-					cv.put(r, left, alertPrefix(true)+"▸ "+label+Reset)
-					if wv > 0 {
-						cv.put(r, wx, paintAlert(wt, true))
-					}
-				case it.alert:
-					cv.put(r, left+2, alertPrefix(false)+label+Reset)
-					if wv > 0 {
-						cv.put(r, wx, paintAlert(wt, false))
-					}
-				case selected && mark != "":
-					cv.selBar(r, w)
-					cv.put(r, left, C.SelBg+C.Accent+C.Bold+"▸ "+Reset+C.SelBg+markCol+mark+" "+
-						Reset+C.SelBg+C.Bright+C.Bold+label+Reset)
-				case selected:
-					cv.selBar(r, w)
-					cv.put(r, left, C.SelBg+C.Accent+C.Bold+"▸ "+C.Bright+label+Reset)
-					if wv > 0 {
-						cv.put(r, wx, C.SelBg+wt+Reset)
-					}
-				case mark != "":
-					cv.put(r, left+2, markCol+mark+Reset+" "+C.Text+label+Reset)
-				default:
-					cv.put(r, left+2, C.Text+label+Reset)
-					if wv > 0 {
-						cv.put(r, wx, wt)
-					}
-				}
-			}
-		}
-		st.sb = nil
-		if total := len(items); total > paneAvail {
-			sbx := w - 1
-			thumb := max(1, floorf(float64(paneAvail*paneAvail)/float64(total)+0.5))
-			maxoff := total - paneAvail
-			maxtop := paneAvail - thumb
-			tpos := 0
-			if maxoff > 0 {
-				tpos = floorf(float64(st.scroll)/float64(maxoff)*float64(maxtop) + 0.5)
-			}
-			st.sb = &scrollInfo{col: sbx, top: contentTop, rows: paneAvail, maxoff: maxoff}
-			cv.scrollbar(sbx, contentTop, paneAvail, thumb, tpos)
-		}
+		// One pane is drawn as the panes of a split screen are.
+		paintRows(cv, st, items, contentTop, paneAvail, w, screen.focus == 0, widget, marked)
 		if dockH > 0 {
 			paintRule(cv, contentTop+paneAvail, w)
 			screen.paintDock(cv, w, contentTop+paneAvail+dockRule+dockGap, dockH, usePane, widget, marked)
@@ -1313,6 +1189,9 @@ func (screen *Screen) bind() {
 				}
 			}
 			if footerSig(status()) != st.footSig {
+				dirty = true
+			}
+			if screen.ptrSeen.changed() {
 				dirty = true
 			}
 		case consumed:
