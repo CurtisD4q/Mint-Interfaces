@@ -234,7 +234,19 @@ func (a *ToolApp) makeResultsDir(dir string) error {
 	if level == DataNormal {
 		return mkdirAll(dir, 0o755)
 	}
-	return mkdirAll(dir, 0o700)
+	if err := mkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// The app's own folder (apps/<tool>) already exists, open to read like
+	// any folder, so sensitive results saved there would have their names
+	// on show. Make it private, as a new results folder would be. A folder
+	// you chose yourself is left as it is.
+	if own := a.Spec.DefaultResultsDir; own != "" && filepath.Clean(dir) == filepath.Clean(own) {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() && fi.Mode().Perm()&0o077 != 0 {
+			return os.Chmod(dir, 0o700)
+		}
+	}
+	return nil
 }
 
 // mkdirAll is os.MkdirAll that sets mode on every folder it creates

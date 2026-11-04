@@ -95,17 +95,40 @@ func runCLI(args []string) int {
 
 	if repoRoot == "" {
 		repoRoot = detectRepoRoot()
+	} else if abs, err := filepath.Abs(repoRoot); err == nil && isRepoRoot(abs) {
+		repoRoot = abs
+	} else {
+		fmt.Fprintf(os.Stderr, "mint-gen: %s is not the Mint-Interfaces folder (no go.mod for github.com/CurtisD4q/Mint-Interfaces)\n", safeTerminalText(repoRoot))
+		return 2
+	}
+	// Everything below except --check and --explain builds, lists or
+	// removes apps, which live in the Mint-Interfaces folder.
+	needRoot := func() bool {
+		if repoRoot == "" {
+			fmt.Fprintln(os.Stderr, noRootMessage)
+			return false
+		}
+		return true
 	}
 
 	if listApps {
+		if !needRoot() {
+			return 2
+		}
 		return printApps(os.Stdout, os.Stderr, repoRoot)
 	}
 
 	if purgeApps {
+		if !needRoot() {
+			return 2
+		}
 		return purgeAllApps(os.Stdin, os.Stdout, os.Stderr, repoRoot)
 	}
 
 	if tuiMode {
+		if !needRoot() {
+			return 2
+		}
 		target := ""
 		if fs.NArg() > 0 {
 			target = fs.Arg(0)
@@ -152,6 +175,10 @@ func runCLI(args []string) int {
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-archetypes] [--explain <program>] [--archetype <archetype>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
+		return 2
+	}
+
+	if !needRoot() {
 		return 2
 	}
 
@@ -410,18 +437,29 @@ func buildScaffoldedApp(appDir, binOut string) error {
 	return nil
 }
 
-func detectRepoRoot() string {
-	dir, err := os.Getwd()
+// installedRoot is where the README's global install puts Mint-Interfaces.
+var installedRoot = "/usr/local/share/mint-interfaces"
+
+// isRepoRoot reports whether dir is the Mint-Interfaces folder: its go.mod
+// is the module itself, not one of the apps inside it.
+func isRepoRoot(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
-		return "."
+		return false
 	}
-	for {
-		modPath := filepath.Join(dir, "go.mod")
-		if data, err := os.ReadFile(modPath); err == nil {
-			if strings.Contains(string(data), "module github.com/CurtisD4q/Mint-Interfaces") &&
-				!strings.Contains(string(data), "module github.com/CurtisD4q/Mint-Interfaces/apps/") {
-				return dir
-			}
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[0] == "module" {
+			return f[1] == "github.com/CurtisD4q/Mint-Interfaces"
+		}
+	}
+	return false
+}
+
+// rootAbove is the Mint-Interfaces folder that dir is in (or is), or "".
+func rootAbove(dir string) string {
+	for dir != "" {
+		if isRepoRoot(dir) {
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -429,8 +467,44 @@ func detectRepoRoot() string {
 		}
 		dir = parent
 	}
-	return "."
+	return ""
 }
+
+// detectRepoRoot finds the Mint-Interfaces folder, so apps are always
+// built in its apps/ folder wherever mint-gen is run from: the folder
+// you are in (or one above it), then the folder mint-gen itself was built
+// in (a copy on PATH, or a link to one), then $MINT_INTERFACES_ROOT, then
+// the global install. It
+// returns "" when there is none; mint-gen then stops rather than writing
+// apps into the folder you happen to be in.
+func detectRepoRoot() string {
+	if wd, err := os.Getwd(); err == nil {
+		if r := rootAbove(wd); r != "" {
+			return r
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		if r := rootAbove(filepath.Dir(exe)); r != "" {
+			return r
+		}
+	}
+	if env := os.Getenv("MINT_INTERFACES_ROOT"); env != "" {
+		if abs, err := filepath.Abs(env); err == nil && isRepoRoot(abs) {
+			return abs
+		}
+	}
+	if isRepoRoot(installedRoot) {
+		return installedRoot
+	}
+	return ""
+}
+
+// noRootMessage says what to do when the Mint-Interfaces folder is not
+// found.
+const noRootMessage = "mint-gen: cannot find the Mint-Interfaces folder, so it will not build apps here. Run it from inside that folder, pass --root /path/to/mint-interfaces, or set MINT_INTERFACES_ROOT to that folder."
 
 func runInteractiveTUI(initialProgram, repoRoot string) error {
 	prog := initialProgram
