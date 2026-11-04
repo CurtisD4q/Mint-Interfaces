@@ -260,7 +260,9 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 					}
 				}
 				label := Truncate(it.Label, max(4, w-10))
-				if idx == sel {
+				if pressedAt(row) {
+					cv.paintPressed(row, w, label)
+				} else if idx == sel {
 					cv.selBar(row, w)
 					if vl.hasSelected() {
 						box := "☐ "
@@ -271,6 +273,8 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 					} else {
 						cv.put(row, 3, C.SelBg+C.Accent+C.Bold+"▸ "+C.Bright+label+Reset)
 					}
+				} else if hoverAt(row) {
+					cv.put(row, 3, C.Muted+hoverMark+Reset+mark+C.Bright+label+Reset)
 				} else {
 					cv.put(row, 3, "  "+mark+C.Text+label+Reset)
 				}
@@ -287,12 +291,13 @@ func ChooseItem(title string, items []Choice, subtitle string) (Choice, bool) {
 
 	draw()
 	sz := watchSize()
+	var ptrSeen pointerWatch
 	for {
 		syncFilter()
 		total := vl.count()
 		k := readNav(true)
 		if k == nil {
-			if sz.changed() {
+			if sz.changed() || ptrSeen.changed() {
 				draw()
 			}
 			continue

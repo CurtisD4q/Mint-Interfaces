@@ -4,7 +4,7 @@
 
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
-The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded frame (purple by default, with six more [colour themes](#colour)) with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. Redraws are dirty-gated, so an idle screen does not repaint.
+The library is the generic interface layer from [Terminal Settings Manager](https://github.com/CurtisD4q/Terminal-Settings-Manager) by Curtis (Apache-2.0). It draws a rounded frame (purple by default, with six more [colour themes](#colour)) with a title on the left and a breadcrumb on the right. Inside are a home list (icon, bold title, dim description), a selection bar, value rows, sliders, `‹ ›` pickers, toggles, actions, section headers, a scrollbar, and a key-hint footer. Keyboard and mouse both work: click selects, double-click opens, and the wheel scrolls. The row under the pointer shows a hover mark (`›`, label brightened) and a row being pressed shows in reverse video until the button goes up or the pointer slides off it (see [Hover and pressed states](#hover-and-pressed-states)). Redraws are dirty-gated, so an idle screen does not repaint, and moving the pointer within one row repaints nothing.
 
 On top of the original, it adds dividers and spacing, text styles, collapsible sections, slider ranges and units, progress bars, number steppers, checkboxes, radio groups, toasts, status badges, a loading spinner, background jobs with live output, and a catalogue for building interfaces for command-line programs. See [Additions](#additions). Every app also gets standard command-line flags, a Theme screen, emacs and vim key profiles, and can be launched from Emacs, matching its theme. See [Standalone binaries and flags](#standalone-binaries-and-flags), [Keys](#keys) and [Running from Emacs](#running-from-emacs-emacsmintel).
 
@@ -687,6 +687,17 @@ The Output Directory screen lists only results: the app's own files (`go.mod`, `
 **Saving from the output viewer.** `s` in the full-screen viewer offers the results folder, and saves as privately as the Save captured output action: readable only by you when the run's data is sensitive. A file you decrypted to read cannot be saved from the viewer, so it never reaches the disk unencrypted.
 
 **Under sudo.** An app started with sudo keeps its settings, history and results in your home, not root's, and hands what it writes back to you, including results in its own folder when Mint-Interfaces is installed in `/usr/local/share`; the app's folder and its own files stay root's, so nobody can swap the program sudo runs. Mint's shared settings (`theme.conf`, `termcaps.json`, `security.json`, `tools.d/`) are root's own under sudo, in `/root/.config/mint-interfaces/`, even when sudo keeps `HOME` pointing at your home, so root never creates files there. Your theme is still read when root has none of its own.
+
+## Hover and pressed states
+
+Mint asks the terminal for every mouse motion (mode 1003, with SGR reports) as well as clicks. In app screens, panes, the command bar, the home list and pick lists:
+
+- **Hover.** The row under the pointer gets a `›` in the cursor column and a bright label. The selected row keeps its bar; hover is only shown on the others.
+- **Pressed.** While the left button is held on a row, the row is drawn in reverse video. Sliding off the row drops the look; sliding back brings it back. Letting go ends it. Clicking still works as before (click selects, double-click opens).
+
+Motion never reaches a screen as a key, so nothing else changes: the pointer position is kept, and a screen redraws only when the pointer moves to another row or the button goes down or up. When the terminal loses focus (focus reporting, mode 1004), the hover is dropped, because the pointer is somewhere else. Both looks are palette-free, so they also read on a terminal with no colour.
+
+Set `MINT_HOVER=0` to stop motion reports, for a slow SSH link say; clicks and the wheel work as before. Terminals without SGR mouse reporting never send motion, and Emacs's `term` doesn't pass it on, so there is no hover there.
 
 ## Keys
 

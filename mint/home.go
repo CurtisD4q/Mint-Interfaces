@@ -83,6 +83,7 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 	lastClickIdx, lastClickTime := 0, time.Time{}
 	footSig := ""
 	pageItems := 1
+	var ptrSeen pointerWatch
 
 	draw := func(h, w int) {
 		cv := begin(h, w)
@@ -155,10 +156,21 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 				label = cat.Icon + " " + label
 			}
 			label = Truncate(label, textw)
-			if idx == sel {
+			// An item is three rows: any of them shows it hovered or pressed.
+			pressed, hovered := false, false
+			for dy := 0; dy < homeBlock; dy++ {
+				pressed = pressed || pressedAt(y+dy)
+				hovered = hovered || hoverAt(y+dy)
+			}
+			switch {
+			case pressed:
+				cv.paintPressed(y, w, label)
+			case idx == sel:
 				cv.selBar(y, w)
 				cv.put(y, 3, C.SelBg+C.Accent+C.Bold+"▸ "+C.Bright+label+Reset)
-			} else {
+			case hovered:
+				cv.put(y, 3, C.Muted+hoverMark+Reset+C.Bright+label+Reset)
+			default:
 				cv.put(y, 3, C.Text+"  "+label+Reset)
 			}
 			lines := wrap2(cat.Desc, textw)
@@ -210,6 +222,9 @@ func runHome(items []HomeItem, startSel int, title, breadcrumb, note, hints stri
 				}
 			}
 			if footerSig(callStatus(statusFn)) != footSig {
+				dirty = true
+			}
+			if ptrSeen.changed() {
 				dirty = true
 			}
 		case k.Mouse != nil && (k.Mouse.WheelUp || k.Mouse.WheelDown):

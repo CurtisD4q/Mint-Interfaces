@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf8"
 	"unsafe"
 )
@@ -291,6 +292,7 @@ func readCSI() *Key {
 			}
 			if b == 'O' {
 				rt.focused.Store(false)
+				forgetPointer()
 				return nil
 			}
 			if b == 'u' {
@@ -318,25 +320,63 @@ func readCSI() *Key {
 	}
 }
 
+// swallowed is what readEvent returns for a report that changed nothing a
+// screen draws (the pointer moved within one row). ReadKey reads on.
+var swallowed = &Key{}
+
+// mouseKey decodes an SGR mouse report. Presses become keys. Motion and
+// releases only move the pointer (see pointer.go): they return nil, an
+// idle tick, when the row or the button changed, and swallowed otherwise.
 func mouseKey(params string, press bool) *Key {
 	parts := strings.Split(params, ";")
-	if len(parts) != 3 || !press {
-		return nil // releases and malformed reports are idle ticks
+	if len(parts) != 3 {
+		return nil
 	}
 	n, e1 := strconv.Atoi(parts[0])
 	col, e2 := strconv.Atoi(parts[1])
 	row, e3 := strconv.Atoi(parts[2])
-	if e1 != nil || e2 != nil || e3 != nil {
+	if e1 != nil || e2 != nil || e3 != nil || n < 0 || col < 1 || row < 1 {
 		return nil
+	}
+	switch {
+	case !press:
+		if n&3 == 0 && n&64 == 0 && releasePointer(row, col) {
+			return nil
+		}
+		return swallowed
+	case n&32 != 0 && n&64 == 0:
+		// Motion: button 3 means none is held; 0 is a drag with the left.
+		if movePointer(row, col, n&3 == 0) {
+			return nil
+		}
+		return swallowed
+	}
+	if n == 0 {
+		pressPointer(row, col)
 	}
 	return &Key{Mouse: &Mouse{Btn: n, Col: col, Row: row,
 		WheelUp: n == 64, WheelDown: n == 65, Click: n == 0}}
 }
 
 // ReadKey waits up to about 100 ms for one key or mouse event. It returns
-// nil when nothing arrived, for mouse releases, and for keys Mint does not
-// know; callers treat nil as an idle tick.
+// nil when nothing arrived, for mouse releases and motion (which move the
+// pointer, see pointer.go), and for keys Mint does not know; callers treat
+// nil as an idle tick.
 func ReadKey() *Key {
+	start := time.Now()
+	for {
+		k := readEvent()
+		if k != swallowed {
+			return k
+		}
+		if time.Since(start) >= 100*time.Millisecond {
+			return nil
+		}
+	}
+}
+
+// readEvent reads one input event.
+func readEvent() *Key {
 	c, ok := readByte()
 	if !ok {
 		return nil

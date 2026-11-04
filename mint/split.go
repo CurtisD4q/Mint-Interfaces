@@ -466,13 +466,21 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 			name := Truncate(it.name, max(4, w-8-VLen(right)))
 			rx := (w - 2) - VLen(right) + 1
 			st.hit[r] = hitEntry{idx: i, header: true}
-			if selected {
+			switch {
+			case pressedAt(r):
+				cv.paintPressed(r, w, arrow+" "+name)
+			case selected:
 				cv.selBar(r, w)
 				cv.put(r, left, C.SelBg+C.Accent+C.Bold+arrow+" "+C.Bright+name+Reset)
 				if right != "" {
 					cv.put(r, rx, C.SelBg+C.Muted+right+Reset)
 				}
-			} else {
+			case hoverAt(r):
+				cv.put(r, left, C.Accent+C.Bold+arrow+" "+C.Bright+name+Reset)
+				if right != "" {
+					cv.put(r, rx, C.Muted+right+Reset)
+				}
+			default:
 				cv.put(r, left, C.Accent+C.Bold+arrow+" "+name+Reset)
 				if right != "" {
 					cv.put(r, rx, C.Muted+right+Reset)
@@ -529,7 +537,13 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 				}
 				st.hit[r] = entry
 			}
+			hovered := it.isSelectable() && !selected && hoverAt(r)
 			switch {
+			case it.isSelectable() && pressedAt(r):
+				cv.paintPressed(r, w, label)
+				if wv > 0 {
+					cv.put(r, wx, wt)
+				}
 			case it.alert && selected:
 				cv.selBar(r, w)
 				cv.put(r, left, alertPrefix(true)+"▸ "+label+Reset)
@@ -537,6 +551,9 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 					cv.put(r, wx, paintAlert(wt, true))
 				}
 			case it.alert:
+				if hovered {
+					cv.put(r, left, C.Muted+hoverMark+Reset)
+				}
 				cv.put(r, left+2, alertPrefix(false)+label+Reset)
 				if wv > 0 {
 					cv.put(r, wx, paintAlert(wt, false))
@@ -551,8 +568,15 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 				if wv > 0 {
 					cv.put(r, wx, C.SelBg+wt+Reset)
 				}
+			case mark != "" && hovered:
+				cv.put(r, left, C.Muted+hoverMark+Reset+markCol+mark+Reset+" "+C.Bright+label+Reset)
 			case mark != "":
 				cv.put(r, left+2, markCol+mark+Reset+" "+C.Text+label+Reset)
+			case hovered:
+				cv.put(r, left, C.Muted+hoverMark+Reset+C.Bright+label+Reset)
+				if wv > 0 {
+					cv.put(r, wx, wt)
+				}
 			default:
 				cv.put(r, left+2, C.Text+label+Reset)
 				if wv > 0 {

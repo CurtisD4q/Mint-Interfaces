@@ -697,7 +697,12 @@ func (l2 *level2Runtime) enterSeq() string {
 	}
 	b.WriteString(esc + "?25l")
 	if l2.profile.SGRMouse {
-		b.WriteString(esc + "?1000h" + esc + "?1006h")
+		b.WriteString(esc + "?1000h")
+		if hoverWanted() {
+			// Every motion, button held or not: hover and pressed looks.
+			b.WriteString(esc + "?1003h")
+		}
+		b.WriteString(esc + "?1006h")
 	}
 	if l2.profile.BracketedPaste {
 		b.WriteString(esc + "?2004h")
@@ -712,7 +717,9 @@ func (l2 *level2Runtime) leaveSeq() string {
 		b.WriteString(esc + "?2004l")
 	}
 	if l2.profile.SGRMouse {
-		b.WriteString(esc + "?1006l" + esc + "?1000l")
+		// ?1003l even when it was not asked for: a no-op then, and it
+		// never leaves the terminal reporting motion to the shell.
+		b.WriteString(esc + "?1006l" + esc + "?1003l" + esc + "?1000l")
 	}
 	b.WriteString(esc + "?25h")
 	if l2.profile.AltScreen {
