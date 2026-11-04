@@ -86,6 +86,9 @@ func ScreenLeave() {
 		return
 	}
 	out(rt.leaveSeq())
+	lastFrame.Lock()
+	lastFrame.s = ""
+	lastFrame.Unlock()
 	if savedTermios != nil {
 		_ = tcset(0, savedTermios)
 	}
@@ -286,13 +289,12 @@ func readCSI() *Key {
 			if len(params) > 0 && params[0] == '<' && (b == 'M' || b == 'm') {
 				return mouseKey(string(params[1:]), b == 'M')
 			}
-			if b == 'I' {
-				rt.focused.Store(true)
+			if b == 'I' && len(params) == 0 {
+				setFocused(true)
 				return nil
 			}
-			if b == 'O' {
-				rt.focused.Store(false)
-				forgetPointer()
+			if b == 'O' && len(params) == 0 {
+				setFocused(false)
 				return nil
 			}
 			if b == 'u' {
@@ -367,6 +369,11 @@ func ReadKey() *Key {
 	for {
 		k := readEvent()
 		if k != swallowed {
+			if k != nil && (k.Mouse == nil || k.Mouse.Click) {
+				// A key or a click means the terminal has focus, even if
+				// the focus-in report was lost.
+				setFocused(true)
+			}
 			return k
 		}
 		if time.Since(start) >= 100*time.Millisecond {

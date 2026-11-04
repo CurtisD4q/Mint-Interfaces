@@ -727,6 +727,14 @@ Set `MINT_HOVER=0` to stop motion reports, for a slow SSH link say; clicks and t
 
 In your own screens, `ctx.Copy(text, "the path")` copies and shows the toast, and `mint.Copy(text)` copies and returns an error. Set `mint.CopyGuard` to refuse copying a program's output (generated apps refuse it when their results are secret).
 
+## Dimming when unfocused
+
+Where the terminal reports focus (mode 1004), an app whose window or tmux pane loses focus is drawn faint, so the app you are typing in stands out from the ones beside it. When focus comes back, or a key or click arrives, it is drawn as before. Nothing is laid out again: Mint draws the frame already on screen once more with faint (SGR 2) added, keeping every colour, so dimming costs one write.
+
+- In tmux, focus reports need `set -g focus-events on`; then each tmux pane dims on its own.
+- Terminals without focus reporting never send it, so apps there stay as they are.
+- Set `MINT_DIM_UNFOCUSED=0` to keep apps bright when unfocused.
+
 ## Keys
 
 Arrow keys, Enter, Space, Esc, `b` and `q` always work. Home, End, Page Up and Page Down jump and page through lists; other keys Mint doesn't use, such as Delete or F5, are ignored.
@@ -849,7 +857,7 @@ end)
 
 Settings that matter:
 
-- **tmux: `set -g mouse on`** for mouse clicks to reach the app (and the popup), and **`set -sg escape-time 10`**, because tmux otherwise holds every Esc for half a second before passing it on.
+- **tmux: `set -g mouse on`** for mouse clicks to reach the app (and the popup), and **`set -sg escape-time 10`**, because tmux otherwise holds every Esc for half a second before passing it on. Optionally `set -g focus-events on` (unfocused panes dim) and `set -g set-clipboard on` (`y` copies).
 - **Vim: `set ttimeout ttimeoutlen=50`** (already set by Vim's `defaults.vim`, but not with `vim -u NONE`), or Esc waits a second. `set mouse=a` for clicks.
 - **Neovim** needs nothing: Esc is passed on at once, and mouse clicks work in Terminal mode.
 - **Key profiles:** tmux's prefix is `C-b`, which the emacs profile uses for ← and the vim profile for Page Up. Press `C-b C-b` to send it through, use the arrow keys, or change the tmux prefix.
