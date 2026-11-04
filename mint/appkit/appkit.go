@@ -280,6 +280,9 @@ type ToolApp struct {
 	ActiveSubcommand string
 	Values           map[string]string
 	SaveToFile       bool
+	// launchDir is the folder the app was started in: what relative paths
+	// you type mean (see rundir.go).
+	launchDir string
 	// homeResultsDir is ~/mint-results/<tool>, the results folder apps
 	// used before they kept results in their own folder.
 	homeResultsDir string
@@ -430,6 +433,9 @@ func New(spec ToolSpec) *ToolApp {
 		owner:            owner,
 		homeResultsDir:   homeResults,
 	}
+	if wd, err := os.Getwd(); err == nil {
+		a.launchDir = wd
+	}
 
 	if len(spec.Profiles) > 0 {
 		a.ApplyProfile(spec.Profiles[0].Name)
@@ -485,7 +491,7 @@ func (a *ToolApp) historyRows() []mint.Row {
 						for i, l := range raw {
 							lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
 						}
-						c.Push(mint.ViewLog(filepath.Base(r.OutputFile), func() []mint.LogLine { return lines }))
+						c.Push(a.viewLog(filepath.Base(r.OutputFile), func() []mint.LogLine { return lines }, false))
 						return
 					}
 				}
@@ -660,6 +666,7 @@ func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdi
 					if part == "" {
 						continue
 					}
+					part = a.rebased(part, flagRebase(&f))
 					if f.Join == "=" || strings.HasSuffix(f.Flag, "=") {
 						flagTok := strings.TrimSuffix(f.Flag, "=")
 						args = append(args, flagTok+"="+part)
@@ -681,28 +688,36 @@ func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdi
 	}
 
 	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" && !mode.status {
+		var words []string
 		if mask {
-			args = append(args, shownArgWords(maskFreeText(extra, a.secretFlagNames()))...)
+			words = shownArgWords(maskFreeText(extra, a.secretFlagNames()))
 		} else {
-			args = append(args, expandArgWords(extra)...)
+			words = expandArgWords(extra)
+		}
+		for _, w := range words {
+			args = append(args, a.rebased(w, rebaseMaybe))
 		}
 	}
 
 	var operands []string
 	if target := strings.TrimSpace(a.Target); target != "" {
+		var words []string
 		if mask {
-			operands = append(operands, shownArgWords(maskFreeText(target, a.secretFlagNames()))...)
+			words = shownArgWords(maskFreeText(target, a.secretFlagNames()))
 		} else {
-			operands = append(operands, expandArgWords(target)...)
+			words = expandArgWords(target)
 		}
+		operands = append(operands, a.targetRebased(words, false)...)
 	}
 	if a.Spec.TwoInputs {
 		if second := strings.TrimSpace(a.SecondTarget); second != "" {
+			var words []string
 			if mask {
-				operands = append(operands, shownArgWords(maskFreeText(second, a.secretFlagNames()))...)
+				words = shownArgWords(maskFreeText(second, a.secretFlagNames()))
 			} else {
-				operands = append(operands, expandArgWords(second)...)
+				words = expandArgWords(second)
 			}
+			operands = append(operands, a.targetRebased(words, true)...)
 		}
 	}
 	if len(operands) > 0 {
@@ -1252,7 +1267,10 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	_, findingsOK := a.findingsArgs(args, a.argPrefixLen())
 	var scope scanScope
 	if a.Spec.Findings != nil {
-		wd, _ := os.Getwd()
+		wd := a.launchDir
+		if wd == "" {
+			wd, _ = os.Getwd()
+		}
 		scope = newScanScope(wd, splitShellWords(a.Target))
 	}
 	started := time.Now()
@@ -1272,6 +1290,7 @@ func (a *ToolApp) StartJob() (*runner.Job, error) {
 	job := runner.Start(runner.Cmd{
 		Name:      bin,
 		Args:      cmdArgs,
+		Dir:       a.runDir(),
 		Env:       env,
 		Input:     useStdin,
 		Redact:    masker.Redact,
@@ -2155,7 +2174,7 @@ func (a *ToolApp) liveOutputSections() []mint.Section {
 					c.ToastWarn("No job output yet")
 					return
 				}
-				c.Push(mint.ViewLog(a.Spec.Name+" output", j.Lines))
+				c.Push(a.viewLog(a.Spec.Name+" output", j.Lines, false))
 			},
 		}),
 		mint.Action(mint.ActionOpts{
@@ -2175,11 +2194,15 @@ func (a *ToolApp) liveOutputSections() []mint.Section {
 				if !ok || strings.TrimSpace(dest) == "" {
 					return
 				}
-				if err := mint.SaveLogLines(strings.TrimSpace(dest), j.Lines()); err != nil {
+				level, _ := a.DataLevel()
+				save := mint.SaveLogLines
+				if level != DataNormal {
+					save = mint.SaveLogLinesPrivate
+				}
+				if err := save(strings.TrimSpace(dest), j.Lines()); err != nil {
 					c.ToastError("Save failed: " + err.Error())
 					return
 				}
-				level, _ := a.DataLevel()
 				a.protectFile(level, util.ExpandUser(strings.TrimSpace(dest)))
 				a.giveBack(util.ExpandUser(strings.TrimSpace(dest)))
 				c.Toast("Saved to " + dest)
@@ -2260,7 +2283,7 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 							return
 						}
 						if secure.IsSealed(b) {
-							openSealed(c, filepath.Base(chosen), b)
+							a.openSealed(c, filepath.Base(chosen), b)
 							return
 						}
 						raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
@@ -2268,7 +2291,7 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 						for i, l := range raw {
 							lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
 						}
-						c.Push(mint.ViewLog(filepath.Base(chosen), func() []mint.LogLine { return lines }))
+						c.Push(a.viewLog(filepath.Base(chosen), func() []mint.LogLine { return lines }, false))
 					}
 				},
 			}),
@@ -2305,7 +2328,7 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 								return
 							}
 							if secure.IsSealed(b) {
-								openSealed(c, entry.Name, b)
+								a.openSealed(c, entry.Name, b)
 								return
 							}
 							raw := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
@@ -2313,7 +2336,7 @@ func (a *ToolApp) DirectoryScreen() *mint.Screen {
 							for i, l := range raw {
 								lines[i] = mint.LogLine{Text: mint.CleanLine(l)}
 							}
-							c.Push(mint.ViewLog(entry.Name, func() []mint.LogLine { return lines }))
+							c.Push(a.viewLog(entry.Name, func() []mint.LogLine { return lines }, false))
 						},
 					}))
 				}

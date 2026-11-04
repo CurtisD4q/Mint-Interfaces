@@ -57,15 +57,7 @@ func termCapsPath() string {
 	if p := os.Getenv("MINT_TERMCAPS"); p != "" {
 		return p
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home := os.Getenv("HOME")
-		if home == "" {
-			home = "."
-		}
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "mint-interfaces", "termcaps.json")
+	return filepath.Join(util.ConfigDir(), "termcaps.json")
 }
 
 func currentTermSignature() string {

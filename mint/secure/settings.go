@@ -2,6 +2,7 @@ package secure
 
 import (
 	"encoding/json"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,11 +28,8 @@ type settingsFile struct {
 var (
 	systemSettingsPath = "/etc/mint-interfaces/security.json"
 	userSettingsPath   = func() string {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return ""
-		}
-		return filepath.Join(dir, "mint-interfaces", "security.json")
+		// Under sudo this is root's own file, not one in the user's home.
+		return filepath.Join(util.ConfigDir(), "security.json")
 	}
 )
 

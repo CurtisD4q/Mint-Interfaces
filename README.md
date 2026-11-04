@@ -1,6 +1,6 @@
 # Mint Interfaces (Go)
 
-**Version 1.0.0**, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.0)`.
+**Version 1.0.1**, a fix release on top of 1.0.0, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.1)`.
 
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
@@ -661,7 +661,7 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 - **Flags.** The first argument may be one of Mint's flags:
   - `--help` (`-h`) lists the app's screens and usage, and points at `mint-gen --help` for the guide. It does not repeat that guide.
   - `--man` opens the Manual screen, the program's full manual. `--help` still prints usage. The same screen is the Manual item on the home menu.
-  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.0)`, using `App.Version` for the app's own version.
+  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.1)`, using `App.Version` for the app's own version.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
   - `--theme NAME` uses one of the seven [themes](#colour) for this run only. It may come before any of the others: `mytool --theme nord --screen Run`.
@@ -680,7 +680,13 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 | `~/.local/share/mint-<tool>/` | its run history | the first run |
 | `~/.config/mint-interfaces/` | the theme every app shares (`theme.conf`), and what Mint learned about your terminal (`termcaps.json`) | you save a theme; an app first starts |
 
-The Output Directory screen lists only results: the app's own files (`go.mod`, `main.go`, `spec.go`, the program) are left out, and `mint-gen --remove` and `--purge` delete only those, so saved results stay. Choose another folder on the Output Directory screen, or with `DefaultResultsDir` for an app you build yourself. An app with no folder of its own, or one whose folder has moved, saves to `~/mint-results/<tool>/`; settings saved when that was the default move to the app's own folder, and a folder you chose is kept. Started with sudo, an app still uses your home, not root's.
+The Output Directory screen lists only results: the app's own files (`go.mod`, `main.go`, `spec.go`, the program) are left out, and `mint-gen --remove` and `--purge` delete only those, so saved results stay. Choose another folder on the Output Directory screen, or with `DefaultResultsDir` for an app you build yourself. An app with no folder of its own, or one whose folder has moved, saves to `~/mint-results/<tool>/`; settings saved when that was the default move to the app's own folder, and a folder you chose is kept.
+
+**Where the program runs.** Programs that write files of their own and never look at the folder they're in run in the results folder, so a capture, a scan report or a download lands there instead of wherever you started the app (`nmap -oA scan`, `tshark -w cap.pcap`, `curl -O`, `wget`, `ffmpeg … out.mkv`). These are the Ask, Look up, Watch, Record, Record sound, Probe, Measure, Convert, Generate, Transfer, Signal, Control and Device archetypes. What you type keeps its meaning: a relative path that names something in the folder you started the app in, a `./` or `../` path, and anything in a box for files the program reads are made absolute from that folder first (the command preview shows the full path). Names in boxes for files it writes stay relative, so they land in the results folder. Every other program runs where you started the app, because it works on that folder when given nothing else (`ls`, `rg`, `git`, `make`, `tar`) or changes the files you give it where they are (`mv`, `rsync`).
+
+**Saving from the output viewer.** `s` in the full-screen viewer offers the results folder, and saves as privately as the Save captured output action: readable only by you when the run's data is sensitive. A file you decrypted to read cannot be saved from the viewer, so it never reaches the disk unencrypted.
+
+**Under sudo.** An app started with sudo keeps its settings, history and results in your home, not root's, and hands what it writes back to you, including results in its own folder when Mint-Interfaces is installed in `/usr/local/share`; the app's folder and its own files stay root's, so nobody can swap the program sudo runs. Mint's shared settings (`theme.conf`, `termcaps.json`, `security.json`, `tools.d/`) are root's own under sudo, in `/root/.config/mint-interfaces/`, even when sudo keeps `HOME` pointing at your home, so root never creates files there. Your theme is still read when root has none of its own.
 
 ## Keys
 
