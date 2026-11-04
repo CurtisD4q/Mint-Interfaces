@@ -99,7 +99,7 @@ func (c *canvas) put(r, col int, s string) {
 // Terminals embedded in editors scroll their window to keep the cursor in
 // view; leaving it at the bottom right made Neovim's :terminal stay
 // scrolled sideways after the window shrank.
-func (c *canvas) paint() { out(rt.wrapFrame(c.b.String() + esc + "H")) }
+func (c *canvas) paint() { showFrame(c.b.String() + esc + "H") }
 
 func (c *canvas) frame(h, w int) {
 	if w < 4 || h < 4 {
