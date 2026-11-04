@@ -56,6 +56,12 @@ func ScaffoldApp(spec appkit.ToolSpec, outDir, repoRoot string) (ScaffoldResult,
 		}
 	}
 
+	// The app saves its output in its own folder, inside Mint-Interfaces
+	// (apps/<tool>), rather than in your home folder.
+	if spec.DefaultResultsDir == "" {
+		spec.DefaultResultsDir = absOut
+	}
+
 	goModPath := filepath.Join(absOut, "go.mod")
 	mainGoPath := filepath.Join(absOut, "main.go")
 	specGoPath := filepath.Join(absOut, "spec.go")
@@ -181,6 +187,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	}
 	if len(spec.ColourArgs) > 0 {
 		fmt.Fprintf(&buf, "\t\tColourArgs:        %s,\n", goStrings(spec.ColourArgs))
+	}
+	if spec.DefaultResultsDir != "" {
+		fmt.Fprintf(&buf, "\t\tDefaultResultsDir: %q,\n", spec.DefaultResultsDir)
 	}
 	fmt.Fprintf(&buf, "\t\tTargetLabel:       %q,\n", spec.TargetLabel)
 	fmt.Fprintf(&buf, "\t\tTargetPlaceholder: %q,\n", spec.TargetPlaceholder)

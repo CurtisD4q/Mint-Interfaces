@@ -280,14 +280,17 @@ type ToolApp struct {
 	ActiveSubcommand string
 	Values           map[string]string
 	SaveToFile       bool
-	ResultsDir       string
-	OutputFile       string
-	ConfigDir        string
-	DataDir          string
-	MonitorPaused    bool
-	LastRefresh      time.Time
-	SnapshotLines    []string
-	InMemory         bool // results go to a private in-memory folder (see SetInMemory)
+	// homeResultsDir is ~/mint-results/<tool>, the results folder apps
+	// used before they kept results in their own folder.
+	homeResultsDir string
+	ResultsDir     string
+	OutputFile     string
+	ConfigDir      string
+	DataDir        string
+	MonitorPaused  bool
+	LastRefresh    time.Time
+	SnapshotLines  []string
+	InMemory       bool // results go to a private in-memory folder (see SetInMemory)
 
 	mu        sync.Mutex
 	activeJob *runner.Job
@@ -384,9 +387,17 @@ func New(spec ToolSpec) *ToolApp {
 	if home == "" {
 		home = "."
 	}
+	// Output is saved in the app's own results folder: for an app
+	// mint-gen built, its folder inside Mint-Interfaces (apps/<tool>). An
+	// app whose folder is gone (moved, or the binary copied elsewhere), or
+	// one with no folder of its own, uses ~/mint-results/<tool>.
+	homeResults := filepath.Join(home, "mint-results", spec.Name)
 	resDir := spec.DefaultResultsDir
+	if resDir != "" && !parentExists(resDir) {
+		resDir = ""
+	}
 	if resDir == "" {
-		resDir = filepath.Join(home, "mint-results", spec.Name)
+		resDir = homeResults
 	}
 	cfgDir := filepath.Join(home, ".config", "mint-"+spec.Name)
 	dataDir := filepath.Join(home, ".local", "share", "mint-"+spec.Name)
@@ -417,6 +428,7 @@ func New(spec ToolSpec) *ToolApp {
 		DataDir:          dataDir,
 		secretSet:        map[string]bool{},
 		owner:            owner,
+		homeResultsDir:   homeResults,
 	}
 
 	if len(spec.Profiles) > 0 {
@@ -1152,7 +1164,10 @@ func (a *ToolApp) LoadSettings() error {
 		a.Values[k] = v
 	}
 	a.SaveToFile = st.SaveToFile
-	if st.ResultsDir != "" {
+	// A folder saved before apps kept results in their own folder is the
+	// old default (~/mint-results/<tool>): the app's own folder replaces
+	// it. A folder you chose is kept.
+	if st.ResultsDir != "" && !(st.ResultsDir == a.homeResultsDir && a.ResultsDir != a.homeResultsDir) {
 		a.ResultsDir = st.ResultsDir
 	}
 	if st.OutputFile != "" {
@@ -1387,7 +1402,13 @@ func (a *ToolApp) ListResultsDir() ([]FileEntry, error) {
 	}
 	eagerStat := len(entries) <= 256
 	out := make([]FileEntry, 0, len(entries))
+	// In the app's own folder, mint-gen's files (the app's source and the
+	// program itself) are not results: leave them out.
+	own := a.Spec.DefaultResultsDir != "" && filepath.Clean(dir) == filepath.Clean(a.Spec.DefaultResultsDir)
 	for _, e := range entries {
+		if own && isAppFile(filepath.Base(filepath.Clean(dir)), e.Name()) {
+			continue
+		}
 		var sz int64
 		var mod time.Time
 		isDir := e.IsDir()
@@ -2480,4 +2501,20 @@ func Run(spec ToolSpec) {
 	app.Close() // wipe every secret
 	runner.StopAll()
 	util.StopAll() // status commands still running in the background
+}
+
+// parentExists reports whether the folder that would hold dir is there.
+func parentExists(dir string) bool {
+	fi, err := os.Stat(filepath.Dir(filepath.Clean(dir)))
+	return err == nil && fi.IsDir()
+}
+
+// isAppFile reports whether name is one of the files mint-gen writes in
+// the folder of the app named tool (see tools/mint-gen scaffoldFiles).
+func isAppFile(tool, name string) bool {
+	switch name {
+	case "go.mod", "go.sum", "main.go", "spec.go", ".mint-gen", tool + "-mint", tool + "-mint.el":
+		return true
+	}
+	return false
 }
