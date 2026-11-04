@@ -1,7 +1,7 @@
 ;;; mint.el --- Launch Mint-Interfaces apps from Emacs -*- lexical-binding: t; -*-
 
 ;; Author: Curtis Tackie
-;; Version: 1.0.0
+;; Version: 1.0.1
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: tools, processes, terminals
 

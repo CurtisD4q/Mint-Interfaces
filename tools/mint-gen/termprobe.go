@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -49,11 +50,7 @@ func termCapsPath() string {
 	if p := os.Getenv("MINT_TERMCAPS"); p != "" {
 		return p
 	}
-	if cfg, err := os.UserConfigDir(); err == nil && cfg != "" {
-		return filepath.Join(cfg, "mint-interfaces", "termcaps.json")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "mint-interfaces", "termcaps.json")
+	return filepath.Join(util.ConfigDir(), "termcaps.json")
 }
 
 func currentTermSignature() (sig, term, prog, wrapper string) {

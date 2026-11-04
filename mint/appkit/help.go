@@ -369,7 +369,7 @@ func (a *ToolApp) ManualScreen() *mint.Screen {
 		text = "No manual page or help text was found for " + subject + "."
 	}
 	lines := manualLines(text)
-	return mint.ViewLog(title, func() []mint.LogLine { return lines })
+	return a.viewLog(title, func() []mint.LogLine { return lines }, false)
 }
 
 // HelpScreen is the previous name of ManualScreen.

@@ -242,10 +242,30 @@ type ViewLogOpts struct {
 	SaveDir    string
 	SaveName   string
 	Follow     bool
+	// SavePrivate makes a file saved with s readable only by its owner
+	// (0600) from the moment it is created.
+	SavePrivate bool
+	// OnSave is called with the full path after s saves a file.
+	OnSave func(path string)
+	// NoSave turns the s key off, for text that must not reach the disk.
+	NoSave bool
 }
 
 // SaveLogLines writes log lines to path, creating parent directories if needed.
 func SaveLogLines(path string, lines []LogLine) error {
+	return SaveLogLinesMode(path, lines, 0o644)
+}
+
+// SaveLogLinesPrivate is SaveLogLines for sensitive output: the file is
+// readable only by its owner (0600) from the moment it is created, and an
+// existing file is made private before anything is written to it.
+func SaveLogLinesPrivate(path string, lines []LogLine) error {
+	return SaveLogLinesMode(path, lines, 0o600)
+}
+
+// SaveLogLinesMode writes log lines to path with the given permissions.
+// A private mode (no group or other bits) also applies to an existing file.
+func SaveLogLinesMode(path string, lines []LogLine, mode os.FileMode) error {
 	path = util.ExpandUser(strings.TrimSpace(path))
 	if path == "" {
 		return fmt.Errorf("empty file path")
@@ -261,7 +281,21 @@ func SaveLogLines(path string, lines []LogLine) error {
 		b.WriteString(CleanLine(l.Text))
 		b.WriteByte('\n')
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if mode&0o077 == 0 {
+		if err := f.Chmod(mode); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	if _, err := f.WriteString(b.String()); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // ViewerLines returns the text a full-screen log viewer is showing.
@@ -584,6 +618,9 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 				ToastWarn("No matches for " + query)
 				dirty = true
 			}
+		case k.Name == "s" && opts.NoSave:
+			ToastWarn("This text is not saved to disk")
+			dirty = true
 		case k.Name == "s":
 			defDir := opts.SaveDir
 			if defDir == "" {
@@ -595,10 +632,18 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 			}
 			initial := filepath.Join(defDir, defName)
 			if dest, ok := Prompt("Save output to file", "Directory will be created if needed", initial); ok && strings.TrimSpace(dest) != "" {
-				if err := SaveLogLines(dest, lines); err != nil {
+				save := SaveLogLines
+				if opts.SavePrivate {
+					save = SaveLogLinesPrivate
+				}
+				if err := save(dest, lines); err != nil {
 					ToastError("Save failed: " + err.Error())
 				} else {
-					Toast("Saved " + util.ExpandUser(dest))
+					full := util.ExpandUser(strings.TrimSpace(dest))
+					if opts.OnSave != nil {
+						opts.OnSave(full)
+					}
+					Toast("Saved " + full)
 				}
 			}
 			dirty = true

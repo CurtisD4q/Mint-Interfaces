@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 	"io"
 	"os"
 	"path/filepath"
@@ -90,9 +91,8 @@ var builtinKnownTools = []KnownTool{
 // Where JSON files are read from (tests replace these).
 var knownToolDirs = func() []string {
 	dirs := []string{"/etc/mint-interfaces/tools.d"}
-	if d, err := os.UserConfigDir(); err == nil {
-		dirs = append(dirs, filepath.Join(d, "mint-interfaces", "tools.d"))
-	}
+	// Under sudo this is root's own folder, not one in the user's home.
+	dirs = append(dirs, filepath.Join(util.ConfigDir(), "tools.d"))
 	return dirs
 }
 

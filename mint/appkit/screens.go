@@ -391,7 +391,7 @@ func (a *ToolApp) buildOutputDisplaySection(title string) mint.Section {
 		Hint:  "view",
 		OnActivate: func(c *mint.Ctx) {
 			cur := a.ActiveLogLines()
-			c.Push(mint.ViewLog(a.Spec.Name+" output", func() []mint.LogLine { return cur }))
+			c.Push(a.viewLog(a.Spec.Name+" output", func() []mint.LogLine { return cur }, false))
 		},
 	}))
 
@@ -416,14 +416,14 @@ func (a *ToolApp) recentRunRows() []mint.Row {
 			Label: fmt.Sprintf("[%s] %s", r.Time.Format("15:04:05"), r.CmdLine),
 			Hint:  fmt.Sprintf("%s · %d lines", r.State, r.LineCount),
 			OnActivate: func(c *mint.Ctx) {
-				c.Push(mint.ViewLog(a.Spec.Name+" output", func() []mint.LogLine {
+				c.Push(a.viewLog(a.Spec.Name+" output", func() []mint.LogLine {
 					out := a.runLines(r)
 					ll := make([]mint.LogLine, len(out))
 					for i, l := range out {
 						ll[i] = mint.LogLine{Text: mint.CleanLine(l)}
 					}
 					return ll
-				}))
+				}, false))
 			},
 		}))
 	}

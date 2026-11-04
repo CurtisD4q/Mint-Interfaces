@@ -14,6 +14,7 @@ package theme
 import (
 	"bufio"
 	"fmt"
+	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
 	"io"
 	"os"
 	"os/user"
@@ -203,17 +204,7 @@ var presets = map[string]rgbSpec{
 }
 
 // ConfigPath is where the selected theme (and custom RGB roles) are stored.
-var ConfigPath = func() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home := os.Getenv("HOME")
-		if home == "" {
-			home = "."
-		}
-		base = home + "/.config"
-	}
-	return base + "/mint-interfaces/theme.conf"
-}()
+var ConfigPath = filepath.Join(util.ConfigDir(), "theme.conf")
 
 // defaultConfigPath is ConfigPath as it starts; a caller (or a test) that
 // sets ConfigPath itself is always read from there.

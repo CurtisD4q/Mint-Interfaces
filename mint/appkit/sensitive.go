@@ -373,8 +373,9 @@ func (a *ToolApp) encryptOutput(c *mint.Ctx) {
 }
 
 // openSealed asks for the passphrase and shows a sealed file, decrypted
-// in memory only.
-func openSealed(c *mint.Ctx, name string, sealed []byte) {
+// in memory only. The viewer cannot save it: that would undo the
+// encryption.
+func (a *ToolApp) openSealed(c *mint.Ctx, name string, sealed []byte) {
 	pass, ok := c.Password("Open "+name, "Passphrase")
 	if !ok {
 		return
@@ -388,7 +389,7 @@ func openSealed(c *mint.Ctx, name string, sealed []byte) {
 	}
 	lines := textToLines(string(plain))
 	wipeBytes(plain)
-	c.Push(mint.ViewLog(name+" (decrypted)", func() []mint.LogLine { return lines }))
+	c.Push(a.viewLog(name+" (decrypted)", func() []mint.LogLine { return lines }, true))
 }
 
 func textToLines(s string) []mint.LogLine {

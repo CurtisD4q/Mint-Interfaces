@@ -57,21 +57,62 @@ func sudoInvoker() *invoker {
 }
 
 // giveBack makes paths, and any folders above them inside the user's home,
-// belong to the user who started the app with sudo. It does nothing when
-// the app was not started through sudo.
+// belong to the user who started the app with sudo. Results in the app's
+// own folder (apps/<tool>, which may be in /usr/local/share) are handed
+// back too, with the folders above them up to, but not including, the
+// app's folder: the app's folder and its own files (the program, its
+// spec) stay as they are, so the user cannot swap the program that sudo
+// runs. It does nothing when the app was not started through sudo.
 func (a *ToolApp) giveBack(paths ...string) {
 	if a.owner == nil {
 		return
 	}
 	home := filepath.Clean(a.owner.home)
+	appDir := a.appFolder()
 	for _, p := range paths {
 		if p == "" {
 			continue
 		}
-		for dir := filepath.Clean(p); strings.HasPrefix(dir, home+string(filepath.Separator)); dir = filepath.Dir(dir) {
-			_ = chown(dir, a.owner.uid, a.owner.gid)
+		p = filepath.Clean(p)
+		if !filepath.IsAbs(p) {
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			}
+		}
+		switch {
+		case within(p, home):
+			for dir := p; within(dir, home); dir = filepath.Dir(dir) {
+				_ = chown(dir, a.owner.uid, a.owner.gid)
+			}
+		case appDir != "" && within(p, appDir):
+			if filepath.Dir(p) == appDir && isAppFile(a.Spec.Name, filepath.Base(p)) {
+				continue
+			}
+			for dir := p; within(dir, appDir); dir = filepath.Dir(dir) {
+				_ = chown(dir, a.owner.uid, a.owner.gid)
+			}
 		}
 	}
+}
+
+// within reports whether p is strictly inside dir.
+func within(p, dir string) bool {
+	return dir != "" && strings.HasPrefix(p, dir+string(filepath.Separator))
+}
+
+// appFolder is the app's own folder (apps/<tool>), or "" when the spec has
+// none, or names a folder that is not the app's: one named after the
+// tool, at least two levels below /.
+func (a *ToolApp) appFolder() string {
+	d := strings.TrimSpace(a.Spec.DefaultResultsDir)
+	if d == "" || !filepath.IsAbs(d) {
+		return ""
+	}
+	d = filepath.Clean(d)
+	if filepath.Base(d) != a.Spec.Name || filepath.Dir(filepath.Dir(d)) == d || filepath.Dir(d) == "/" {
+		return ""
+	}
+	return d
 }
 
 // restartHint is the command that starts this app with root rights.
