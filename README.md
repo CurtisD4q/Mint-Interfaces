@@ -1,6 +1,6 @@
 # Mint Interfaces (Go)
 
-**Version 1.0.1**, a fix release on top of 1.0.0, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.1)`.
+**Version 1.0.2**: hover and pressed states, clickable links, one-key copy and dimming when unfocused, on top of 1.0.0, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.2)`.
 
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
@@ -661,7 +661,7 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 - **Flags.** The first argument may be one of Mint's flags:
   - `--help` (`-h`) lists the app's screens and usage, and points at `mint-gen --help` for the guide. It does not repeat that guide.
   - `--man` opens the Manual screen, the program's full manual. `--help` still prints usage. The same screen is the Manual item on the home menu.
-  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.1)`, using `App.Version` for the app's own version.
+  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.2)`, using `App.Version` for the app's own version.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
   - `--theme NAME` uses one of the seven [themes](#colour) for this run only. It may come before any of the others: `mytool --theme nord --screen Run`.
