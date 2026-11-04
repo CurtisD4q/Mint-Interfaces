@@ -436,6 +436,14 @@ func New(spec ToolSpec) *ToolApp {
 	if wd, err := os.Getwd(); err == nil {
 		a.launchDir = wd
 	}
+	// Secret results stay off the clipboard, which clipboard managers
+	// often keep; sensitive ones may be copied, as they may be saved.
+	mint.CopyGuard = func() error {
+		if level, _ := a.DataLevel(); level == DataSecret {
+			return errors.New("this app's results are secret, so they are not copied")
+		}
+		return nil
+	}
 
 	if len(spec.Profiles) > 0 {
 		a.ApplyProfile(spec.Profiles[0].Name)

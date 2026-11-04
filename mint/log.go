@@ -220,15 +220,22 @@ func (c *canvas) logLine(r, w int, it *Row) {
 	room := max(4, w-8)
 	prefix := C.Dim + "│ " + Reset
 	txt := util.Truncate(it.logLine.Text, room)
+	link := func(s string) string { return s }
+	if !it.logEmpty && linksOn() {
+		if spans := linkSpans(it.logLine.Text); len(spans) > 0 {
+			src := truncSrc(it.logLine.Text, txt)
+			link = func(s string) string { return withLinks(s, spans, src) }
+		}
+	}
 	switch {
 	case it.logEmpty:
 		c.put(r, 3, prefix+C.Dim+txt+Reset)
 	case it.logLine.Err:
-		c.put(r, 3, prefix+C.Amber+txt+Reset)
+		c.put(r, 3, prefix+link(C.Amber+txt+Reset))
 	case len(it.logLine.Colours) > 0 && coloursOn():
-		c.put(r, 3, prefix+renderColoured(it.logLine.Text, it.logLine.Colours, room, C.Text))
+		c.put(r, 3, prefix+link(renderColoured(it.logLine.Text, it.logLine.Colours, room, C.Text)))
 	default:
-		c.put(r, 3, prefix+C.Text+txt+Reset)
+		c.put(r, 3, prefix+link(C.Text+txt+Reset))
 	}
 }
 
@@ -249,6 +256,9 @@ type ViewLogOpts struct {
 	OnSave func(path string)
 	// NoSave turns the s key off, for text that must not reach the disk.
 	NoSave bool
+	// NoCopy turns the y key off, for text that must stay off the
+	// clipboard.
+	NoCopy bool
 }
 
 // SaveLogLines writes log lines to path, creating parent directories if needed.
@@ -395,7 +405,7 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 		return callStatus(screen.appStatus)
 	}
 
-	const viewHints = " ↑↓ scroll   ←→ pan   / find   n/N next   s save   b close "
+	const viewHints = " ↑↓ scroll   ←→ pan   / find   n/N next   s save   y copy   b close "
 
 	draw := func(h, w int) (int, []LogLine) {
 		lines := getLines()
@@ -465,24 +475,32 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 				raw := line.Text
 				shown, runs := sliceColoured(raw, line.Colours, hscroll, lineWidth)
 				isMatch := qLower != "" && containsFold(raw, query)
+				link := func(s string) string { return s }
+				if linksOn() {
+					if spans := linkSpans(raw); len(spans) > 0 {
+						_, from, to := util.SliceColsSpan(raw, hscroll, lineWidth)
+						src := sliceSrc(from, to, from > 0 && lineWidth > 1)
+						link = func(s string) string { return withLinks(s, spans, src) }
+					}
+				}
 				// The program's own colours, redrawn safely. The selected
 				// line and search matches keep Mint's highlight so they
 				// stay easy to see.
 				coloured := len(runs) > 0 && coloursOn() && idx != activeLine && !isMatch
 				switch {
 				case coloured && lines[idx].Err:
-					cv.put(y, 3, renderColoured(shown, runs, lineWidth, C.Amber))
+					cv.put(y, 3, link(renderColoured(shown, runs, lineWidth, C.Amber)))
 				case coloured:
-					cv.put(y, 3, renderColoured(shown, runs, lineWidth, C.Text))
+					cv.put(y, 3, link(renderColoured(shown, runs, lineWidth, C.Text)))
 				case idx == activeLine:
 					cv.selBar(y, w)
-					cv.put(y, 3, C.SelBg+C.Accent+C.Bold+shown+Reset)
+					cv.put(y, 3, link(C.SelBg+C.Accent+C.Bold+shown+Reset))
 				case isMatch:
-					cv.put(y, 3, C.Bright+C.Bold+shown+Reset)
+					cv.put(y, 3, link(C.Bright+C.Bold+shown+Reset))
 				case lines[idx].Err:
-					cv.put(y, 3, C.Amber+shown+Reset)
+					cv.put(y, 3, link(C.Amber+shown+Reset))
 				default:
-					cv.put(y, 3, C.Text+shown+Reset)
+					cv.put(y, 3, link(C.Text+shown+Reset))
 				}
 			}
 		}
@@ -618,6 +636,18 @@ func runViewLog(screen *Screen, opts ViewLogOpts) screenResult {
 				ToastWarn("No matches for " + query)
 				dirty = true
 			}
+		case k.Name == "y" && opts.NoCopy:
+			ToastWarn("This text is not copied")
+			dirty = true
+		case k.Name == "y":
+			// Everything in the viewer, as the program printed it, without
+			// its colours.
+			texts := make([]string, len(lines))
+			for i, l := range lines {
+				texts[i] = l.Text
+			}
+			copied(copyOutput(strings.Join(texts, "\n")), linesWord(len(lines)))
+			dirty = true
 		case k.Name == "s" && opts.NoSave:
 			ToastWarn("This text is not saved to disk")
 			dirty = true

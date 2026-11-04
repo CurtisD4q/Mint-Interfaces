@@ -542,7 +542,7 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 			case it.isSelectable() && pressedAt(r):
 				cv.paintPressed(r, w, label)
 				if wv > 0 {
-					cv.put(r, wx, wt)
+					cv.put(r, wx, linkWidget(wt))
 				}
 			case it.alert && selected:
 				cv.selBar(r, w)
@@ -566,7 +566,7 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 				cv.selBar(r, w)
 				cv.put(r, left, C.SelBg+C.Accent+C.Bold+"▸ "+C.Bright+label+Reset)
 				if wv > 0 {
-					cv.put(r, wx, C.SelBg+wt+Reset)
+					cv.put(r, wx, linkWidget(C.SelBg+wt+Reset))
 				}
 			case mark != "" && hovered:
 				cv.put(r, left, C.Muted+hoverMark+Reset+markCol+mark+Reset+" "+C.Bright+label+Reset)
@@ -575,12 +575,12 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 			case hovered:
 				cv.put(r, left, C.Muted+hoverMark+Reset+C.Bright+label+Reset)
 				if wv > 0 {
-					cv.put(r, wx, wt)
+					cv.put(r, wx, linkWidget(wt))
 				}
 			default:
 				cv.put(r, left+2, C.Text+label+Reset)
 				if wv > 0 {
-					cv.put(r, wx, wt)
+					cv.put(r, wx, linkWidget(wt))
 				}
 			}
 		}

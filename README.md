@@ -489,7 +489,7 @@ What the runner takes care of:
 
 `runner.Percent` and `runner.Fraction` (`12/80`, `3 of 7`) cover most progress formats; any `func(line string) (int, bool)` works.
 
-**The output view.** `mint.Log` shows the newest lines in a fixed-height box under a heading row such as `Output  128 lines · view`. Enter or a double-click on the heading opens the full output in a viewer that keeps following new lines until you scroll up. Errors are shown in amber. The viewer is also available directly as `mint.ViewLog(title, lines)` or `mint.ViewLogWith(mint.ViewLogOpts{...})` and supports horizontal panning (`←`/`→`, `0` to reset), case-insensitive search (`/`, `n`, `N`), and saving the full output to a named file (`s`). `mint.CleanLine` also resolves backspace overstrikes (`\b`) from `man` pages while preserving single-width Unicode box-drawing and Braille characters.
+**The output view.** `mint.Log` shows the newest lines in a fixed-height box under a heading row such as `Output  128 lines · view`. Enter or a double-click on the heading opens the full output in a viewer that keeps following new lines until you scroll up. Errors are shown in amber. The viewer is also available directly as `mint.ViewLog(title, lines)` or `mint.ViewLogWith(mint.ViewLogOpts{...})` and supports horizontal panning (`←`/`→`, `0` to reset), case-insensitive search (`/`, `n`, `N`), saving the full output to a named file (`s`), and copying it to the clipboard (`y`, see [Links and copying](#links-and-copying)). `mint.CleanLine` also resolves backspace overstrikes (`\b`) from `man` pages while preserving single-width Unicode box-drawing and Braille characters.
 
 **Slow work without a ctx.** `mint.Busy("Applying…", fn)` is `ctx.Busy` for code that has no `ctx`, such as a row's `Set`.
 
@@ -698,6 +698,34 @@ Mint asks the terminal for every mouse motion (mode 1003, with SGR reports) as w
 Motion never reaches a screen as a key, so nothing else changes: the pointer position is kept, and a screen redraws only when the pointer moves to another row or the button goes down or up. When the terminal loses focus (focus reporting, mode 1004), the hover is dropped, because the pointer is somewhere else. Both looks are palette-free, so they also read on a terminal with no colour.
 
 Set `MINT_HOVER=0` to stop motion reports, for a slow SSH link say; clicks and the wheel work as before. Terminals without SGR mouse reporting never send motion, and Emacs's `term` doesn't pass it on, so there is no hover there.
+
+## Links and copying
+
+**Clickable links (OSC 8).** URLs (`http`, `https`, `ftp`) and paths to files or folders that exist (absolute, or under `~/`) in a program's output, and in values such as the command preview, are sent as OSC 8 hyperlinks. In a terminal that supports them (kitty, WezTerm, iTerm2, GNOME Terminal and other VTE terminals, Windows Terminal, foot, Ghostty, Alacritty, tmux 3.4 and later) a click, usually with Ctrl or Cmd held, opens them. Elsewhere nothing changes on screen.
+
+- Only text that is the link itself is linked, so a link always goes where it says. A program's own hyperlinks are removed when its output is cleaned, so its text can't say one thing and open another.
+- `main.go:12:4` links `main.go`; trailing punctuation and an unmatched `)` are left out of a URL.
+- A path links as `file://<this computer's name>/path`, so over SSH the terminal can tell the file is on another computer.
+- A value cut short with `…` is not linked, since it would go somewhere else.
+- Set `MINT_LINKS=0` to turn them off. They are off in Emacs's `term`, which would show the sequences as text, and on in `vterm`.
+
+**One-key copy (OSC 52).** `y` copies to the clipboard of the computer you're sitting at, through the terminal, so it works over SSH:
+
+| Where | `y` copies |
+|---|---|
+| A value row, such as the command preview | the value as shown (secrets stay masked) |
+| A table row | its cells, tab-separated |
+| Any other row | its label |
+| The output viewer | the whole output, without its colours |
+
+- Escape sequences and control characters are removed first, so what you paste is the text as shown and can't drive the terminal you paste it into.
+- Mint only ever sets the clipboard; it never reads it.
+- Text over 74 KB isn't sent, since many terminals drop a longer copy without a word; save it with `s` instead.
+- An app whose results are secret doesn't copy them (clipboard managers often keep a history), and a file decrypted to read can't be copied from the viewer. A command preview or a setting can still be copied.
+- Inside tmux, Mint sends the copy both ways tmux can pass it on: it needs `set -g set-clipboard on` or `set -g allow-passthrough on`. GNU screen is handled too.
+- Terminals that take OSC 52 include kitty, WezTerm, iTerm2 (turn on "Applications in terminal may access clipboard"), Alacritty, foot, Ghostty, Windows Terminal and xterm (with `allowWindowOps`). Elsewhere the copy is ignored; the toast says it was sent "if this terminal takes OSC 52" when Mint couldn't tell.
+
+In your own screens, `ctx.Copy(text, "the path")` copies and shows the toast, and `mint.Copy(text)` copies and returns an error. Set `mint.CopyGuard` to refuse copying a program's output (generated apps refuse it when their results are secret).
 
 ## Keys
 

@@ -321,7 +321,8 @@ func assertUnpinnedLayout(t *testing.T, items []Row, scroll, top, avail int) {
 	}
 }
 
-// The footer names ←→ and H/L only while the focused row is a viewer table.
+// The footer names ←→ and H/L only while the focused row is a viewer table,
+// and y (copy) on any table row.
 func TestViewerFooterHints(t *testing.T) {
 	saved := ScreenHints
 	t.Cleanup(func() { ScreenHints = saved })
@@ -332,20 +333,20 @@ func TestViewerFooterHints(t *testing.T) {
 	plain := viewerRow(t, false)
 
 	got := footerHints(false, "", focused)
-	if got != strings.TrimRight(base, " ")+"   ←→ scroll sideways   H/L narrow or widen " {
+	if got != strings.TrimRight(base, " ")+"   ←→ scroll sideways   H/L narrow or widen   y copy " {
 		t.Fatalf("viewer hints: %q", got)
 	}
 	if !strings.Contains(got, "←→ scroll sideways") || !strings.Contains(got, "H/L narrow or widen") {
 		t.Fatalf("missing viewer keys: %q", got)
 	}
-	if footerHints(false, "", plain) != base {
-		t.Fatalf("non-viewer hints changed: %q", footerHints(false, "", plain))
+	if footerHints(false, "", plain) != strings.TrimRight(base, " ")+"   y copy " {
+		t.Fatalf("non-viewer hints: %q", footerHints(false, "", plain))
 	}
 	if footerHints(false, "", nil) != base {
 		t.Fatalf("no row changed hints: %q", footerHints(false, "", nil))
 	}
-	if footerHints(false, custom, plain) != custom {
-		t.Fatalf("custom hints changed for a fitted table: %q", footerHints(false, custom, plain))
+	if footerHints(false, custom, plain) != strings.TrimRight(custom, " ")+"   y copy " {
+		t.Fatalf("custom hints for a fitted table: %q", footerHints(false, custom, plain))
 	}
 	with := footerHints(false, custom, focused)
 	if !strings.HasPrefix(with, strings.TrimRight(custom, " ")) || !strings.Contains(with, "H/L narrow or widen") {
