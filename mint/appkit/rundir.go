@@ -226,7 +226,7 @@ func (a *ToolApp) targetRebased(words []string, second bool) []string {
 // offers the results folder, and saves as privately as the app's other
 // saves: owner-only when the results are sensitive, then handed back to
 // the user who ran sudo. noSave is for text that must stay off the disk
-// (a decrypted file).
+// (a decrypted file); it keeps it off the clipboard too.
 func (a *ToolApp) viewLog(title string, lines func() []mint.LogLine, noSave bool) *mint.Screen {
 	level, _ := a.DataLevel()
 	dir := expandArgValue(strings.TrimSpace(a.ResultsDir))
@@ -237,6 +237,7 @@ func (a *ToolApp) viewLog(title string, lines func() []mint.LogLine, noSave bool
 		SaveName:    DefaultOutputFilename(a.Spec.Name, "txt"),
 		SavePrivate: level != DataNormal,
 		NoSave:      noSave,
+		NoCopy:      noSave,
 		OnSave: func(path string) {
 			a.protectFile(level, path)
 			a.giveBack(path)

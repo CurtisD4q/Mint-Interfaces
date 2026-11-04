@@ -146,10 +146,18 @@ func footerHints(editing bool, custom string, focused *Row) string {
 	if custom != "" {
 		hints = custom
 	}
-	if focused == nil || focused.table == nil || !focused.table.viewer {
-		return hints
+	if focused != nil && focused.table != nil && focused.table.viewer {
+		hints = addHint(hints, "←→ scroll sideways   H/L narrow or widen")
 	}
-	const extra = "←→ scroll sideways   H/L narrow or widen"
+	// y copies a table row or a value; the hint shows where it helps most.
+	if focused != nil && (focused.wtype == "tablerow" || focused.wtype == "value") && !strings.Contains(hints, "y copy") {
+		hints = addHint(hints, "y copy")
+	}
+	return hints
+}
+
+// addHint puts extra at the end of a footer's hints.
+func addHint(hints, extra string) string {
 	hints = strings.TrimRight(hints, " ")
 	if hints == "" {
 		return " " + extra + " "

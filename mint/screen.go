@@ -1006,6 +1006,35 @@ func (screen *Screen) bind() {
 
 	lastClickIdx, lastClickTime := 0, time.Time{}
 
+	// copyRow puts the selected row on the clipboard (y): a table row's
+	// cells (tab-separated), a value as shown, or else the row's label.
+	copyRow := func() {
+		it, idx := current()
+		if it == nil {
+			ToastWarn("Nothing to copy here")
+			return
+		}
+		switch {
+		case it.wtype == "tablerow" && len(it.cells) > 0:
+			copied(copyOutput(strings.Join(it.cells, "\t")), "the row")
+			return
+		case it.wtype == "logline":
+			copied(copyOutput(it.logLine.Text), "the line")
+			return
+		case it.kind == "section":
+			copied(Copy(it.name), "the heading")
+			return
+		}
+		switch it.wtype {
+		case "value", "text", "picker", "stepper", "slider":
+			if val, _, failed := readValue(it, keyOf(it, idx)); !failed && tostr(val) != "" {
+				copied(Copy(tostr(val)), "the value")
+				return
+			}
+		}
+		copied(Copy(it.label), "the label")
+	}
+
 	finish := func(cv *canvas) {
 		if screen.frameBuf != nil {
 			screen.frameBuf.WriteString(cv.b.String())
@@ -1319,6 +1348,9 @@ func (screen *Screen) bind() {
 			return &screenResult{op: "back"}, false
 		case k.Name == "q" || k.Name == "\x03":
 			return &screenResult{op: "quit"}, false
+		case k.Name == "y" && !k.Special && st.editing == nil:
+			copyRow()
+			dirty = true
 		case len(screen.Panes) > 0 && screen.focus < screen.paneCount() && st.editing == nil && (k.Name == "[" || k.Name == "]" || k.Name == "|"):
 			switch k.Name {
 			case "[":
