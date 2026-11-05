@@ -201,7 +201,7 @@ func TestStartAsRootQuestion(t *testing.T) {
 	ask := func(answer, program string, root, noRoot bool) bool {
 		promptIn = strings.NewReader(answer)
 		out.Reset()
-		return startAsRoot(program, nil, root, noRoot)
+		return startAsRoot(program, nil, root, noRoot, "")
 	}
 	if !ask("y\n", "tcpdump", false, false) || !strings.Contains(out.String(), "tcpdump usually needs root access. Start it with sudo? [y/N]") {
 		t.Fatalf("yes: %q", out.String())

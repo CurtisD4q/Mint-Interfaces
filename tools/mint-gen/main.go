@@ -17,6 +17,7 @@ import (
 )
 
 func main() {
+	callerDir()
 	os.Exit(runCLI(os.Args[1:]))
 }
 
@@ -40,7 +41,11 @@ func runCLI(args []string) int {
 		repoRoot       string
 		tuiMode        bool
 		probeTerm      bool
+		install        bool
+		system         bool
 	)
+	fs.BoolVar(&install, "install", false, "Install the mint-gen launcher for you, in ~/.local/bin/mint-interfaces/mint-gen (with --system: print the commands for everyone)")
+	fs.BoolVar(&system, "system", false, "With --install: print the commands that install Mint-Interfaces for everyone on this computer")
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
 	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
@@ -101,6 +106,13 @@ func runCLI(args []string) int {
 		fmt.Fprintf(os.Stderr, "mint-gen: %s is not the Mint-Interfaces folder (no go.mod for github.com/CurtisD4q/Mint-Interfaces)\n", safeTerminalText(repoRoot))
 		return 2
 	}
+	if install {
+		if system {
+			return installSystemHelp(os.Stdout, repoRoot)
+		}
+		return installUser(os.Stdout, os.Stderr, repoRoot)
+	}
+
 	// Everything below except --check and --explain builds, lists or
 	// removes apps, which live in the Mint-Interfaces folder.
 	needRoot := func() bool {
@@ -197,7 +209,7 @@ func runCLI(args []string) int {
 	if runApp && !buildBin {
 		binPath := existingBinaryPath(program, outDir, repoRoot)
 		if st, err := os.Stat(binPath); err == nil && !st.IsDir() {
-			return runBuiltApp(binPath, appArgs, startAsRoot(program, nil, rootFlag, noRootFlag))
+			return runBuiltApp(binPath, appArgs, startAsRoot(program, nil, rootFlag, noRootFlag, binPath))
 		}
 		buildBin = true
 	}
@@ -259,7 +271,7 @@ func runCLI(args []string) int {
 		fmt.Printf("Built static binary: %s\n", res.BinaryOut)
 	}
 	if runApp {
-		return runBuiltApp(res.BinaryOut, appArgs, startAsRoot(program, &spec, rootFlag, noRootFlag))
+		return runBuiltApp(res.BinaryOut, appArgs, startAsRoot(program, &spec, rootFlag, noRootFlag, res.BinaryOut))
 	}
 	return 0
 }
@@ -378,10 +390,13 @@ func removeScaffoldedApp(program, outDir, repoRoot string) int {
 		fmt.Printf("Removed the generated files of %s; kept %s because it holds other files\n", tool, absDir)
 		return 0
 	}
-	// Remove a /usr/local/bin/<tool>-mint link only if it pointed at this app.
-	symlinkPath := filepath.Join("/usr/local/bin", tool+"-mint")
-	if dest, err := os.Readlink(symlinkPath); err == nil && filepath.Clean(dest) == filepath.Join(absDir, tool+"-mint") {
-		_ = os.Remove(symlinkPath)
+	// Remove a <tool>-mint link (in /usr/local/bin or
+	// ~/.local/bin/mint-interfaces) only if it pointed at this app.
+	for _, d := range appLinkDirs() {
+		symlinkPath := filepath.Join(d, tool+"-mint")
+		if dest, err := os.Readlink(symlinkPath); err == nil && filepath.Clean(dest) == filepath.Join(absDir, tool+"-mint") {
+			_ = os.Remove(symlinkPath)
+		}
 	}
 	fmt.Printf("Removed %s (%s)\n", tool, absDir)
 	return 0
@@ -472,9 +487,11 @@ func rootAbove(dir string) string {
 
 // detectRepoRoot finds the Mint-Interfaces folder, so apps are always
 // built in its apps/ folder wherever mint-gen is run from: the folder
-// you are in (or one above it), then the folder mint-gen itself was built
-// in (a copy on PATH, or a link to one), then $MINT_INTERFACES_ROOT, then
-// the global install. It
+// you are in (or one above it), then the one `go -C <repo> run` started
+// it in (the launcher), then the folder mint-gen itself was built in (a
+// copy on PATH, or a link to one), then $MINT_INTERFACES_ROOT, then the
+// user install (~/.local/share/mint-interfaces), then the system-wide
+// one (/usr/local/share/mint-interfaces). It
 // returns "" when there is none; mint-gen then stops rather than writing
 // apps into the folder you happen to be in.
 func detectRepoRoot() string {
@@ -482,6 +499,9 @@ func detectRepoRoot() string {
 		if r := rootAbove(wd); r != "" {
 			return r
 		}
+	}
+	if launchRoot != "" && isRepoRoot(launchRoot) {
+		return launchRoot
 	}
 	if exe, err := os.Executable(); err == nil {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
@@ -496,6 +516,9 @@ func detectRepoRoot() string {
 			return abs
 		}
 	}
+	if r := userInstallRoot(); r != "" && isRepoRoot(r) {
+		return r
+	}
 	if isRepoRoot(installedRoot) {
 		return installedRoot
 	}
@@ -504,7 +527,7 @@ func detectRepoRoot() string {
 
 // noRootMessage says what to do when the Mint-Interfaces folder is not
 // found.
-const noRootMessage = "mint-gen: cannot find the Mint-Interfaces folder, so it will not build apps here. Run it from inside that folder, pass --root /path/to/mint-interfaces, or set MINT_INTERFACES_ROOT to that folder."
+const noRootMessage = "mint-gen: cannot find the Mint-Interfaces folder, so it will not build apps here. Run it from inside that folder, put it in ~/.local/share/mint-interfaces, pass --root /path/to/mint-interfaces, or set MINT_INTERFACES_ROOT to that folder."
 
 func runInteractiveTUI(initialProgram, repoRoot string) error {
 	prog := initialProgram
