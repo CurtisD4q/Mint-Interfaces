@@ -127,3 +127,94 @@ func TestOldDataMigrationIsCareful(t *testing.T) {
 		t.Error("followed a linked old folder")
 	}
 }
+
+func TestConfigDirIsUnderInterfaces(t *testing.T) {
+	home := t.TempDir()
+	a := newInHome(t, home, "nmap")
+	if want := filepath.Join(home, ".config", "mint-interfaces", "nmap"); a.ConfigDir != want {
+		t.Fatalf("ConfigDir %q, want %q", a.ConfigDir, want)
+	}
+	shared := filepath.Join(home, ".config", "mint-interfaces")
+	// Never a name the shared folder uses itself, and never outside it.
+	for _, name := range []string{"theme.conf", "termcaps.json", "security.json", "tools.d", "", "..", "a/b"} {
+		got := configDirFor(home, name)
+		if filepath.Dir(got) != shared {
+			t.Errorf("%q escapes %s: %s", name, shared, got)
+		}
+		if sharedConfigNames[filepath.Base(got)] {
+			t.Errorf("%q gets the shared name %s", name, filepath.Base(got))
+		}
+	}
+}
+
+// Saved settings follow an app to the new folder: the old file moves once,
+// and what was typed in is there when the app starts.
+func TestOldSettingsAreMoved(t *testing.T) {
+	home := t.TempDir()
+	old := filepath.Join(home, ".config", "mint-tree")
+	os.MkdirAll(old, 0o755)
+	os.WriteFile(filepath.Join(old, "settings.json"), []byte(`{"extra_args":"/home/u/Downloads/Test"}`), 0o600)
+	os.WriteFile(filepath.Join(old, "other.txt"), []byte("mine"), 0o600)
+
+	a := newInHome(t, home, "tree")
+	if a.ExtraArgs != "/home/u/Downloads/Test" {
+		t.Fatalf("extra arguments %q not restored", a.ExtraArgs)
+	}
+	if _, err := os.Stat(filepath.Join(a.ConfigDir, "settings.json")); err != nil {
+		t.Fatal("settings not in the new folder")
+	}
+	if fi, _ := os.Stat(filepath.Join(a.ConfigDir, "settings.json")); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+	if _, err := os.Lstat(filepath.Join(old, "other.txt")); err != nil {
+		t.Fatal("a file that is not settings was moved, or the old folder removed")
+	}
+}
+
+// A tool named "interfaces" has the shared settings folder as its old
+// folder: the theme and the terminal cache in it stay where they are.
+func TestSharedConfigFolderIsNotMigrated(t *testing.T) {
+	home := t.TempDir()
+	shared := filepath.Join(home, ".config", "mint-interfaces")
+	os.MkdirAll(filepath.Join(shared, "tools.d"), 0o755)
+	os.WriteFile(filepath.Join(shared, "theme.conf"), []byte("theme = nord\n"), 0o644)
+	os.WriteFile(filepath.Join(shared, "termcaps.json"), []byte("{}"), 0o644)
+	a := newInHome(t, home, "interfaces")
+	if a.ConfigDir != filepath.Join(shared, "interfaces") {
+		t.Fatalf("ConfigDir %q", a.ConfigDir)
+	}
+	for _, f := range []string{"theme.conf", "termcaps.json", "tools.d"} {
+		if _, err := os.Lstat(filepath.Join(shared, f)); err != nil {
+			t.Fatalf("%s touched: %v", f, err)
+		}
+	}
+}
+
+// Under sudo, root writes the settings into the user's home and hands
+// the folders back, including the shared one it may have created.
+func TestSettingsHandedBackUnderSudo(t *testing.T) {
+	home := t.TempDir()
+	a := newInHome(t, home, "tree")
+	a.owner = &invoker{uid: 1000, gid: 1000, home: home}
+	var got []string
+	old := chown
+	chown = func(p string, uid, gid int) error { got = append(got, p); return nil }
+	defer func() { chown = old }()
+	if err := a.SaveSettings(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		filepath.Join(a.ConfigDir, "settings.json"),
+		a.ConfigDir,
+		filepath.Join(home, ".config", "mint-interfaces"),
+		filepath.Join(home, ".config"),
+	} {
+		found := false
+		for _, g := range got {
+			found = found || g == want
+		}
+		if !found {
+			t.Errorf("%s not handed back (got %q)", want, got)
+		}
+	}
+}
