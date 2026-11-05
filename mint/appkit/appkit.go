@@ -403,7 +403,7 @@ func New(spec ToolSpec) *ToolApp {
 		resDir = homeResults
 	}
 	cfgDir := filepath.Join(home, ".config", "mint-"+spec.Name)
-	dataDir := filepath.Join(home, ".local", "share", "mint-"+spec.Name)
+	dataDir := dataDirFor(home, spec.Name)
 
 	values := make(map[string]string, len(spec.Flags))
 	for _, f := range spec.Flags {
@@ -462,6 +462,7 @@ func New(spec ToolSpec) *ToolApp {
 	case a.memSetting == nil && spec.Data == DataSecret:
 		_ = a.SetInMemory(true)
 	}
+	a.migrateOldData(oldDataDirFor(home, spec.Name))
 	a.loadHistory()
 	a.loadPresets()
 	return a

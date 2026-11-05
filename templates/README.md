@@ -31,7 +31,7 @@ These folders are small example programs. They are not separate screen types: ea
 | `WithDynamicChoices` | `FlagSpec.ChoicesCmd []string` | Populates `FlagChoice` options at runtime by running a command (e.g., `ip -o link`, `lsblk -dn -o NAME`) |
 | `WithRootAuth` | `NeedsRoot` | Adds a "Root access" section: it shows whether the app runs as root and, if not, the `sudo` command that restarts it with root rights. Mint never asks for or handles the sudo password; `mint-gen --run` offers to start these apps with sudo |
 | `WithConfirm` | `ConfirmRun`, `ConfirmPrompt` | Asks before running (`mint.Confirm`). Tools marked `Irreversible` (`dd`, `shred`, `rm`, `kill`, `pkill`…) need the target typed instead (`mint.TypeToConfirm`) |
-| `WithHistory` | `KeepHistory` | Saves past runs, command lines, durations, and output paths to `~/.local/share/mint-<tool>/runs.json` |
+| `WithHistory` | `KeepHistory` | Saves past runs, command lines, durations, and output paths to `~/.local/share/mint-interfaces-apps/<tool>/runs.json` |
 
 ---
 
