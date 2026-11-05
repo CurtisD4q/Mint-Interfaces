@@ -1,6 +1,6 @@
 # Mint Interfaces (Go)
 
-**Version 1.0.2**: hover and pressed states, clickable links, one-key copy and dimming when unfocused, on top of 1.0.0, the first stable release. Every app reports it: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.0.2)`.
+**Version 1.1.0**: installs for one user in your home (`mint-gen --install`), alongside the system-wide install. Every app reports its version: `mytool --version` prints `mytool 1.2.0 (Mint-Interfaces 1.1.0)`.
 
 A zero-dependency terminal UI library, ported from the Lua original ([mint-interfaces-legacy](https://github.com/CurtisD4q/mint-interfaces-legacy)).
 
@@ -50,9 +50,42 @@ You can generate and compile a full Mint interface for any installed command-lin
    ./apps/nmap/nmap-mint
    ```
 
-### Global install: Run `mint-gen` from anywhere
+### Install: Run `mint-gen` from anywhere
 
-Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and install `/usr/local/bin/mint-gen` so you can check, build, and run any tool's interface from any directory:
+There are three ways to run mint-gen. Pick one; they all build apps in the same place, the repository's `apps/<tool>/`.
+
+| Way | Where things live | Needs sudo | Best for |
+|---|---|---|---|
+| From the downloaded repo | wherever you cloned it | no | trying it out, working on Mint |
+| For you (user install) | repo in `~/.local/share/mint-interfaces`, launcher in `~/.local/bin/mint-interfaces/mint-gen` | no | one person; apps that don't need root |
+| For everyone (system install) | repo in `/usr/local/share/mint-interfaces`, launcher in `/usr/local/bin/mint-gen` | to install | shared computers; apps you start with sudo |
+
+**From the downloaded repo.** Inside the folder, `go run ./tools/mint-gen --build nmap` works as in the Quickstart. From any other folder, use Go's `-C`:
+
+```sh
+go -C /path/to/mint-interfaces run ./tools/mint-gen --build nmap
+```
+
+Go moves into the repo to build mint-gen, and mint-gen moves back to the folder you ran it from, so relative paths (`--out ./x`) and the folder `--run` starts an app in are yours. (`go run /path/to/mint-interfaces/tools/mint-gen` from another folder can't work: Go needs the module in the folder you are in.)
+
+**For you (user install).** No sudo, everything in your home:
+
+1. Put the repository in `~/.local/share/mint-interfaces` (or `$XDG_DATA_HOME/mint-interfaces`):
+   ```sh
+   mkdir -p ~/.local/share
+   mv mint-interfaces ~/.local/share/mint-interfaces
+   ```
+2. Install the launcher:
+   ```sh
+   go -C ~/.local/share/mint-interfaces run ./tools/mint-gen --install
+   ```
+   This writes `~/.local/bin/mint-interfaces/mint-gen`, a three-line script that runs the repository's own mint-gen with `go -C … run`, so it is never out of date after a `git pull`. It only ever replaces a launcher it wrote itself. Run it again from another copy of the repository to point the launcher there.
+3. Put the launcher's folder on your `PATH`, if `--install` says it isn't: add this line to `~/.profile` (or `~/.bashrc`, `~/.zshrc`) and open a new terminal.
+   ```sh
+   export PATH="$HOME/.local/bin/mint-interfaces:$PATH"
+   ```
+
+**For everyone (system install).** `mint-gen --install --system` prints these commands; mint-gen never runs sudo itself.
 
 1. Move the repository to `/usr/local/share/mint-interfaces` and make `apps/` writable by your user so builds do not need `sudo`:
    ```sh
@@ -63,11 +96,13 @@ Move the `mint-interfaces` folder to `/usr/local/share/mint-interfaces` and inst
 2. Install `/usr/local/bin/mint-gen` to invoke `mint-gen` from `/usr/local/share/mint-interfaces`:
    ```sh
    sudo tee /usr/local/bin/mint-gen >/dev/null << 'EOF'
-   #!/usr/bin/env sh
+   #!/bin/sh
    exec go -C /usr/local/share/mint-interfaces run ./tools/mint-gen "$@"
    EOF
    sudo chmod +x /usr/local/bin/mint-gen
    ```
+
+**Apps that need root.** sudo runs an app's program as root, so that program must be one only root can change. When anyone but root could replace it (the user install, or a system install whose `apps/` you own, as in step 1 above), anything running as you could swap it before sudo runs it. So `mint-gen --run` doesn't offer sudo for it: it says why and starts the app without root. `--sudo` still chooses sudo, with a note.
 
 Once installed, the steps from any directory are:
 
@@ -104,9 +139,9 @@ Once installed, the steps from any directory are:
    mint-gen --theme nord
    ```
 
-Other flags: `--archetype` chooses the archetype yourself, `--out DIR` builds somewhere other than `apps/<tool>`, `--force` builds a program the compatibility check refused, `--sudo` / `--no-sudo` answer `--run`'s sudo question in advance, `--root` points at the Mint-Interfaces folder when it isn't found automatically, and `--tui` opens mint-gen's own interface.
+Other flags: `--archetype` chooses the archetype yourself, `--out DIR` builds somewhere other than `apps/<tool>`, `--force` builds a program the compatibility check refused, `--sudo` / `--no-sudo` answer `--run`'s sudo question in advance, `--root` points at the Mint-Interfaces folder when it isn't found automatically, `--install` (with `--system`) installs mint-gen, and `--tui` opens mint-gen's own interface. `--remove` and `--purge` also delete a `<tool>-mint` link to the app in `/usr/local/bin` or `~/.local/bin/mint-interfaces`, only when it points at that app.
 
-**Apps are always built inside Mint-Interfaces.** mint-gen puts every app in the Mint-Interfaces folder's `apps/<tool>/`, wherever you run it from. It finds that folder from the folder you are in (or one above it), then from where the `mint-gen` program itself is (so a link on your `PATH` to a `mint-gen` built inside the folder works), then `$MINT_INTERFACES_ROOT`, then `/usr/local/share/mint-interfaces`. If none of those is Mint-Interfaces, it stops and says so, rather than writing `apps/` into the folder you happen to be in. `--root DIR` names the folder yourself.
+**Apps are always built inside Mint-Interfaces.** mint-gen puts every app in the Mint-Interfaces folder's `apps/<tool>/`, wherever you run it from. It finds that folder from the folder you are in (or one above it), then the repository the launcher (`go -C … run`) started it in, then from where the `mint-gen` program itself is (so a link on your `PATH` to a `mint-gen` built inside the folder works), then `$MINT_INTERFACES_ROOT`, then `~/.local/share/mint-interfaces` (the user install), then `/usr/local/share/mint-interfaces` (the system install). If none of those is Mint-Interfaces, it stops and says so, rather than writing `apps/` into the folder you happen to be in. `--root DIR` names the folder yourself.
 
 `mint-gen --help` is the one guide for Mint-Interfaces. It covers scaffolding and running an app (`mint-gen ps`, `mint-gen --build ps`, `mint-gen --run ps`, and the other flags), then how to use the app: the home menu, setting options and running a command, pane keys (Tab, Shift-Tab, `[`, `]`, `|`, and a click to focus), table keys (left and right to scroll sideways, H and L to narrow or widen a column), Presets, Run History, and Manual / `--man` for the program's full manual. The flag list follows the guide. A generated app's own `--help` stays a short usage list; `--man` still opens that app's Manual screen.
 
@@ -661,7 +696,7 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 - **Flags.** The first argument may be one of Mint's flags:
   - `--help` (`-h`) lists the app's screens and usage, and points at `mint-gen --help` for the guide. It does not repeat that guide.
   - `--man` opens the Manual screen, the program's full manual. `--help` still prints usage. The same screen is the Manual item on the home menu.
-  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.0.2)`, using `App.Version` for the app's own version.
+  - `--version` (`-v`) prints `mytool 1.2.0 (Mint-Interfaces 1.1.0)`, using `App.Version` for the app's own version.
   - `--mint-info` prints a JSON description (title, version, screens, required and missing tools) for launchers such as Emacs.
   - `--screen NAME` opens that home item directly, and Back returns to the home list.
   - `--theme NAME` uses one of the seven [themes](#colour) for this run only. It may come before any of the others: `mytool --theme nord --screen Run`.

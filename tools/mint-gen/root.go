@@ -38,13 +38,25 @@ func mayNeedRoot(program string, spec *appkit.ToolSpec) bool {
 // startAsRoot decides whether --run starts the app with sudo: --root and
 // --no-root decide outright; otherwise, for tools that usually need root,
 // it asks. It never asks when already root or when input is not a terminal.
-func startAsRoot(program string, spec *appkit.ToolSpec, rootFlag, noRootFlag bool) bool {
+//
+// binPath is the app's program. When anyone but root could replace it (it
+// is in your home, or in an apps/ folder you own), sudo could end up
+// running a swapped program as root, so mint-gen does not offer sudo: it
+// says why, and --sudo is the way to choose it anyway.
+func startAsRoot(program string, spec *appkit.ToolSpec, rootFlag, noRootFlag bool, binPath string) bool {
+	swappable := binPath != "" && othersCanSwap(binPath)
 	switch {
 	case genEuid() == 0 || noRootFlag:
 		return false
 	case rootFlag:
+		if swappable {
+			fmt.Fprintf(promptOut, "Note: %s is in a folder you can change, so anything running as you could replace it before sudo runs it.\n", binPath)
+		}
 		return true
 	case !stdinIsTTY() || !mayNeedRoot(program, spec):
+		return false
+	case swappable:
+		fmt.Fprintf(promptOut, "%s usually needs root access, but its program (%s) is in a folder you can change, so anything running as you could replace it before sudo runs it. Starting it without sudo. To use sudo anyway, run again with --sudo; to avoid the risk, install Mint-Interfaces system-wide (mint-gen --install --system).\n", program, binPath)
 		return false
 	}
 	fmt.Fprintf(promptOut, "%s usually needs root access. Start it with sudo? [y/N] ", program)
