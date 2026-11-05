@@ -402,7 +402,7 @@ func New(spec ToolSpec) *ToolApp {
 	if resDir == "" {
 		resDir = homeResults
 	}
-	cfgDir := filepath.Join(home, ".config", "mint-"+spec.Name)
+	cfgDir := configDirFor(home, spec.Name)
 	dataDir := dataDirFor(home, spec.Name)
 
 	values := make(map[string]string, len(spec.Flags))
@@ -450,6 +450,7 @@ func New(spec ToolSpec) *ToolApp {
 	}
 	a.ResolveDynamicChoices()
 	a.memSetting = nil
+	a.migrateOldConfig(oldConfigDirFor(home, spec.Name))
 	_ = a.LoadSettings()
 	switch {
 	case a.memSetting != nil && *a.memSetting:

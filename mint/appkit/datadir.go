@@ -49,16 +49,60 @@ func oldDataDirFor(home, tool string) string {
 	return filepath.Join(home, ".local", "share", "mint-"+tool)
 }
 
+// Where an app keeps its settings: ~/.config/mint-interfaces/<tool>/, in
+// the folder that also holds the theme and terminal cache every app
+// shares. Earlier versions used ~/.config/mint-<tool>/.
+
+// configFiles are the names an app keeps in its settings folder.
+var configFiles = []string{"settings.json"}
+
+// sharedConfigNames are what the shared folder ~/.config/mint-interfaces
+// holds itself (the theme, the terminal cache, the security settings, the
+// tool facts mint-gen reads). A tool is never given a folder of one of
+// these names: its settings could be mistaken for one of them, or be read
+// as tool facts.
+var sharedConfigNames = map[string]bool{
+	"theme.conf": true, "termcaps.json": true, "security.json": true, "tools.d": true,
+}
+
+// configFolderName is tool as a single folder name inside the shared
+// folder.
+func configFolderName(tool string) string {
+	name := dataFolderName(tool)
+	if sharedConfigNames[name] {
+		return "app-" + name
+	}
+	return name
+}
+
+// configDirFor is where tool keeps its settings for the user whose home
+// is home.
+func configDirFor(home, tool string) string {
+	return filepath.Join(home, ".config", "mint-interfaces", configFolderName(tool))
+}
+
+// oldConfigDirFor is where earlier versions kept them.
+func oldConfigDirFor(home, tool string) string {
+	return filepath.Join(home, ".config", "mint-"+tool)
+}
+
 // migrateOldData moves the data files of earlier versions from old into
-// a.DataDir, once. Nothing is copied or deleted unless it is one of
-// dataFiles, is a real file or folder (never a link), and the same name is
-// not already in the new folder; so the repository folder
-// ~/.local/share/mint-interfaces is never touched, even for a tool named
+// a.DataDir, once; see migrateFiles.
+func (a *ToolApp) migrateOldData(old string) { a.migrateFiles(old, a.DataDir, dataFiles) }
+
+// migrateOldConfig moves the settings of earlier versions from old into
+// a.ConfigDir, once; see migrateFiles.
+func (a *ToolApp) migrateOldConfig(old string) { a.migrateFiles(old, a.ConfigDir, configFiles) }
+
+// migrateFiles moves names from old into dir. Nothing is moved or deleted
+// unless it is one of names, is a real file or folder (never a link), and
+// the same name is not already in dir; so the repository folder
+// ~/.local/share/mint-interfaces, and the shared settings folder
+// ~/.config/mint-interfaces, are never touched, even for a tool named
 // "interfaces". The old folder is removed only if that leaves it empty.
 // Files keep their permissions. Under sudo the new folders are handed back
 // to the user.
-func (a *ToolApp) migrateOldData(old string) {
-	dir := a.DataDir
+func (a *ToolApp) migrateFiles(old, dir string, names []string) {
 	if dir == "" || old == "" || filepath.Clean(old) == filepath.Clean(dir) {
 		return
 	}
@@ -67,7 +111,7 @@ func (a *ToolApp) migrateOldData(old string) {
 		return
 	}
 	moved := false
-	for _, name := range dataFiles {
+	for _, name := range names {
 		src := filepath.Join(old, name)
 		sfi, err := os.Lstat(src)
 		if err != nil || sfi.Mode()&os.ModeSymlink != 0 || !(sfi.Mode().IsRegular() || sfi.IsDir()) {
