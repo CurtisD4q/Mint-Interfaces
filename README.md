@@ -712,8 +712,10 @@ Apps with their own `go.mod` under `apps/<tool>` are built the same way: `./tool
 |---|---|---|
 | `<mint-interfaces>/apps/<tool>/` | the output files it saves (its Output Directory), next to the app itself | the first time a run saves output |
 | `~/.config/mint-<tool>/` | its settings and presets | you change a setting or save a preset |
-| `~/.local/share/mint-<tool>/` | its run history | the first run |
+| `~/.local/share/mint-interfaces-apps/<tool>/` | its run history (`runs.json`), saved presets, command transcript, last findings and rule backups | the first run |
 | `~/.config/mint-interfaces/` | the theme every app shares (`theme.conf`), and what Mint learned about your terminal (`termcaps.json`) | you save a theme; an app first starts |
+
+Every app's own data sits under one folder, `~/.local/share/mint-interfaces-apps/`, apart from the repository (`~/.local/share/mint-interfaces` in the user install), so re-cloning or deleting the repository never wipes your history and presets. Earlier versions used `~/.local/share/mint-<tool>/`; the first run of an app moves its files from there (only `runs.json`, `presets.json`, `commands.json`, `findings-last.json` and `rule-backups`; never over a file already in the new folder, never through a link) and removes the old folder if that leaves it empty.
 
 The Output Directory screen lists only results: the app's own files (`go.mod`, `main.go`, `spec.go`, the program) are left out, and `mint-gen --remove` and `--purge` delete only those, so saved results stay. Choose another folder on the Output Directory screen, or with `DefaultResultsDir` for an app you build yourself. An app with no folder of its own, or one whose folder has moved, saves to `~/mint-results/<tool>/`; settings saved when that was the default move to the app's own folder, and a folder you chose is kept.
 
