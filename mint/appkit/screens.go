@@ -814,6 +814,11 @@ func (a *ToolApp) executionMode() execMode {
 	if a.Spec.FullScreen {
 		return execOnce // never polled: it would take over the terminal
 	}
+	if a.suiteLayout() {
+		// A command suite runs the selected command. Applying or polling
+		// a state is one command's job (git status), not the suite's.
+		return execOnce
+	}
 	b := a.blueprint()
 	if b.Has(FeatLiveRefresh) || (a.Spec.PollInterval > 0 && a.Spec.CanReadState()) {
 		return execPoll

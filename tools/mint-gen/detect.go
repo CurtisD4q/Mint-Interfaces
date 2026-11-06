@@ -29,7 +29,7 @@ func dataRank(level string) int {
 }
 
 func extractSubcommands(manLines, helpLines []string) []appkit.SubcommandSpec {
-	return extractSubcommandsN(manLines, helpLines, 10)
+	return extractSubcommandsN(manLines, helpLines, maxSuiteCommands)
 }
 
 // extractSubcommandsN is extractSubcommands keeping up to limit commands.
@@ -49,7 +49,8 @@ func extractSubcommandsN(manLines, helpLines []string, limit int) []appkit.Subco
 				lower == "commands" ||
 				lower == "subcommands" ||
 				lower == "available commands" ||
-				strings.Contains(lower, "main commands") {
+				strings.Contains(lower, "main commands") ||
+				commandsHeading(lower) {
 				inCmdSec = true
 				continue
 			}
@@ -80,4 +81,19 @@ func extractSubcommandsN(manLines, helpLines []string, limit int) []appkit.Subco
 		scan(manLines)
 	}
 	return out
+}
+
+// maxSuiteCommands is the most commands an app lists. The command suite's
+// list scrolls, so this is about what is still useful to pick from: git's
+// help lists 22 common commands, docker's about 40.
+const maxSuiteCommands = 24
+
+var reCommandsHeading = regexp.MustCompile(`\bcommands\b.*:$`)
+
+// commandsHeading reports whether a lower-cased line introduces a list of
+// commands in a sentence of its own: git's "These are common Git commands
+// used in various situations:". The commands follow, indented, under small
+// headings of their own ("start a working area"), which do not end the list.
+func commandsHeading(lower string) bool {
+	return len(lower) <= 100 && !strings.HasPrefix(lower, "-") && reCommandsHeading.MatchString(lower)
 }
