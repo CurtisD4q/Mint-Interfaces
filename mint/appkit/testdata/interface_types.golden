@@ -1,0 +1,50 @@
+# Programs by interface type (1076 programs)
+launcher          143  13%
+session            30   2%
+service-control    42   3%
+live-monitor       60   5%
+log-follower       72   6%
+command-suite      88   8%
+compare            38   3%
+state-editor       33   3%
+action             48   4%
+result-table      112  10%
+report             80   7%
+quick-answer      330  30%
+
+# Archetype: types its programs land in
+ask         quick-answer 8, result-table 5, launcher 4, log-follower 3, action 1, live-monitor 1
+audit       report 10, result-table 4, log-follower 2, command-suite 1, compare 1, launcher 1, live-monitor 1
+build       report 13, command-suite 7, compare 2, result-table 2, action 1, live-monitor 1, state-editor 1
+compare     quick-answer 8, compare 7, result-table 3, action 2, launcher 2, state-editor 2
+control     quick-answer 9, service-control 4, state-editor 3, compare 2, live-monitor 2, command-suite 1, result-table 1
+convert     quick-answer 35, launcher 11, result-table 11, log-follower 9, service-control 6, compare 1, live-monitor 1, state-editor 1
+device      quick-answer 10, launcher 6, log-follower 4, command-suite 3, action 2, live-monitor 2, service-control 2, state-editor 1
+edit-files  action 10, quick-answer 7, service-control 2, compare 1, state-editor 1
+filter      quick-answer 12, result-table 4, action 3, launcher 1, service-control 1, state-editor 1
+follow      quick-answer 7, launcher 5, log-follower 4, live-monitor 1, service-control 1
+general     quick-answer 12
+generate    quick-answer 24, action 3, log-follower 3, result-table 3, launcher 2, state-editor 2
+history     quick-answer 22, command-suite 12, live-monitor 3, launcher 2, action 1, compare 1, result-table 1, service-control 1, state-editor 1
+inspect     report 25, result-table 7, compare 3, live-monitor 3, state-editor 2, action 1, command-suite 1, log-follower 1
+list        result-table 23, quick-answer 12, live-monitor 5, launcher 4, action 1, log-follower 1, service-control 1
+look-up     quick-answer 10, log-follower 4, command-suite 1, live-monitor 1
+measure     live-monitor 7, quick-answer 4, result-table 3, action 1, log-follower 1, state-editor 1
+mirror      launcher 2, live-monitor 1, log-follower 1, quick-answer 1, result-table 1
+pack        quick-answer 16, command-suite 2, compare 2, log-follower 2, action 1, launcher 1, live-monitor 1, result-table 1, service-control 1
+present     quick-answer 8, launcher 6, log-follower 4, compare 1, result-table 1, state-editor 1
+probe       log-follower 5, launcher 3, command-suite 2, live-monitor 2, result-table 2, compare 1, quick-answer 1
+query       quick-answer 25, result-table 15, launcher 9, command-suite 3, compare 3, live-monitor 2, action 1, service-control 1, state-editor 1
+read        report 10, launcher 6, log-follower 4, command-suite 2, state-editor 2, action 1, compare 1, live-monitor 1, result-table 1
+record      launcher 3, log-follower 3, quick-answer 3, command-suite 2, live-monitor 2, result-table 2
+records     quick-answer 20, command-suite 16, launcher 4, result-table 3, compare 2, log-follower 2, service-control 2, action 1, live-monitor 1, state-editor 1
+rules       action 5, compare 4, result-table 4, quick-answer 2, state-editor 2, command-suite 1, service-control 1
+schedule    quick-answer 4, action 3, compare 1, live-monitor 1, log-follower 1, state-editor 1
+search      quick-answer 29, launcher 10, result-table 10, log-follower 4, state-editor 3, action 2, command-suite 2, compare 2, live-monitor 2
+serve       service-control 8, command-suite 2, quick-answer 2, state-editor 1
+session     session 30, launcher 25
+settings    quick-answer 19, launcher 9, command-suite 7, log-follower 7, action 2, service-control 2, state-editor 2, compare 1
+toolkit     command-suite 21, launcher 13, service-control 5, quick-answer 3, log-follower 2, state-editor 2, live-monitor 1
+transfer    quick-answer 12, launcher 6, command-suite 2, log-follower 2, action 1, compare 1, live-monitor 1, result-table 1, service-control 1, state-editor 1
+watch       live-monitor 15, launcher 8, quick-answer 5, result-table 3, service-control 2
+wrap        report 22, action 5, log-follower 3, live-monitor 2, compare 1, result-table 1, service-control 1
