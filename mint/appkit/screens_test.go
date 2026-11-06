@@ -337,13 +337,13 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 		t.Fatalf("suite button: %q", screenLabels(suite))
 	}
 
-	// No archetype id: the picker is still there, and the heading is not a Go type name.
+	// No archetype id: the options section is named after the command, and the heading is not a Go type name.
 	generic := newTestApp(t, ToolSpec{
 		Name: "box", Bin: "echo", Archetype: LayoutSuite,
 		Subcommands: []SubcommandSpec{{Name: "default", Label: "Default"}},
 	})
 	gsec := sectionNames(generic.MainScreen())
-	if !hasSection(generic.MainScreen(), "Subcommands") || hasSection(generic.MainScreen(), "Subcommand Tabs (ArchetypeSuite)") {
+	if !hasSection(generic.MainScreen(), "default") || hasSection(generic.MainScreen(), "Subcommand Tabs (ArchetypeSuite)") {
 		t.Fatalf("generic suite sections: %v", gsec)
 	}
 }
