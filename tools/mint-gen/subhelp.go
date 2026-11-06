@@ -33,7 +33,7 @@ func commandHelpForm(name, text string) (func(cmd string) []string, bool) {
 	if name == "" || text == "" {
 		return nil, false
 	}
-	q := regexp.QuoteMeta(name)
+	q := reQuote(name)
 	dash := regexp.MustCompile(`(?i)\b` + q + `\s+` + commandWord + `\s+(--help|-h)\b`)
 	if m := dash.FindStringSubmatch(text); m != nil {
 		flag := strings.ToLower(m[1])
@@ -151,7 +151,7 @@ func optionsBeforeCommand(name, text string) bool {
 	if name == "" {
 		return false
 	}
-	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `((?:\s+\[(?:[^\[\]]|\[[^\[\]]*\]){0,200}\])+)\s+` + commandWord + `\b`)
+	re := regexp.MustCompile(`(?i)\b` + reQuote(name) + `((?:\s+\[(?:[^\[\]]|\[[^\[\]]*\]){0,200}\])+)\s+` + commandWord + `\b`)
 	for _, m := range re.FindAllStringSubmatch(text, -1) {
 		groups := strings.ToLower(m[1])
 		if strings.Contains(groups, "option") || strings.Contains(groups, "flag") || strings.Contains(groups, "-") {
@@ -159,4 +159,11 @@ func optionsBeforeCommand(name, text string) bool {
 		}
 	}
 	return false
+}
+
+// reQuote quotes text for a regular expression. Text from outside (a
+// program's name, which on Linux may be any bytes) is made valid UTF-8
+// first: regexp refuses invalid UTF-8, and MustCompile would panic.
+func reQuote(s string) string {
+	return regexp.QuoteMeta(strings.ToValidUTF8(s, "\uFFFD"))
 }

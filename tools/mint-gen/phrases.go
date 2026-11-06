@@ -356,7 +356,7 @@ func findEvidenceIn(list []signal, p programText) phraseEvidence {
 	// A program's own name in its usage and help is not evidence about
 	// itself: "crontab" all through crontab's help says nothing about
 	// what crontab is.
-	self := regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.-])` + regexp.QuoteMeta(strings.ToLower(name)) + `($|[^A-Za-z0-9_-])`)
+	self := regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.-])` + reQuote(strings.ToLower(name)) + `($|[^A-Za-z0-9_-])`)
 	// Matches cannot share the character between two uses of the name
 	// ("crontab crontab"), so repeat until none is left. Each pass removes
 	// at least one, so this always ends (in practice after two passes).

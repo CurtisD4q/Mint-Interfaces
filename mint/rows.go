@@ -2,6 +2,7 @@ package mint
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -263,12 +264,30 @@ func toNumber(v any) float64 {
 	case int:
 		return float64(x)
 	case float64:
-		return x
+		return finiteNumber(x)
 	case string:
 		f, _ := strconv.ParseFloat(x, 64)
-		return f
+		return finiteNumber(f)
 	}
 	return 0
+}
+
+// maxExactNumber is the largest whole number a float64 holds exactly. A
+// value stored as text ("1e400", "NaN") is kept within it, so stepping it
+// never turns into a nonsense int (converting infinity or NaN to an int is
+// undefined).
+const maxExactNumber = 1 << 53
+
+func finiteNumber(f float64) float64 {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f > maxExactNumber:
+		return maxExactNumber
+	case f < -maxExactNumber:
+		return -maxExactNumber
+	}
+	return f
 }
 
 // ── Row constructors ─────────────────────────────────────────────────────────

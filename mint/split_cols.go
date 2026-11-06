@@ -210,9 +210,19 @@ func clipCells(s string, n int) string {
 	}
 	var b strings.Builder
 	used := 0
+	linkOpen := false // inside an OSC 8 hyperlink, which must be closed if cut
 	for i := 0; i < len(s); {
 		if s[i] == 0x1b && i+1 < len(s) {
 			j := i + 2
+			if strings.HasPrefix(s[i:], "\x1b]8;") {
+				// "ESC ] 8 ; params ; URI ST": an empty URI closes the link.
+				end := strings.IndexAny(s[i+4:], "\x07\x1b")
+				if end >= 0 {
+					body := s[i+4 : i+4+end]
+					_, uri, _ := strings.Cut(body, ";")
+					linkOpen = uri != ""
+				}
+			}
 			switch s[i+1] {
 			case '[': // CSI: parameters, then a final byte 0x40-0x7e
 				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
@@ -246,6 +256,9 @@ func clipCells(s string, n int) string {
 		used += wd
 		i += size
 		_ = r
+	}
+	if linkOpen {
+		b.WriteString("\x1b]8;;\x1b\\")
 	}
 	return b.String() + Reset
 }
