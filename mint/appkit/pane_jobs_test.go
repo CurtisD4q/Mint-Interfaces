@@ -81,8 +81,18 @@ func assertPaneRule(t *testing.T, def ArchetypeDef, s *mint.Screen, advanced boo
 	assertNoEmpty(t, s)
 	assertDistinctAdjacent(t, s)
 	titles := orderedPaneTitles(s)
-	if len(titles) < 2 || titles[0] != titleBasic || titles[len(titles)-1] != titleOutput {
-		t.Fatalf("%s titles %v, want Basic Options first and Output last", def.ID, titles)
+	// A command suite opens with its list of commands, then the options of
+	// the selected one beside it; every other screen opens with Basic Options.
+	head := 1
+	first := titleBasic
+	if len(titles) > 1 && titles[0] == titleCommands {
+		first, head = titleCommands, 2
+		if titles[1] != titleOptions {
+			t.Fatalf("%s titles %v, want Options beside Commands", def.ID, titles)
+		}
+	}
+	if len(titles) < 2 || titles[0] != first || titles[len(titles)-1] != titleOutput {
+		t.Fatalf("%s titles %v, want %s first and Output last", def.ID, titles, first)
 	}
 	if len(s.Dock) == 0 || s.Dock[0].Name == "" {
 		t.Fatalf("%s command bar missing under Output", def.ID)
@@ -93,7 +103,7 @@ func assertPaneRule(t *testing.T, def ArchetypeDef, s *mint.Screen, advanced boo
 			t.Fatalf("%s left the command bar in the options pane (%q)", def.ID, sec.Name)
 		}
 	}
-	mid := titles[1 : len(titles)-1]
+	mid := titles[head : len(titles)-1]
 	split := advancedInOwnPane(string(def.ID))
 	if split && advanced {
 		if len(mid) == 0 || mid[0] != titleAdvanced {

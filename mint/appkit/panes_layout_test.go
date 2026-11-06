@@ -92,7 +92,7 @@ func TestArchetypePaneLayouts(t *testing.T) {
 		{"probe", ToolSpec{Name: "nmap", Bin: "echo", ArchetypeID: "probe"}, []string{titleBasic, titleOutput}},
 		{"audit", ToolSpec{Name: "shellcheck", Bin: "echo", ArchetypeID: "audit", Findings: &FindingsSpec{Adapter: FindingsLines}}, []string{titleBasic, "Findings", titleOutput}},
 		{"convert", ToolSpec{Name: "ffmpeg", Bin: "echo", ArchetypeID: "convert"}, []string{titleBasic, titleOutput}},
-		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{titleBasic, titleOutput}},
+		{"toolkit", ToolSpec{Name: "docker", Bin: "echo", ArchetypeID: "toolkit", Subcommands: []SubcommandSpec{{Name: "ps", Label: "Ps", Desc: "List"}}}, []string{titleCommands, titleOptions, titleOutput}},
 		{"transfer", ToolSpec{Name: "curl", Bin: "echo", ArchetypeID: "transfer"}, []string{titleBasic, titleOutput}},
 		{"mirror", ToolSpec{Name: "rsync", Bin: "echo", ArchetypeID: "mirror"}, []string{titleBasic, titleOutput}},
 		{"measure", ToolSpec{Name: "fio", Bin: "echo", ArchetypeID: "measure"}, []string{titleBasic, titleOutput}},

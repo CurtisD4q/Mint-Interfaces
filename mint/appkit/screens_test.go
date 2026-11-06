@@ -322,9 +322,16 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 	if !hasSection(suite, "Toolkit") || hasSection(suite, "Subcommand Tabs (ArchetypeSuite)") {
 		t.Fatalf("suite sections: %v", sectionNames(suite))
 	}
-	if !containsAll(screenRowIDs(suite), "suite:subcommand") {
-		t.Fatal("suite with subcommands lost its picker")
+	// The commands are a list of their own, beside the form, not a picker.
+	if !containsAll(screenRowIDs(suite), "suite:command:status") || containsAll(screenRowIDs(suite), "suite:subcommand") {
+		t.Fatalf("suite rows: %v", screenRowIDs(suite))
 	}
+	t.Setenv("MINT_CLASSIC_LAYOUT", "1")
+	classic := with.MainScreen()
+	if !containsAll(screenRowIDs(classic), "suite:subcommand") {
+		t.Fatal("the classic layout lost its subcommand picker")
+	}
+	t.Setenv("MINT_CLASSIC_LAYOUT", "")
 	if !strings.Contains(strings.Join(screenLabels(suite), "\n"), "Run (gitx)") {
 		t.Fatalf("suite button: %q", screenLabels(suite))
 	}
