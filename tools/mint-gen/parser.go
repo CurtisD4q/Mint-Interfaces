@@ -200,6 +200,9 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 			spec.Subcommands = subs
 		}
 	}
+	if len(spec.Subcommands) > 0 {
+		spec.GlobalFlagsFirst = optionsBeforeCommand(name, helpText+"\n"+manText)
+	}
 	archExt := spec.DefaultExt // the archetype's, if any
 	appkit.ApplySafetyDefaults(&spec)
 	// What the help is about can only raise the data level.

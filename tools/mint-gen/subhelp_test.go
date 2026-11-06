@@ -130,3 +130,22 @@ func TestScaffoldWritesEachCommandsOptions(t *testing.T) {
 		t.Fatalf("command options not written:\n%s", s)
 	}
 }
+
+func TestOptionsBeforeCommand(t *testing.T) {
+	cases := []struct {
+		name, text string
+		want       bool
+	}{
+		{"docker", "Usage:  docker [OPTIONS] COMMAND", true},
+		{"git", "usage: git [-v | --version] [-h | --help] [-C <path>]\n           [--exec-path[=<path>]]\n           <command> [<args>]", true},
+		{"kubectl", "kubectl [flags] [command]", true},
+		{"7z", "Usage: 7z <command> [<switches>...] <archive_name>", false},
+		{"tool", "Usage: tool [FILE] command", false}, // a bracket, but not options
+		{"tool", "Usage: other [OPTIONS] COMMAND", false},
+	}
+	for _, c := range cases {
+		if got := optionsBeforeCommand(c.name, c.text); got != c.want {
+			t.Errorf("%s %q: %v, want %v", c.name, c.text, got, c.want)
+		}
+	}
+}

@@ -172,9 +172,14 @@ type ToolSpec struct {
 	ApplyArgs         []string         `json:"apply_args,omitempty"`         // Prefix args when applying a state edit
 	PollInterval      time.Duration    `json:"poll_interval,omitempty"`      // How often a live screen reads state
 	Subcommands       []SubcommandSpec `json:"subcommands,omitempty"`        // Subcommand tabs, shown when this list is not empty
-	RowActions        []RowActionSpec  `json:"row_actions,omitempty"`        // Per-row actions for tables
-	Profiles          []ProfileSpec    `json:"profiles,omitempty"`           // Mixin: WithProfiles
-	Flags             []FlagSpec       `json:"flags,omitempty"`
+	// GlobalFlagsFirst puts the program's own options (Flags) before the
+	// command word and the command's own after it: docker -D run --rm.
+	// mint-gen sets it when the usage line shows options before the
+	// command (docker [OPTIONS] COMMAND); 7z <command> [<switches>] does not.
+	GlobalFlagsFirst bool            `json:"global_flags_first,omitempty"`
+	RowActions       []RowActionSpec `json:"row_actions,omitempty"` // Per-row actions for tables
+	Profiles         []ProfileSpec   `json:"profiles,omitempty"`    // Mixin: WithProfiles
+	Flags            []FlagSpec      `json:"flags,omitempty"`
 }
 
 // BinaryName returns the executable name to invoke.
@@ -592,6 +597,9 @@ const secretMask = "••••••"
 
 // argMode says what an argument list is for.
 type argMode struct {
+	// ownOnly: only the selected command's own options; the program's go
+	// before the command word (ToolSpec.GlobalFlagsFirst).
+	ownOnly bool
 	// mask: for showing or recording (previews, history). Secret values
 	// are replaced by secretMask, and $VAR stays as typed instead of its
 	// value, which may be a token.
@@ -613,7 +621,79 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 
 func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdin []string) {
 	mask := mode.mask
-	for _, f := range a.flags() {
+	flags := a.flags()
+	if mode.ownOnly {
+		flags = a.ownFlags(a.activeSubcommandSpec())
+	}
+	args, stdin = a.flagWords(flags, mode)
+
+	outPath = a.ResolvedOutputPath()
+	if outPath != "" && a.Spec.OutputFlag != "" {
+		if strings.HasSuffix(a.Spec.OutputFlag, "=") {
+			args = append(args, a.Spec.OutputFlag+outPath)
+		} else {
+			args = append(args, a.Spec.OutputFlag, outPath)
+		}
+	}
+
+	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" && !mode.status {
+		var words []string
+		if mask {
+			words = shownArgWords(maskFreeText(extra, a.secretFlagNames()))
+		} else {
+			words = expandArgWords(extra)
+		}
+		for _, w := range words {
+			args = append(args, a.rebased(w, rebaseMaybe))
+		}
+	}
+
+	var operands []string
+	if target := strings.TrimSpace(a.Target); target != "" {
+		var words []string
+		if mask {
+			words = shownArgWords(maskFreeText(target, a.secretFlagNames()))
+		} else {
+			words = expandArgWords(target)
+		}
+		operands = append(operands, a.targetRebased(words, false)...)
+	}
+	if a.Spec.TwoInputs {
+		if second := strings.TrimSpace(a.SecondTarget); second != "" {
+			var words []string
+			if mask {
+				words = shownArgWords(maskFreeText(second, a.secretFlagNames()))
+			} else {
+				words = expandArgWords(second)
+			}
+			operands = append(operands, a.targetRebased(words, true)...)
+		}
+	}
+	if len(operands) > 0 {
+		if a.Spec.OperandSeparator {
+			// Without "--", a file named "-rf" (or a target typed as
+			// "-rf x") reaches rm as options. After it, every word is
+			// a name. Both inputs of a pair come after it.
+			args = append(args, "--")
+		}
+		args = append(args, operands...)
+	}
+	if outPath != "" && a.Spec.OutputPositional {
+		// The tool writes to its last argument (ffmpeg … outfile). A path
+		// that starts with "-" would read as an option, so it never does.
+		if strings.HasPrefix(outPath, "-") {
+			outPath = "./" + outPath
+		}
+		args = append(args, outPath)
+	}
+	return args, outPath, stdin
+}
+
+// flagWords is the command-line words for flags, and the secrets to send on
+// standard input, as composeArgs sends them.
+func (a *ToolApp) flagWords(flags []FlagSpec, mode argMode) (args []string, stdin []string) {
+	mask := mode.mask
+	for _, f := range flags {
 		val := strings.TrimSpace(a.Values[f.Flag])
 		if mode.status && f.Kind != FlagSecret && LooksDestructive(f.Flag, strings.TrimSpace(f.Label+" "+f.Hint)) {
 			continue
@@ -690,66 +770,7 @@ func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdi
 		}
 	}
 
-	outPath = a.ResolvedOutputPath()
-	if outPath != "" && a.Spec.OutputFlag != "" {
-		if strings.HasSuffix(a.Spec.OutputFlag, "=") {
-			args = append(args, a.Spec.OutputFlag+outPath)
-		} else {
-			args = append(args, a.Spec.OutputFlag, outPath)
-		}
-	}
-
-	if extra := strings.TrimSpace(a.ExtraArgs); extra != "" && !mode.status {
-		var words []string
-		if mask {
-			words = shownArgWords(maskFreeText(extra, a.secretFlagNames()))
-		} else {
-			words = expandArgWords(extra)
-		}
-		for _, w := range words {
-			args = append(args, a.rebased(w, rebaseMaybe))
-		}
-	}
-
-	var operands []string
-	if target := strings.TrimSpace(a.Target); target != "" {
-		var words []string
-		if mask {
-			words = shownArgWords(maskFreeText(target, a.secretFlagNames()))
-		} else {
-			words = expandArgWords(target)
-		}
-		operands = append(operands, a.targetRebased(words, false)...)
-	}
-	if a.Spec.TwoInputs {
-		if second := strings.TrimSpace(a.SecondTarget); second != "" {
-			var words []string
-			if mask {
-				words = shownArgWords(maskFreeText(second, a.secretFlagNames()))
-			} else {
-				words = expandArgWords(second)
-			}
-			operands = append(operands, a.targetRebased(words, true)...)
-		}
-	}
-	if len(operands) > 0 {
-		if a.Spec.OperandSeparator {
-			// Without "--", a file named "-rf" (or a target typed as
-			// "-rf x") reaches rm as options. After it, every word is
-			// a name. Both inputs of a pair come after it.
-			args = append(args, "--")
-		}
-		args = append(args, operands...)
-	}
-	if outPath != "" && a.Spec.OutputPositional {
-		// The tool writes to its last argument (ffmpeg … outfile). A path
-		// that starts with "-" would read as an option, so it never does.
-		if strings.HasPrefix(outPath, "-") {
-			outPath = "./" + outPath
-		}
-		args = append(args, outPath)
-	}
-	return args, outPath, stdin
+	return args, stdin
 }
 
 // What a tool prints (ToolSpec.StdoutKind).
@@ -1031,8 +1052,17 @@ func (a *ToolApp) buildArgs(mask bool) (args []string, outPath string, stdin []s
 }
 
 func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, stdin []string) {
+	var globalStdin []string
 	if len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
+			if a.Spec.GlobalFlagsFirst {
+				// docker -D run: the program's own options go before the
+				// command word, the command's after it.
+				var words []string
+				words, globalStdin = a.flagWords(a.Spec.Flags, mode)
+				args = append(args, words...)
+				mode.ownOnly = true
+			}
 			args = append(args, sub.Args...)
 		}
 	} else if a.isStateEditor() && len(a.Spec.ApplyArgs) > 0 {
@@ -1043,6 +1073,7 @@ func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, std
 	args = append(args, a.Spec.BatchArgs...)
 	args = append(args, a.Spec.ColourArgs...)
 	flagArgs, outPath, stdin := a.composeArgs(mode)
+	stdin = append(globalStdin, stdin...)
 	args = append(args, flagArgs...)
 	args, _ = a.diffArgs(args, prefix)
 	args, _ = a.findingsArgs(args, prefix)
@@ -1056,7 +1087,12 @@ func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, std
 func (a *ToolApp) argPrefixLen() int {
 	if len(a.Spec.Subcommands) > 0 {
 		if sub := a.activeSubcommandSpec(); sub != nil {
-			return len(sub.Args)
+			n := len(sub.Args)
+			if a.Spec.GlobalFlagsFirst {
+				words, _ := a.flagWords(a.Spec.Flags, argMode{mask: true})
+				n += len(words)
+			}
+			return n
 		}
 	} else if a.isStateEditor() && len(a.Spec.ApplyArgs) > 0 {
 		return len(a.Spec.ApplyArgs)

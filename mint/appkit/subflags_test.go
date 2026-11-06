@@ -140,3 +140,26 @@ func TestPresetRestoreSelectsItsCommandProperly(t *testing.T) {
 		t.Fatal("run's value stayed in Values while logs is selected")
 	}
 }
+
+func TestGlobalOptionsGoBeforeTheCommandWhenTheUsageSaysSo(t *testing.T) {
+	spec := cmdSpec()
+	spec.GlobalFlagsFirst = true
+	a := newTestApp(t, spec)
+	a.Values["--debug"] = "true"
+	a.Values["--rm"] = "true"
+	a.ExtraArgs = "--privileged"
+	a.Target = "alpine"
+	line := strings.Join(must(a.BuildArgs()), " ")
+	if !strings.HasPrefix(line, "--debug run --rm") || !strings.HasSuffix(line, "--privileged alpine") {
+		t.Fatalf("line %q", line)
+	}
+	if n := a.argPrefixLen(); n != 2 {
+		t.Fatalf("prefix %d, want 2 (--debug run)", n)
+	}
+	// Without the usage saying so, everything stays after the command word.
+	b := newTestApp(t, cmdSpec())
+	b.Values["--debug"] = "true"
+	if line := strings.Join(must(b.BuildArgs()), " "); !strings.HasPrefix(line, "run ") || !strings.Contains(line, "--debug") {
+		t.Fatalf("default line %q", line)
+	}
+}
