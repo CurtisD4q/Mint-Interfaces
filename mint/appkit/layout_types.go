@@ -61,3 +61,16 @@ func (a *ToolApp) suiteList() []mint.Section {
 	}
 	return []mint.Section{{Name: "Commands", Rows: rows}}
 }
+
+// Live monitor: a program that keeps running and shows rows or values. The
+// options are a narrow column on the left; the live values take the rest of
+// the width beside them, and the controls (poll now, pause, interval) stay
+// docked under both.
+
+const titleLive = "Live values"
+
+// monitorLayout reports whether the app draws as a live monitor. A monitor
+// that cannot read its state (so is not polled) keeps the classic screen.
+func (a *ToolApp) monitorLayout(mode execMode) bool {
+	return mode == execPoll && a.Spec.CanReadState() && a.usesType(TypeLiveMonitor)
+}

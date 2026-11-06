@@ -196,3 +196,67 @@ func activateRow(t *testing.T, r mint.Row) {
 	}
 	fn(nil)
 }
+
+func monitorSpec() ToolSpec {
+	return ToolSpec{
+		Name: "free", Bin: "echo", ArchetypeID: "watch", ReadOnly: true,
+		StatusArgs: []string{"-m"}, PollInterval: 2000000000, TableOutput: true,
+		Flags: []FlagSpec{{Flag: "-h", Kind: FlagBool, Label: "Human readable", Section: "Display"}},
+	}
+}
+
+func TestLiveMonitorLayout(t *testing.T) {
+	a := newTestApp(t, monitorSpec())
+	if got := a.InterfacePlan().Type; got != TypeLiveMonitor {
+		t.Fatalf("plan %s", got)
+	}
+	s := a.MainScreen()
+	if s.TopTitle != titleOptions || s.TopWidth <= 0 {
+		t.Fatalf("top %q width %v", s.TopTitle, s.TopWidth)
+	}
+	if len(s.Panes) != 1 || s.Panes[0].Title != titleLive || !s.Panes[0].Beside || s.Panes[0].Width <= s.TopWidth {
+		t.Fatalf("panes %+v", s.Panes)
+	}
+	// The live controls stay docked under both.
+	if len(s.Dock) == 0 || s.Dock[0].Name != "Live" {
+		t.Fatalf("dock %+v", s.Dock)
+	}
+	wide := gridText(s.FrameText(32, 110), 32, 110)
+	if !hasLineWith(wide, "Options", "Live values") {
+		t.Fatalf("wide: Options and Live values are not on one line\n%s", wide)
+	}
+	narrow := gridText(a.MainScreen().FrameText(40, 56), 40, 56)
+	if hasLineWith(narrow, "Options", "Live values") || !strings.Contains(narrow, "Live values") {
+		t.Fatalf("narrow\n%s", narrow)
+	}
+}
+
+func TestMonitorWithAdvancedOptionsStacksThemUnderBoth(t *testing.T) {
+	spec := monitorSpec()
+	spec.Flags = append(spec.Flags, manyAdvanced()...)
+	s := newTestApp(t, spec).MainScreen()
+	var titles []string
+	for _, p := range s.Panes {
+		titles = append(titles, p.Title)
+	}
+	if strings.Join(titles, "|") != titleLive+"|"+titleAdvanced {
+		t.Fatalf("panes %v", titles)
+	}
+	if !s.Panes[0].Beside || s.Panes[1].Beside {
+		t.Fatalf("beside: live %v, advanced %v", s.Panes[0].Beside, s.Panes[1].Beside)
+	}
+}
+
+func TestMonitorThatCannotReadItsStateKeepsTheClassicScreen(t *testing.T) {
+	spec := monitorSpec()
+	spec.ReadOnly, spec.StatusArgs = false, nil
+	s := newTestApp(t, spec).MainScreen()
+	if s.TopTitle != titleBasic || s.TopWidth != 0 {
+		t.Fatalf("top %q width %v", s.TopTitle, s.TopWidth)
+	}
+	t.Setenv("MINT_CLASSIC_LAYOUT", "1")
+	s = newTestApp(t, monitorSpec()).MainScreen()
+	if s.TopTitle != titleBasic {
+		t.Fatalf("classic override ignored: %q", s.TopTitle)
+	}
+}

@@ -796,6 +796,8 @@ A screen's extra panes stack under its own sections. Set `Beside: true` on a pan
 
 Generated apps choose a layout from how the program runs, not only from its archetype (see `InterfacePlan`). The command suite is the first type with a layout of its own: a program made of commands shows the commands as a list on the left, the options for the selected command beside it, and the result under both. Press Enter on a command to select it. On a terminal too narrow for two panes, the list stacks above the options.
 
+The **live monitor** (a program that keeps running and shows rows) puts its options in a column on the left and the live values beside them, with the poll controls docked under both.
+
 Every other type still draws the classic screen, which also stays available for all apps: set `MINT_CLASSIC_LAYOUT=1` to draw every app with it.
 
 ## Keys

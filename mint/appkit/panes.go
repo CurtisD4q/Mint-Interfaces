@@ -90,6 +90,17 @@ func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, inte
 	}
 	panes = append(panes, a.rolePanes()...)
 	title := a.outputSectionName(a.outputFallback(mode))
+	if a.monitorLayout(mode) {
+		// Options on the left, the live values beside them, and whatever
+		// else stacks under both.
+		live := onePane(titleLive, []mint.Section{a.buildOutputDisplaySection(title)})
+		live.Beside, live.Width = true, 2
+		scr.TopTitle, scr.TopWidth = titleOptions, 1
+		scr.Sections = basic
+		scr.SetPanes(append([]*mint.Pane{live}, panes...))
+		scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, canPoll, interval)})
+		return
+	}
 	panes = appendPane(panes, onePane(titleOutput, []mint.Section{a.buildOutputDisplaySection(title)}))
 
 	if a.suiteLayout() {

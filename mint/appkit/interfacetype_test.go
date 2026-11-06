@@ -254,6 +254,20 @@ func TestFactsFromSpecAndAppPlan(t *testing.T) {
 	}
 }
 
+func TestReadOnlyStatusArgsDoNotChangeState(t *testing.T) {
+	mon := ToolSpec{Name: "free", Bin: "echo", ArchetypeID: "watch", ReadOnly: true, StatusArgs: []string{"-m"}, PollInterval: 2000000000, TableOutput: true}
+	if f := FactsFromSpec(mon); f.ChangesState {
+		t.Fatal("a read-only monitor was taken to change things")
+	}
+	if got := PlanFor(FactsFromSpec(mon)).Type; got != TypeLiveMonitor {
+		t.Errorf("read-only monitor is %s", got)
+	}
+	ctl := ToolSpec{Name: "svc", Bin: "echo", ArchetypeID: "control", StatusArgs: []string{"status"}, PollInterval: 2000000000}
+	if f := FactsFromSpec(ctl); !f.ChangesState {
+		t.Fatal("a controller with status arguments does not change things?")
+	}
+}
+
 // Choosing a type must not change what MainScreen draws yet.
 func TestPlanDoesNotChangeTheScreen(t *testing.T) {
 	for _, d := range AllArchetypeDefs() {
