@@ -46,7 +46,12 @@ func TestHelpRunnerIsolation(t *testing.T) {
 	t.Setenv("MY_SECRET_TOKEN", "hunter22")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "abc")
 	tool := fakeHelpTool(t, "envtool", `echo "PWD=$(pwd)"; env; touch "$HOME/created-on-first-run"; echo "HOMEFILES=$(ls -A "$HOME")"`)
-	out, err := runForHelp(t, tool, "--help")
+	r, cleanup, err := newHelpRunner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.run(tool, "--help")
+	cleanup()
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -64,14 +69,16 @@ func TestHelpRunnerIsolation(t *testing.T) {
 			pwd = strings.TrimPrefix(l, "PWD=")
 		}
 	}
+	// The folder is HOME and the working folder, and the help shows it as ~
+	// (see scrub), never as the temporary path.
 	realHome, _ := os.UserHomeDir()
-	if home == "" || home == realHome || pwd != home || !strings.Contains(home, "mint-gen-help-") {
-		t.Fatalf("HOME=%q PWD=%q", home, pwd)
+	if home != "~" || pwd != "~" || strings.Contains(out, r.dir) || r.dir == realHome || !strings.Contains(r.dir, "mint-gen-help-") {
+		t.Fatalf("HOME=%q PWD=%q dir=%q", home, pwd, r.dir)
 	}
 	if !strings.Contains(out, "HOMEFILES=created-on-first-run") {
 		t.Fatalf("the program could not use its own HOME:\n%s", out)
 	}
-	if _, err := os.Stat(home); !os.IsNotExist(err) {
+	if _, err := os.Stat(r.dir); !os.IsNotExist(err) {
 		t.Fatal("the temporary HOME was not removed")
 	}
 	if !strings.Contains(out, "LC_ALL=C") || !strings.Contains(out, "PATH=") {
@@ -394,5 +401,22 @@ func TestHelpStreamsNotInterleaved(t *testing.T) {
 	errOnly := fakeHelpTool(t, "erronly", `echo "usage: erronly [-v]" >&2; exit 1`)
 	if out, _ := runForHelp(t, errOnly, "--help"); !strings.Contains(out, "usage: erronly") {
 		t.Fatalf("stderr help lost: %q", out)
+	}
+}
+
+// A default under the temporary HOME is shown as ~, so it never reaches the
+// generated app's labels.
+func TestHelpShowsTheTemporaryHomeAsTilde(t *testing.T) {
+	tool := fakeHelpTool(t, "cfgtool", `echo "  --config string   Location of client config files (default \"$HOME/.cfgtool\")"; echo "  --cache string    Cache (default \"$TMPDIR/cache\")" >&2`)
+	out, err := runForHelp(t, tool, "--help")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if strings.Contains(out, "mint-gen-help-") || !strings.Contains(out, `(default "~/.cfgtool")`) || !strings.Contains(out, `"~/cache"`) {
+		t.Fatalf("help text:\n%s", out)
+	}
+	var r *helpRunner
+	if got := r.scrub("x"); got != "x" {
+		t.Errorf("nil runner changed text: %q", got)
 	}
 }

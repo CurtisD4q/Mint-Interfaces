@@ -7,6 +7,7 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -226,7 +227,25 @@ func (r *helpRunner) runStreams(program string, args ...string) (string, string,
 	}
 	// Anything the program started and left behind goes too.
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	return out.String(), errOut.String(), err
+	return r.scrub(out.String()), r.scrub(errOut.String()), err
+}
+
+// scrub writes the empty folder the help ran in as ~. It is the program's
+// HOME, so a default such as "/tmp/mint-gen-help-123/.docker" is really
+// "~/.docker": the temporary path would otherwise end up in option labels
+// and defaults of the generated app, where it means nothing.
+func (r *helpRunner) scrub(s string) string {
+	if r == nil || r.dir == "" {
+		return s
+	}
+	dirs := []string{r.dir}
+	if real, err := filepath.EvalSymlinks(r.dir); err == nil && real != r.dir {
+		dirs = append(dirs, real)
+	}
+	for _, d := range dirs {
+		s = strings.ReplaceAll(s, d, "~")
+	}
+	return s
 }
 
 // capBuffer keeps the first max bytes written to it and discards the rest.
