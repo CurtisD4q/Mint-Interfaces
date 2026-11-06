@@ -1073,13 +1073,18 @@ func (a *ToolApp) executionZone(mode execMode, canPoll bool, interval time.Durat
 			a.refreshRow("Refresh live state"),
 		}}
 	default:
+		label := a.actionLabel("Run " + a.Spec.Name)
+		if a.suiteLayout() && a.ActiveSubcommand != "" {
+			// The button runs the selected command: say which.
+			label = "Run (" + a.Spec.Name + " " + a.ActiveSubcommand + ")"
+		}
 		return mint.Section{Name: "Run", Rows: []mint.Row{
 			mint.Value(mint.ValueOpts{
 				Label: "Command preview",
 				Get:   func() string { return a.CommandPreview() },
 			}),
 			mint.Action(mint.ActionOpts{
-				Label: a.actionLabel("Run " + a.Spec.Name),
+				Label: label,
 				Hint:  "run",
 				OnActivate: func(c *mint.Ctx) {
 					a.executeFromUI(c)

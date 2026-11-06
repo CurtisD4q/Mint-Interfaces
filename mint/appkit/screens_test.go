@@ -332,7 +332,7 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 		t.Fatal("the classic layout lost its subcommand picker")
 	}
 	t.Setenv("MINT_CLASSIC_LAYOUT", "")
-	if !strings.Contains(strings.Join(screenLabels(suite), "\n"), "Run (gitx)") {
+	if !strings.Contains(strings.Join(screenLabels(suite), "\n"), "Run (gitx status)") {
 		t.Fatalf("suite button: %q", screenLabels(suite))
 	}
 

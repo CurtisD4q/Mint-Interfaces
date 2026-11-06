@@ -274,8 +274,21 @@ func TestCommandSuiteRunsTheSelectedCommand(t *testing.T) {
 	if len(s.Dock) == 0 || s.Dock[0].Name != "Run" || s.Icon != "❖" {
 		t.Fatalf("dock %+v icon %q", s.Dock, s.Icon)
 	}
+	if labels := strings.Join(screenLabelsOf(s.Dock), "|"); !strings.Contains(labels, "Run (gitx status)") {
+		t.Fatalf("run button %q", labels)
+	}
 	t.Setenv("MINT_CLASSIC_LAYOUT", "1")
 	if newTestApp(t, spec).executionMode() != execState {
 		t.Fatal("the classic screen changed")
 	}
+}
+
+func screenLabelsOf(secs []mint.Section) []string {
+	var out []string
+	for _, sec := range secs {
+		for _, r := range sec.Rows {
+			out = append(out, rowField(r, "label"))
+		}
+	}
+	return out
 }
