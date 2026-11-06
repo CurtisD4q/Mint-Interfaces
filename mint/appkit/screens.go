@@ -814,6 +814,11 @@ func (a *ToolApp) executionMode() execMode {
 	if a.Spec.FullScreen {
 		return execOnce // never polled: it would take over the terminal
 	}
+	if a.suiteLayout() {
+		// A command suite runs the selected command. Applying or polling
+		// a state is one command's job (git status), not the suite's.
+		return execOnce
+	}
 	b := a.blueprint()
 	if b.Has(FeatLiveRefresh) || (a.Spec.PollInterval > 0 && a.Spec.CanReadState()) {
 		return execPoll
@@ -1077,13 +1082,18 @@ func (a *ToolApp) executionZone(mode execMode, canPoll bool, interval time.Durat
 			a.refreshRow("Refresh live state"),
 		}}
 	default:
+		label := a.actionLabel("Run " + a.Spec.Name)
+		if a.suiteLayout() && a.ActiveSubcommand != "" {
+			// The button runs the selected command: say which.
+			label = "Run (" + a.Spec.Name + " " + a.ActiveSubcommand + ")"
+		}
 		return mint.Section{Name: "Run", Rows: []mint.Row{
 			mint.Value(mint.ValueOpts{
 				Label: "Command preview",
 				Get:   func() string { return a.CommandPreview() },
 			}),
 			mint.Action(mint.ActionOpts{
-				Label: a.actionLabel("Run " + a.Spec.Name),
+				Label: label,
 				Hint:  "run",
 				OnActivate: func(c *mint.Ctx) {
 					a.executeFromUI(c)

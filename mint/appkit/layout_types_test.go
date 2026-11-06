@@ -264,3 +264,35 @@ func TestMonitorThatCannotReadItsStateKeepsTheClassicScreen(t *testing.T) {
 		t.Fatalf("classic override ignored: %q", s.TopTitle)
 	}
 }
+
+// git has a known status command, which makes a plain app a state editor;
+// as a command suite it runs the selected command instead.
+func TestCommandSuiteRunsTheSelectedCommand(t *testing.T) {
+	spec := suiteSpec()
+	spec.StatusArgs = []string{"status"}
+	a := newTestApp(t, spec)
+	if a.executionMode() != execOnce {
+		t.Fatalf("mode %v", a.executionMode())
+	}
+	s := a.MainScreen()
+	if len(s.Dock) == 0 || s.Dock[0].Name != "Run" || s.Icon != "❖" {
+		t.Fatalf("dock %+v icon %q", s.Dock, s.Icon)
+	}
+	if labels := strings.Join(screenLabelsOf(s.Dock), "|"); !strings.Contains(labels, "Run (gitx status)") {
+		t.Fatalf("run button %q", labels)
+	}
+	t.Setenv("MINT_CLASSIC_LAYOUT", "1")
+	if newTestApp(t, spec).executionMode() != execState {
+		t.Fatal("the classic screen changed")
+	}
+}
+
+func screenLabelsOf(secs []mint.Section) []string {
+	var out []string
+	for _, sec := range secs {
+		for _, r := range sec.Rows {
+			out = append(out, rowField(r, "label"))
+		}
+	}
+	return out
+}
