@@ -332,3 +332,20 @@ func TestClicksInTwoPanesAreNotADoubleClick(t *testing.T) {
 		t.Fatal("a real double click no longer toggles")
 	}
 }
+
+func TestFooterOffersHideOnlyWhereItWorks(t *testing.T) {
+	stacked := stripFrame(paneScreen(3).renderFrame(30, 100))
+	if !strings.Contains(stacked, "| hide") {
+		t.Errorf("stacked panes lost the hide key\n%s", stacked)
+	}
+	beside := besideScreen(2)
+	frame := stripFrame(beside.renderFrame(30, 100))
+	if strings.Contains(frame, "| hide") || !strings.Contains(frame, "[ ] size") || !strings.Contains(frame, "Tab/S-Tab pane") {
+		t.Errorf("side-by-side footer\n%s", frame)
+	}
+	// Narrow: the panes stack again, and hide comes back.
+	narrow := stripFrame(besideScreen(2).renderFrame(30, 56))
+	if !strings.Contains(narrow, "hide") {
+		t.Errorf("narrow footer\n%s", narrow)
+	}
+}

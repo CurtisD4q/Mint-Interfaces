@@ -395,19 +395,27 @@ func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
 	return placeBands(s, plans, rows, content, leads, contentTop, avail)
 }
 
-const splitKeyHints = "Tab/S-Tab pane   [ ] size   | hide"
+const (
+	splitKeyHints       = "Tab/S-Tab pane   [ ] size   | hide"
+	splitKeyHintsNoHide = "Tab/S-Tab pane   [ ] size"
+)
 
-// withSplitHints appends the stacked-pane keys. They sit at the right, so
-// a narrow footer drops the general keys first and keeps these.
-func withSplitHints(hints string) string {
+// withSplitHints appends the pane keys. They sit at the right, so a narrow
+// footer drops the general keys first and keeps these. A pane beside
+// another cannot be hidden, so its footer does not offer it.
+func withSplitHints(hints string, canHide bool) string {
+	keys := splitKeyHints
+	if !canHide {
+		keys = splitKeyHintsNoHide
+	}
 	hints = strings.TrimRight(hints, " ")
 	if hints == "" {
-		return " " + splitKeyHints + " "
+		return " " + keys + " "
 	}
 	if !strings.HasPrefix(hints, " ") {
 		hints = " " + hints
 	}
-	return hints + "   " + splitKeyHints + " "
+	return hints + "   " + keys + " "
 }
 
 // preparePane flattens sections into st and scrolls so the cursor stays
