@@ -788,7 +788,7 @@ func (s *Screen) paintGapRules(cv *canvas, bands []paneBand, w int) {
 			if gap >= 2 {
 				ruleRow := b.divRow - gap
 				if ruleRow >= 1 && !divAt[ruleRow-1] {
-					paintRule(cv, ruleRow, w)
+					s.paintPaneRule(cv, b, ruleRow, w)
 				}
 			}
 		}
@@ -819,6 +819,35 @@ func (s *Screen) trailingPad(b *paneBand) int {
 	return b.rows - vis
 }
 
+// paintPaneRule draws the rule above a pane heading. A focused pane keeps
+// the ordinary dim rule. An unfocused pane's rule is drawn in the same
+// dimmed colour as its heading, and a side-by-side band splits the rule so
+// each pane's share matches that pane.
+func (s *Screen) paintPaneRule(cv *canvas, b *paneBand, row, w int) {
+	spans := b.spans(w)
+	if len(spans) < 2 {
+		focused := b.index == s.focus
+		if len(spans) == 1 {
+			focused = spans[0].index == s.focus
+		}
+		paintRuleSpan(cv, row, 2, w-3, paneRuleStyle(focused))
+		return
+	}
+	for i, sp := range spans {
+		start := sp.x0
+		end := sp.x0 + sp.w - 1
+		if i == 0 && start < 2 {
+			start = 2
+		}
+		if i == len(spans)-1 && end > w-2 {
+			end = w - 2
+		}
+		if n := end - start + 1; n > 0 {
+			paintRuleSpan(cv, row, start, n, paneRuleStyle(sp.index == s.focus))
+		}
+	}
+}
+
 func paintDivider(cv *canvas, row, w int, title string, focused bool) {
 	title = CleanLine(title)
 	if title == "" {
@@ -828,7 +857,7 @@ func paintDivider(cv *canvas, row, w int, title string, focused bool) {
 	if focused {
 		mark = "▸"
 	}
-	cv.put(row, 3, C.Accent+C.Bold+Truncate(mark+" "+title, max(4, w-8))+Reset)
+	cv.put(row, 3, headingStyle(focused)+Truncate(mark+" "+title, max(4, w-8))+Reset)
 }
 
 // plainText reports whether s has no escape or control character, so it can
