@@ -75,8 +75,12 @@ func TestCommandSuiteFollowsTheSelectedCommand(t *testing.T) {
 	if s.TopTitle != titleCommands || len(s.Panes) == 0 || s.Panes[0].Title != titleOptions {
 		t.Fatalf("after selecting: %q %+v", s.TopTitle, s.Panes)
 	}
-	if grid := gridText(s.FrameText(32, 110), 32, 110); !strings.Contains(grid, "record changes") {
+	grid := gridText(s.FrameText(32, 110), 32, 110)
+	if !strings.Contains(grid, "record changes") || !strings.Contains(grid, "About this command") {
 		t.Fatalf("the selected command's description is not shown\n%s", grid)
+	}
+	if strings.Contains(grid, "Mode description") || strings.Contains(grid, "┄ Toolkit") {
+		t.Fatalf("stale wording from the picker layout\n%s", grid)
 	}
 }
 

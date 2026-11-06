@@ -319,7 +319,8 @@ func TestSuiteWithoutSubcommandsUsesRunner(t *testing.T) {
 		Subcommands: []SubcommandSpec{{Name: "status", Label: "Status", Desc: "show"}},
 	})
 	suite := with.MainScreen()
-	if !hasSection(suite, "Toolkit") || hasSection(suite, "Subcommand Tabs (ArchetypeSuite)") {
+	// The suite layout names the options section after the selected command.
+	if !hasSection(suite, "status") || hasSection(suite, "Subcommand Tabs (ArchetypeSuite)") {
 		t.Fatalf("suite sections: %v", sectionNames(suite))
 	}
 	// The commands are a list of their own, beside the form, not a picker.
