@@ -241,7 +241,7 @@ func runCLI(args []string) int {
 		applyChosenArchetype(&spec, ms, manText+"\n"+helpText)
 		// The signals' caution stays with any archetype.
 		applySignals(&spec, model.Signals)
-		model.Notes = signalNotes(ms[0].ID, model.Signals)
+		model.Notes = signalNotes(ms[0], model.Signals)
 	}
 
 	prof, _, cached := ensureTermProfile(false)
@@ -595,7 +595,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							Get:     func() string { return spec.ArchetypeID },
 							Set: func(v string) {
 								if a, ok := appkit.LookupArchetype(v); ok {
-									applyChosenArchetype(&spec, []appkit.Membership{{ID: a.ID, Weight: 1}}, spec.Desc)
+									applyChosenArchetype(&spec, []appkit.ArchetypeID{a.ID}, spec.Desc)
 								}
 							},
 						}),

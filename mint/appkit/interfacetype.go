@@ -50,12 +50,13 @@ type Facts struct {
 	Destructive  bool // can delete, overwrite or kill something
 	FullScreen   bool // a full-screen terminal app
 
-	// Hints are the features the program's archetypes want together (the
-	// blended blueprint, see ToolSpec.Preferences). The
+	// Hints are the features the program's archetypes want, all of them
+	// (see ToolSpec.Blueprint). The
 	// answers decide the type; a hint is read only where a rule says so.
 	Hints []Feature
-	// Weights are the archetype's weights (0 to 1) for those features, for
-	// the rules that need a strong preference and not just a wanted one.
+	// Weights are how strongly (0 to 1) the program's archetypes want each
+	// feature, the strongest of them, for the rules that need a firm
+	// preference and not just a wanted one.
 	Weights map[Feature]float64
 }
 
@@ -231,8 +232,8 @@ func FactsFromSpec(spec ToolSpec) Facts {
 		Destructive:  spec.ConfirmRun,
 		FullScreen:   spec.FullScreen,
 	}
-	// The hints are all the program's archetypes together, by weight.
-	if len(spec.Memberships()) > 0 {
+	// The hints are every feature any of the program's archetypes wants.
+	if len(spec.ArchetypeList()) > 0 {
 		prefs := spec.Preferences()
 		b := BlueprintFrom(prefs)
 		f.Hints = append(f.Hints, b.Features...)

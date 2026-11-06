@@ -1,147 +1,119 @@
 package appkit
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
-func TestNormalizeMemberships(t *testing.T) {
-	ms := NormalizeMemberships([]Membership{
-		{ID: "toolkit", Weight: 3}, {ID: "nope", Weight: 5}, {ID: "records", Weight: 1},
-		{ID: "Toolkit", Weight: 9}, {ID: "list", Weight: 0}, {ID: "search", Weight: 2}, {ID: "query", Weight: 1.5},
-	})
-	if len(ms) != 3 || ms[0].ID != "toolkit" || ms[1].ID != "search" || ms[2].ID != "query" {
-		t.Fatalf("%+v", ms)
-	}
-	sum := 0.0
-	for _, m := range ms {
-		sum += m.Weight
-	}
-	if math.Abs(sum-1) > 1e-9 {
-		t.Fatalf("weights sum to %v", sum)
-	}
-	// A tie keeps the order given, so the primary stays first.
-	tie := NormalizeMemberships([]Membership{{ID: "session", Weight: 1}, {ID: "query", Weight: 1}})
-	if tie[0].ID != "session" {
-		t.Fatalf("tie %+v", tie)
+func TestNormalizeArchetypes(t *testing.T) {
+	ids := NormalizeArchetypes([]ArchetypeID{"toolkit", "nope", "Records", "toolkit", "search", "query"})
+	if len(ids) != 3 || ids[0] != "toolkit" || ids[1] != "records" || ids[2] != "search" {
+		t.Fatalf("%v", ids)
 	}
 }
 
-func TestSpecMembershipsAndIsA(t *testing.T) {
+func TestArchetypeListAndIsA(t *testing.T) {
 	old := ToolSpec{ArchetypeID: "list"}
-	if ms := old.Memberships(); len(ms) != 1 || ms[0].Weight != 1 || !old.IsA("list") || old.IsA("search") {
-		t.Fatalf("one archetype %+v", ms)
+	if ids := old.ArchetypeList(); len(ids) != 1 || !old.IsA("list") || old.IsA("search") {
+		t.Fatalf("one archetype %v", ids)
 	}
-	s := ToolSpec{ArchetypeID: "toolkit", Archetypes: []Membership{{ID: "toolkit", Weight: 0.6}, {ID: "settings", Weight: 0.3}, {ID: "audit", Weight: 0.1}}}
-	if !s.IsA("toolkit") || !s.IsA("settings") || s.IsA("audit") {
-		t.Fatal("IsA: toolkit and settings yes, audit (10%) no")
+	s := ToolSpec{ArchetypeID: "toolkit", Archetypes: []ArchetypeID{"toolkit", "settings", "audit"}}
+	for _, id := range []ArchetypeID{"toolkit", "settings", "audit"} {
+		if !s.IsA(id) {
+			t.Errorf("not a %s", id)
+		}
 	}
-	if len(s.Members()) != 2 {
+	if len(s.Members()) != 3 {
 		t.Fatalf("members %+v", s.Members())
 	}
 }
 
-func TestBlendSwitchesOnWhatAStrongSecondaryNeeds(t *testing.T) {
-	// ask has no table; list wants one at 1.0. Half and half: 0.5, on.
-	s := ToolSpec{Archetypes: []Membership{{ID: "ask", Weight: 0.5}, {ID: "list", Weight: 0.5}}}
-	if !s.Blueprint().Has(FeatTable) {
-		t.Fatal("a half-list program has no table")
-	}
-	weak := ToolSpec{Archetypes: []Membership{{ID: "ask", Weight: 0.8}, {ID: "list", Weight: 0.2}}}
-	if weak.Blueprint().Has(FeatTable) {
-		t.Fatal("a weak secondary switched a table on")
+// Each archetype counts in full: nothing is blended away.
+func TestEveryArchetypesFeaturesAreOn(t *testing.T) {
+	for _, a := range AllArchetypeDefs() {
+		for _, b := range AllArchetypeDefs() {
+			if a.ID == b.ID {
+				continue
+			}
+			got := (ToolSpec{Archetypes: []ArchetypeID{a.ID, b.ID}}).Blueprint()
+			for _, f := range append(a.Blueprint().Features, b.Blueprint().Features...) {
+				if !got.Has(f) {
+					t.Fatalf("%s + %s lost %s", a.ID, b.ID, f)
+				}
+			}
+			for _, f := range got.Features {
+				if !a.Blueprint().Has(f) && !b.Blueprint().Has(f) {
+					t.Fatalf("%s + %s invented %s", a.ID, b.ID, f)
+				}
+			}
+		}
 	}
 }
 
-func TestApplyMembershipsKeepsThePrimarysWording(t *testing.T) {
+func TestApplyArchetypesKeepsTheMainWording(t *testing.T) {
 	spec := ToolSpec{Name: "x", Bin: "echo"}
-	ApplyMemberships(&spec, []Membership{{ID: "session", Weight: 0.5}, {ID: "query", Weight: 0.5}})
+	ApplyArchetypes(&spec, []ArchetypeID{"session", "query"})
 	if spec.ArchetypeID != "session" || len(spec.Archetypes) != 2 {
-		t.Fatalf("%q %+v", spec.ArchetypeID, spec.Archetypes)
+		t.Fatalf("%q %v", spec.ArchetypeID, spec.Archetypes)
 	}
 	single := ToolSpec{Name: "y", Bin: "echo"}
-	ApplyMemberships(&single, []Membership{{ID: "list", Weight: 1}})
+	ApplyArchetypes(&single, []ArchetypeID{"list"})
 	if single.ArchetypeID != "list" || single.Archetypes != nil {
-		t.Fatalf("single %q %+v", single.ArchetypeID, single.Archetypes)
+		t.Fatalf("single %q %v", single.ArchetypeID, single.Archetypes)
+	}
+	// list wants a table; ask does not. A program that is both has one.
+	both := ToolSpec{Name: "z", Bin: "echo"}
+	ApplyArchetypes(&both, []ArchetypeID{"ask", "list"})
+	if !both.TableOutput {
+		t.Fatal("ask + list has no table")
 	}
 }
 
-// A secondary archetype can raise the data level, never lower it, however
-// weak it is.
+// A second archetype can raise the data level, never lower it.
 func TestDataLevelIsTheHighestOfAllArchetypes(t *testing.T) {
-	low := ToolSpec{Name: "calc9", Bin: "calc9", Archetypes: []Membership{{ID: "ask", Weight: 0.9}, {ID: "record", Weight: 0.1}}}
-	if lvl, _ := ClassifyData(low); lvl != DataSensitive {
-		t.Fatalf("a 10%% record archetype gave %q", lvl)
+	s := ToolSpec{Name: "calc9", Bin: "calc9", Archetypes: []ArchetypeID{"ask", "record"}}
+	if lvl, _ := ClassifyData(s); lvl != DataSensitive {
+		t.Fatalf("ask + record gave %q", lvl)
 	}
-	high := ToolSpec{Name: "conv9", Bin: "conv9", Archetypes: []Membership{{ID: "convert", Weight: 0.5}, {ID: "ask", Weight: 0.5}}}
+	both := ToolSpec{Name: "conv9", Bin: "conv9", Archetypes: []ArchetypeID{"convert", "ask"}}
 	single := ToolSpec{Name: "conv9", Bin: "conv9", ArchetypeID: "convert"}
-	l1, _ := ClassifyData(high)
+	l1, _ := ClassifyData(both)
 	l2, _ := ClassifyData(single)
 	if dataRank(l1) < dataRank(l2) {
 		t.Fatalf("adding an archetype lowered %q to %q", l2, l1)
 	}
 }
 
-func TestBehavioursComeFromEveryMember(t *testing.T) {
-	// A lister that is also a settings tool edits state.
-	a := newTestApp(t, ToolSpec{Name: "cfg", Bin: "echo", Archetypes: []Membership{{ID: "list", Weight: 0.6}, {ID: "settings", Weight: 0.4}}})
+func TestBehavioursComeFromEveryArchetype(t *testing.T) {
+	a := newTestApp(t, ToolSpec{Name: "cfg", Bin: "echo", Archetypes: []ArchetypeID{"list", "settings"}})
 	if !a.stateEditWanted() {
-		t.Fatal("the settings membership brought no state editor")
+		t.Fatal("the settings archetype brought no state editor")
 	}
-	// An audit that also edits files has both panes.
 	b := newTestApp(t, ToolSpec{Name: "fixer", Bin: "echo", Findings: &FindingsSpec{Adapter: FindingsLines},
-		Archetypes: []Membership{{ID: "audit", Weight: 0.5}, {ID: "edit-files", Weight: 0.5}}})
+		Archetypes: []ArchetypeID{"audit", "edit-files"}})
 	var titles []string
 	for _, p := range b.rolePanes() {
 		titles = append(titles, p.Title)
 	}
-	if len(titles) == 0 || titles[0] != "Findings" {
+	if len(titles) == 0 || titles[0] != "Findings" || !b.Spec.IsA("edit-files") {
 		t.Fatalf("role panes %v", titles)
-	}
-	if !b.Spec.IsA("edit-files") {
-		t.Fatal("edit-files membership lost")
 	}
 }
 
-func TestInterfaceFactsUseTheBlend(t *testing.T) {
-	// session wants a transcript; a program that is only partly a session
-	// (25% or more) still gets it in the hints.
-	s := ToolSpec{Name: "db", Bin: "echo", Archetypes: []Membership{{ID: "query", Weight: 0.5}, {ID: "session", Weight: 0.5}}}
+func TestInterfaceFactsUseEveryArchetype(t *testing.T) {
+	s := ToolSpec{Name: "db", Bin: "echo", Archetypes: []ArchetypeID{"query", "session"}}
 	f := FactsFromSpec(s)
 	if !f.Wants(FeatTranscript) || PlanFor(f).Type != TypeSession {
 		t.Fatalf("hints %v plan %s", f.Hints, PlanFor(f).Type)
 	}
-	q := ToolSpec{Name: "db", Bin: "echo", ArchetypeID: "query"}
-	if PlanFor(FactsFromSpec(q)).Type == TypeSession {
+	if PlanFor(FactsFromSpec(ToolSpec{Name: "db", Bin: "echo", ArchetypeID: "query"})).Type == TypeSession {
 		t.Fatal("query alone is a session?")
 	}
 }
 
-func TestSubcommandsWantedByAnyMember(t *testing.T) {
-	s := ToolSpec{Archetypes: []Membership{{ID: "convert", Weight: 0.6}, {ID: "toolkit", Weight: 0.4}}}
-	if !s.WantsSubcommands() {
-		t.Fatal("a 40% toolkit does not read commands")
+func TestSubcommandsWantedByAnyArchetype(t *testing.T) {
+	if !(ToolSpec{Archetypes: []ArchetypeID{"convert", "toolkit"}}).WantsSubcommands() {
+		t.Fatal("convert + toolkit does not read commands")
 	}
 	if (ToolSpec{ArchetypeID: "convert"}).WantsSubcommands() {
 		t.Fatal("convert alone reads commands")
-	}
-}
-
-// Belonging to more archetypes only ever adds features.
-func TestAMembershipNeverRemovesThePrimarysFeatures(t *testing.T) {
-	for _, primary := range AllArchetypeDefs() {
-		for _, other := range AllArchetypeDefs() {
-			if other.ID == primary.ID {
-				continue
-			}
-			s := ToolSpec{Archetypes: []Membership{{ID: primary.ID, Weight: 0.4}, {ID: other.ID, Weight: 0.35}, {ID: "general", Weight: 0.25}}}
-			got := s.Blueprint()
-			for _, f := range primary.Blueprint().Features {
-				if !got.Has(f) {
-					t.Fatalf("%s + %s lost %s", primary.ID, other.ID, f)
-				}
-			}
-		}
 	}
 }
 
@@ -150,12 +122,12 @@ func TestSpecHasOwnLayout(t *testing.T) {
 	if !SpecHasOwnLayout(suite) {
 		t.Error("suite")
 	}
-	follow := ToolSpec{ArchetypeID: "watch", TableOutput: true, PollInterval: 2000000000}
-	if PlanFor(FactsFromSpec(follow)).Type != TypeLiveMonitor || SpecHasOwnLayout(follow) {
+	mon := ToolSpec{ArchetypeID: "watch", TableOutput: true, PollInterval: 2000000000}
+	if PlanFor(FactsFromSpec(mon)).Type != TypeLiveMonitor || SpecHasOwnLayout(mon) {
 		t.Error("a monitor that cannot read its state has its own layout?")
 	}
-	follow.ReadOnly = true
-	if !SpecHasOwnLayout(follow) {
+	mon.ReadOnly = true
+	if !SpecHasOwnLayout(mon) {
 		t.Error("a read-only monitor")
 	}
 }

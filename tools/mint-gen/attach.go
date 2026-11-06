@@ -15,7 +15,7 @@ import (
 // Service, Transcript, RowActions, or a curated ReadOnly / StatusArgs) is
 // left alone.
 func attachParsedScreens(spec *appkit.ToolSpec, help string) {
-	if spec == nil || len(spec.Memberships()) == 0 {
+	if spec == nil || len(spec.ArchetypeList()) == 0 {
 		return
 	}
 	// Every archetype the program IsA can bring its screen: a log tool that
@@ -86,17 +86,17 @@ func parsedListenFlag(flags []appkit.FlagSpec) (flag string, port int) {
 	return flag, port
 }
 
-// applyChosenArchetype makes ms the spec's archetypes (the first is the
+// applyChosenArchetype makes ids the spec's archetypes (the first is the
 // primary): layout, target box, and the interactive screens that the help
 // can support. A label the old primary itself applied is cleared first, so
 // the new one can hide the target box; a label taken from the usage line is
 // kept.
-func applyChosenArchetype(spec *appkit.ToolSpec, ms []appkit.Membership, help string) {
-	ms = appkit.NormalizeMemberships(ms)
-	if len(ms) == 0 {
+func applyChosenArchetype(spec *appkit.ToolSpec, ids []appkit.ArchetypeID, help string) {
+	ids = appkit.NormalizeArchetypes(ids)
+	if len(ids) == 0 {
 		return
 	}
-	if prev, ok := appkit.LookupArchetype(spec.ArchetypeID); ok && prev.ID != ms[0].ID {
+	if prev, ok := appkit.LookupArchetype(spec.ArchetypeID); ok && prev.ID != ids[0] {
 		if spec.TargetLabel == prev.TargetLabel {
 			spec.TargetLabel = ""
 		}
@@ -115,7 +115,7 @@ func applyChosenArchetype(spec *appkit.ToolSpec, ms []appkit.Membership, help st
 	spec.HideTarget = false
 	clearParsedScreens(spec)
 	spec.Archetypes = nil
-	appkit.ApplyMemberships(spec, ms)
+	appkit.ApplyArchetypes(spec, ids)
 	if spec.TargetLabel == "" && !spec.HideTarget {
 		spec.TargetLabel = "Target / arguments"
 		if spec.TargetPlaceholder == "" {

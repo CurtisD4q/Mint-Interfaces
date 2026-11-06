@@ -110,7 +110,7 @@ func applyBatchMode(spec *appkit.ToolSpec, b batchMode, listed bool, changes boo
 		return
 	}
 	if !listed && spec.ArchetypeID != "watch" {
-		applyChosenArchetype(spec, []appkit.Membership{{ID: "watch", Weight: 1}}, help)
+		applyChosenArchetype(spec, []appkit.ArchetypeID{"watch"}, help)
 	}
 	if !changes {
 		spec.ReadOnly = true

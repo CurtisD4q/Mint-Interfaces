@@ -98,11 +98,11 @@ func ClassifyData(spec ToolSpec) (level, reason string) {
 	if normalDataTools[base] {
 		return DataNormal, ""
 	}
-	// Every archetype the program belongs to counts, however weakly: a
-	// secondary one can raise the level, never lower it.
+	// Every archetype the program fits counts: a second one can raise the
+	// level, never lower it.
 	level, reason = DataNormal, ""
-	for _, m := range spec.Memberships() {
-		if a, ok := LookupArchetype(string(m.ID)); ok && dataRank(a.Data) > dataRank(level) {
+	for _, a := range spec.Members() {
+		if dataRank(a.Data) > dataRank(level) {
 			level, reason = a.Data, a.DataReason
 		}
 	}

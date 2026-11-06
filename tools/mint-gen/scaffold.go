@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -180,12 +179,15 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.ArchetypeID != "" {
 		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
 	}
-	if ms := spec.Memberships(); len(ms) > 1 {
-		buf.WriteString("\t\tArchetypes: []appkit.Membership{\n")
-		for _, m := range ms {
-			fmt.Fprintf(&buf, "\t\t\t{ID: %q, Weight: %s},\n", m.ID, strconv.FormatFloat(math.Round(m.Weight*1000)/1000, 'f', -1, 64))
+	if ids := spec.ArchetypeList(); len(ids) > 1 {
+		buf.WriteString("\t\tArchetypes: []appkit.ArchetypeID{")
+		for i, id := range ids {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%q", id)
 		}
-		buf.WriteString("\t\t},\n")
+		buf.WriteString("},\n")
 	}
 	if spec.FullScreen {
 		buf.WriteString("\t\tFullScreen:        true,\n")

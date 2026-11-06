@@ -706,49 +706,36 @@ type ArchetypeChoice struct {
 	Lead         float64          // points over the next archetype
 	Scores       []ArchetypeScore // best first (for --explain)
 	Alternatives []appkit.ArchetypeID
-	// Members are all the archetypes the program belongs to, with
-	// weights, ID first (see membershipsFrom).
-	Members []appkit.Membership
+	// Fits are all the archetypes the program may be, ID first (see
+	// fitsFrom). A clear choice fits one; a close call fits each archetype
+	// the evidence cannot tell apart.
+	Fits []appkit.ArchetypeID
 }
 
-// A program belongs to every archetype that scores at least secondaryShare
-// of the best score (and minMemberScore points), up to
-// appkit.MaxMemberships, weighted by score. Most programs have one clear
-// archetype and stay with it; a close call, which used to be listed as
-// "also likely", becomes a second (or third) membership.
-const (
-	secondaryShare = 0.6
-	minMemberScore = 15
-)
+// minFitScore is the fewest points an archetype needs to be one a program
+// may be: below it, being close to the best means nothing.
+const minFitScore = 15
 
-// membershipsFrom is the memberships for a program whose primary archetype
-// is primary, from its scores. The primary's weight is at least the best
-// score, so it stays first even when a list chose it over the scores.
-func membershipsFrom(primary appkit.ArchetypeID, scores []ArchetypeScore) []appkit.Membership {
-	top, own := 0.0, 0.0
+// fitsFrom is the archetypes a program whose main archetype is primary may
+// be: primary, then every archetype within clearLead points of the best
+// score (a close call between them), up to appkit.MaxArchetypes, best first.
+// A clear choice is ahead by clearLead or more, so it fits one archetype.
+func fitsFrom(primary appkit.ArchetypeID, scores []ArchetypeScore) []appkit.ArchetypeID {
+	top := 0.0
 	for _, s := range scores {
-		if s.Score > top {
-			top = s.Score
-		}
-		if s.ID == primary {
-			own = s.Score
-		}
+		top = math.Max(top, s.Score)
 	}
-	ref := math.Max(top, own)
-	if ref <= 0 {
-		return []appkit.Membership{{ID: primary, Weight: 1}}
-	}
-	ms := []appkit.Membership{{ID: primary, Weight: ref}}
+	out := []appkit.ArchetypeID{primary}
 	for _, s := range scores {
-		if len(ms) >= appkit.MaxMemberships {
+		if len(out) >= appkit.MaxArchetypes {
 			break
 		}
-		if s.ID == primary || s.Score < minMemberScore || s.Score < secondaryShare*ref {
+		if s.ID == primary || s.Score < minFitScore || top-s.Score >= clearLead {
 			continue
 		}
-		ms = append(ms, appkit.Membership{ID: s.ID, Weight: s.Score})
+		out = append(out, s.ID)
 	}
-	return appkit.NormalizeMemberships(ms)
+	return appkit.NormalizeArchetypes(out)
 }
 
 // chooseArchetypeFor chooses from the help text alone, as for a program no
@@ -762,7 +749,7 @@ func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 	c := ArchetypeChoice{ID: scores[0].ID, Scores: scores, Lead: scores[0].Score - scores[1].Score}
 	c.Why = fmt.Sprintf("best evidence (%s points, %s ahead of %s)", points(scores[0].Score), points(c.Lead), scores[1].ID)
 	c.Confidence = choiceConfidence(c.Lead)
-	c.Members = membershipsFrom(c.ID, scores)
+	c.Fits = fitsFrom(c.ID, scores)
 	for _, s := range scores[1:3] {
 		if s.Score > 0 && scores[0].Score-s.Score < 2*clearLead {
 			c.Alternatives = append(c.Alternatives, s.ID)
@@ -777,8 +764,8 @@ func chooseArchetype(bin string, manText, helpText string) ArchetypeChoice {
 	name := strings.ToLower(toolBaseName(bin))
 	if a, ok := appkit.ArchetypeForTool(name); ok {
 		// The list settles the primary; the help can still add others.
-		members := membershipsFrom(a.ID, scoreArchetypes(programTextFrom(name, manText, helpText)))
-		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed, Members: members}
+		fits := fitsFrom(a.ID, scoreArchetypes(programTextFrom(name, manText, helpText)))
+		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed, Fits: fits}
 	}
 	return chooseArchetypeFor(programTextFrom(name, manText, helpText))
 }

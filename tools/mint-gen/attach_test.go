@@ -548,7 +548,7 @@ func actionHints(actions []appkit.RowActionSpec) []string {
 	return out
 }
 
-// one is a single archetype as memberships.
-func one(a appkit.ArchetypeDef) []appkit.Membership {
-	return []appkit.Membership{{ID: a.ID, Weight: 1}}
+// one is a single archetype as a list.
+func one(a appkit.ArchetypeDef) []appkit.ArchetypeID {
+	return []appkit.ArchetypeID{a.ID}
 }

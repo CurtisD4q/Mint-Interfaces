@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"math"
 	"regexp"
 	"strings"
 
@@ -37,15 +36,15 @@ func archetypeLabel(id appkit.ArchetypeID) string {
 	return fmt.Sprintf("%s (%s)", a.Name, a.ID)
 }
 
-// membersLabel is the archetypes a choice belongs to: "Toolkit" for one,
-// "Toolkit 70% + Records (records) 30%" for several.
-func membersLabel(id appkit.ArchetypeID, ms []appkit.Membership) string {
-	if len(ms) <= 1 {
+// fitsLabel is the archetypes a program fits: "Toolkit", or "Search +
+// Query" for a program that may be either.
+func fitsLabel(id appkit.ArchetypeID, ids []appkit.ArchetypeID) string {
+	if len(ids) <= 1 {
 		return archetypeLabel(id)
 	}
-	parts := make([]string, len(ms))
-	for i, m := range ms {
-		parts[i] = fmt.Sprintf("%s %d%%", archetypeLabel(m.ID), int(math.Round(m.Weight*100)))
+	parts := make([]string, len(ids))
+	for i, x := range ids {
+		parts[i] = archetypeLabel(x)
 	}
 	return strings.Join(parts, " + ")
 }
@@ -56,23 +55,23 @@ func printArchetypeChoice(w io.Writer, program string, c ArchetypeChoice, forced
 	p := func(format string, a ...any) { fmt.Fprint(w, safeTerminalText(fmt.Sprintf(format, a...))+"\n") }
 	prog := shellWord(program)
 	if forced != "" {
-		ms, _ := resolveArchetypeList(forced)
-		if len(ms) > 0 {
-			p("Archetype: %s, chosen with --archetype", membersLabel(ms[0].ID, ms))
+		ids, _ := resolveArchetypeList(forced)
+		if len(ids) > 0 {
+			p("Archetype: %s, chosen with --archetype", fitsLabel(ids[0], ids))
 		}
 		return
 	}
 	switch c.Confidence {
 	case ConfidenceListed:
-		p("Archetype: %s, listed for this program", membersLabel(c.ID, c.Members))
+		p("Archetype: %s, listed for this program", fitsLabel(c.ID, c.Fits))
 	case ConfidenceClear:
-		p("Archetype: %s, a clear choice. Why: mint-gen --explain %s", membersLabel(c.ID, c.Members), prog)
+		p("Archetype: %s, a clear choice. Why: mint-gen --explain %s", fitsLabel(c.ID, c.Fits), prog)
 	default:
 		also := ""
 		if len(c.Alternatives) > 0 {
 			var names []string
 			for _, a := range c.Alternatives {
-				if isMember(a, c.Members) {
+				if fitsOne(a, c.Fits) {
 					continue // already one of its archetypes
 				}
 				names = append(names, archetypeLabel(a))
@@ -81,7 +80,7 @@ func printArchetypeChoice(w io.Writer, program string, c ArchetypeChoice, forced
 				also = "; also likely: " + strings.Join(names, ", ")
 			}
 		}
-		p("Archetype: %s, a CLOSE CALL%s", membersLabel(c.ID, c.Members), also)
+		p("Archetype: %s, a CLOSE CALL%s", fitsLabel(c.ID, c.Fits), also)
 		change := "mint-gen --list-archetypes"
 		if len(c.Alternatives) > 0 {
 			change = fmt.Sprintf("mint-gen --archetype %s %s", c.Alternatives[0], prog)
@@ -100,8 +99,8 @@ func explainArchetypeChoice(w io.Writer, program string, c ArchetypeChoice) {
 		ConfidenceClose:  "a close call: check it",
 	}[c.Confidence]
 	p("  Archetype: %s, %s", archetypeLabel(c.ID), conf)
-	if len(c.Members) > 1 {
-		p("  Belongs to: %s (each scored at least %d%% of the best; weights by score)", membersLabel(c.ID, c.Members), int(secondaryShare*100))
+	if len(c.Fits) > 1 {
+		p("  Fits:      %s (the evidence cannot tell them apart: each is within %s points of the best)", fitsLabel(c.ID, c.Fits), points(clearLead))
 	}
 	if a, ok := appkit.LookupArchetype(string(c.ID)); ok {
 		clause := func(s string) string { return lowerFirst(strings.TrimSuffix(strings.TrimSpace(s), ".")) }
@@ -145,9 +144,8 @@ func resolveArchetypeFlag(v string) (appkit.ArchetypeDef, bool) {
 
 // resolveArchetypeList reads an --archetype value: one archetype, or
 // several separated by commas or "+" ("toolkit,records"), the first being
-// the primary. They share the weight equally. bad is the first name that is
-// not an archetype.
-func resolveArchetypeList(v string) (ms []appkit.Membership, bad string) {
+// the main one. bad is the first name that is not an archetype.
+func resolveArchetypeList(v string) (ids []appkit.ArchetypeID, bad string) {
 	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '+' })
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
@@ -158,20 +156,20 @@ func resolveArchetypeList(v string) (ms []appkit.Membership, bad string) {
 		if !ok {
 			return nil, p
 		}
-		ms = append(ms, appkit.Membership{ID: a.ID, Weight: 1})
+		ids = append(ids, a.ID)
 	}
-	if ms = appkit.NormalizeMemberships(ms); len(ms) == 0 {
+	if ids = appkit.NormalizeArchetypes(ids); len(ids) == 0 {
 		if strings.TrimSpace(v) == "" {
 			v = "(empty)"
 		}
 		return nil, v
 	}
-	return ms, ""
+	return ids, ""
 }
 
-func isMember(id appkit.ArchetypeID, ms []appkit.Membership) bool {
-	for _, m := range ms {
-		if m.ID == id {
+func fitsOne(id appkit.ArchetypeID, ids []appkit.ArchetypeID) bool {
+	for _, x := range ids {
+		if x == id {
 			return true
 		}
 	}

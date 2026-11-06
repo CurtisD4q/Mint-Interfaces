@@ -7,53 +7,56 @@ import (
 	"github.com/CurtisD4q/Mint-Interfaces/mint/appkit"
 )
 
-func TestMembershipsFromScores(t *testing.T) {
-	scores := []ArchetypeScore{{ID: "search", Score: 50}, {ID: "query", Score: 35}, {ID: "list", Score: 31}, {ID: "filter", Score: 30}, {ID: "ask", Score: 10}}
-	ms := membershipsFrom("search", scores)
-	var ids []string
-	for _, m := range ms {
-		ids = append(ids, string(m.ID))
+func TestFitsFromScores(t *testing.T) {
+	join := func(ids []appkit.ArchetypeID) string {
+		var s []string
+		for _, id := range ids {
+			s = append(s, string(id))
+		}
+		return strings.Join(s, " ")
 	}
-	// 60% of 50 is 30: query, list and filter qualify, but three is the most.
-	if strings.Join(ids, " ") != "search query list" {
-		t.Fatalf("members %v", ids)
+	// A close call: query and list are within 20 points of search; filter
+	// is too but three is the most; ask is far behind.
+	scores := []ArchetypeScore{{ID: "search", Score: 50}, {ID: "query", Score: 45}, {ID: "list", Score: 35}, {ID: "filter", Score: 33}, {ID: "ask", Score: 10}}
+	if got := join(fitsFrom("search", scores)); got != "search query list" {
+		t.Fatalf("close call %q", got)
 	}
-	if ms[0].Weight <= ms[1].Weight {
-		t.Fatalf("primary is not the strongest: %+v", ms)
+	// A clear choice fits one.
+	if got := join(fitsFrom("list", []ArchetypeScore{{ID: "list", Score: 80}, {ID: "search", Score: 55}})); got != "list" {
+		t.Fatalf("clear %q", got)
 	}
-	// One clear winner stays alone.
-	if ms := membershipsFrom("list", []ArchetypeScore{{ID: "list", Score: 80}, {ID: "search", Score: 30}}); len(ms) != 1 || ms[0].Weight != 1 {
-		t.Fatalf("clear %+v", ms)
+	// Small scores never count, however close.
+	if got := join(fitsFrom("ask", []ArchetypeScore{{ID: "ask", Score: 12}, {ID: "list", Score: 11}})); got != "ask" {
+		t.Fatalf("small %q", got)
 	}
-	// Small scores never make a membership.
-	if ms := membershipsFrom("ask", []ArchetypeScore{{ID: "ask", Score: 12}, {ID: "list", Score: 11}}); len(ms) != 1 {
-		t.Fatalf("small %+v", ms)
+	// A listed main archetype stays first, and the best-scoring one joins it.
+	if got := join(fitsFrom("session", []ArchetypeScore{{ID: "query", Score: 40}, {ID: "session", Score: 30}})); got != "session query" {
+		t.Fatalf("listed %q", got)
 	}
-	// A listed primary that scored low stays first.
-	ms = membershipsFrom("session", []ArchetypeScore{{ID: "query", Score: 40}, {ID: "session", Score: 5}})
-	if ms[0].ID != "session" || len(ms) != 2 {
-		t.Fatalf("listed %+v", ms)
-	}
-	// No evidence at all: the primary alone.
-	if ms := membershipsFrom("general", nil); len(ms) != 1 || ms[0].ID != "general" {
-		t.Fatalf("none %+v", ms)
+	if got := join(fitsFrom("general", nil)); got != "general" {
+		t.Fatalf("none %q", got)
 	}
 }
 
-func TestChoiceCarriesMemberships(t *testing.T) {
-	c := chooseFromScores([]ArchetypeScore{{ID: "convert", Score: 60}, {ID: "pack", Score: 50}, {ID: "ask", Score: 5}})
-	if len(c.Members) != 2 || c.Members[0].ID != "convert" || c.Members[1].ID != "pack" {
-		t.Fatalf("%+v", c.Members)
+// Fitting more than one archetype is exactly a close call.
+func TestCloseCallsFitMoreThanOne(t *testing.T) {
+	close := chooseFromScores([]ArchetypeScore{{ID: "convert", Score: 60}, {ID: "pack", Score: 50}, {ID: "ask", Score: 5}})
+	if close.Confidence != ConfidenceClose || len(close.Fits) != 2 || close.Fits[1] != "pack" {
+		t.Fatalf("close %+v", close)
+	}
+	clear := chooseFromScores([]ArchetypeScore{{ID: "convert", Score: 80}, {ID: "pack", Score: 50}, {ID: "ask", Score: 5}})
+	if clear.Confidence != ConfidenceClear || len(clear.Fits) != 1 {
+		t.Fatalf("clear %+v", clear)
 	}
 }
 
 func TestArchetypeFlagTakesAList(t *testing.T) {
-	ms, bad := resolveArchetypeList("toolkit, Records")
-	if bad != "" || len(ms) != 2 || ms[0].ID != "toolkit" || ms[1].ID != "records" || ms[0].Weight != ms[1].Weight {
-		t.Fatalf("%+v %q", ms, bad)
+	ids, bad := resolveArchetypeList("toolkit, Records")
+	if bad != "" || len(ids) != 2 || ids[0] != "toolkit" || ids[1] != "records" {
+		t.Fatalf("%v %q", ids, bad)
 	}
-	if ms, _ := resolveArchetypeList("watch+list"); len(ms) != 2 {
-		t.Fatalf("plus %+v", ms)
+	if ids, _ := resolveArchetypeList("watch+list"); len(ids) != 2 {
+		t.Fatalf("plus %v", ids)
 	}
 	if _, bad := resolveArchetypeList("toolkit,nonesuch"); bad != "nonesuch" {
 		t.Fatalf("bad %q", bad)
@@ -63,25 +66,23 @@ func TestArchetypeFlagTakesAList(t *testing.T) {
 	}
 }
 
-func TestMembersLabel(t *testing.T) {
-	if got := membersLabel("list", nil); got != "List" {
+func TestFitsLabel(t *testing.T) {
+	if got := fitsLabel("list", nil); got != "List" {
 		t.Errorf("%q", got)
 	}
-	got := membersLabel("search", []appkit.Membership{{ID: "search", Weight: 0.58}, {ID: "look-up", Weight: 0.42}})
-	if got != "Search 58% + Look up (look-up) 42%" {
+	if got := fitsLabel("search", []appkit.ArchetypeID{"search", "look-up"}); got != "Search + Look up (look-up)" {
 		t.Errorf("%q", got)
 	}
 }
 
-func TestScaffoldWritesMemberships(t *testing.T) {
-	spec := appkit.ToolSpec{Name: "box", Bin: "box", ArchetypeID: "search",
-		Archetypes: []appkit.Membership{{ID: "search", Weight: 0.58}, {ID: "query", Weight: 0.42}}}
+func TestScaffoldWritesTheArchetypes(t *testing.T) {
+	spec := appkit.ToolSpec{Name: "box", Bin: "box", ArchetypeID: "search", Archetypes: []appkit.ArchetypeID{"search", "query"}}
 	src, err := renderSpecGo(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(src), `{ID: "search", Weight: 0.58}`) || !strings.Contains(string(src), `{ID: "query", Weight: 0.42}`) {
-		t.Fatalf("memberships not written:\n%s", src)
+	if !strings.Contains(string(src), `Archetypes:`) || !strings.Contains(string(src), `[]appkit.ArchetypeID{"search", "query"}`) {
+		t.Fatalf("archetypes not written:\n%s", src)
 	}
 	one, _ := renderSpecGo(appkit.ToolSpec{Name: "a", Bin: "a", ArchetypeID: "list"})
 	if strings.Contains(string(one), "Archetypes:") {
@@ -89,13 +90,13 @@ func TestScaffoldWritesMemberships(t *testing.T) {
 	}
 }
 
-// A program is read-only only when every archetype it belongs to is.
-func TestReadOnlyNeedsEveryMember(t *testing.T) {
+// A program is read-only only when every archetype it fits is.
+func TestReadOnlyNeedsEveryArchetype(t *testing.T) {
 	spec := appkit.ToolSpec{Name: "lst", ArchetypeID: "list", HideTarget: true}
 	if !readOnlyArchetype(&spec, nil) {
 		t.Fatal("a lister is read-only")
 	}
-	spec.Archetypes = []appkit.Membership{{ID: "list", Weight: 0.6}, {ID: "settings", Weight: 0.4}}
+	spec.Archetypes = []appkit.ArchetypeID{"list", "settings"}
 	if readOnlyArchetype(&spec, nil) {
 		t.Fatal("a lister that is also a settings tool was taken as read-only")
 	}
