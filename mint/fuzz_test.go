@@ -280,3 +280,24 @@ func FuzzToNumber(f *testing.F) {
 		}
 	})
 }
+
+// Whatever is pasted, a text box holds only text: no escape or control,
+// no bidi control, valid UTF-8.
+func FuzzPasteIntoABox(f *testing.F) {
+	for _, s := range []string{"plain", "a\nb\tc", "\x1b[2Jx", "‮evil", "\u009b31m", "\xff\xfe", "日本"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		lb := newLineBuffer("")
+		lb.handleKey(pasted(s))
+		got := lb.String()
+		if !utf8.ValidString(got) {
+			t.Fatalf("box holds invalid UTF-8 %q", got)
+		}
+		for _, r := range got {
+			if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || isBidiControl(r) {
+				t.Fatalf("box holds %U from %q", r, s)
+			}
+		}
+	})
+}

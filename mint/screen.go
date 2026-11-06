@@ -693,6 +693,9 @@ func (screen *Screen) bind() {
 			return ""
 		}
 		val, msg, failed := readValue(it, keyOf(it, idx))
+		if s, ok := val.(string); ok {
+			val = CleanLine(s) // a value can come from anywhere: a settings file, a paste
+		}
 		if val == nil && it.wtype != "action" && it.wtype != "text" {
 			switch {
 			case it.wtype == "toggle":
@@ -1088,7 +1091,7 @@ func (screen *Screen) bind() {
 		// the first row below the rule, so leave the blank row after it.
 		contentTop := 5
 		if screen.Banner != "" {
-			cv.put(4, 3, C.Amber+Truncate(screen.Banner, max(8, w-6))+Reset)
+			cv.put(4, 3, C.Amber+Truncate(CleanLine(screen.Banner), max(8, w-6))+Reset)
 			contentTop = 6
 		}
 		contentBottom := h - 2

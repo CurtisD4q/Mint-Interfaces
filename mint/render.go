@@ -160,6 +160,7 @@ func (c *canvas) chromeTitle(w int, title, crumb string) {
 	if room < 4 {
 		room = 4
 	}
+	title, crumb = CleanLine(title), CleanLine(crumb)
 	c.put(2, 3, C.Accent+C.Bold+Truncate(title, room)+Reset)
 	if crumb != "" && w-2-VLen(crumb) > 3 {
 		c.put(2, w-2-VLen(crumb), C.Muted+crumb+Reset)

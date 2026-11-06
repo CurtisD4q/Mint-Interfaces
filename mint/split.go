@@ -467,6 +467,14 @@ func paintRows(cv *canvas, st *uiState, items []Row, contentTop, avail, w int, s
 		i := pl.index + 1
 		it := &items[pl.index]
 		r := pl.row
+		// A row's text is drawn as text: an escape in a label (from a
+		// program's output, a settings file or a paste) is never sent to
+		// the terminal.
+		if !plainText(it.label) || !plainText(it.name) {
+			cp := *it
+			cp.label, cp.name = CleanLine(it.label), CleanLine(it.name)
+			it = &cp
+		}
 		selected := showCursor && i == selItem
 		switch {
 		case it.kind == "section" && it.collapsible:
@@ -812,6 +820,7 @@ func (s *Screen) trailingPad(b *paneBand) int {
 }
 
 func paintDivider(cv *canvas, row, w int, title string, focused bool) {
+	title = CleanLine(title)
 	if title == "" {
 		title = "Pane"
 	}
@@ -820,4 +829,15 @@ func paintDivider(cv *canvas, row, w int, title string, focused bool) {
 		mark = "▸"
 	}
 	cv.put(row, 3, C.Accent+C.Bold+Truncate(mark+" "+title, max(4, w-8))+Reset)
+}
+
+// plainText reports whether s has no escape or control character, so it can
+// be drawn as it is.
+func plainText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if b := s[i]; b < 0x20 || b == 0x7f || b == 0xc2 {
+			return false // 0xc2 starts the C1 controls (U+0080–U+009F) and other text: clean to be sure
+		}
+	}
+	return true
 }
