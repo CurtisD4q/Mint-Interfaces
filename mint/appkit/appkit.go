@@ -278,6 +278,7 @@ type ToolApp struct {
 	ExtraArgs        string
 	Profile          string
 	ActiveSubcommand string
+	subValues        map[string]map[string]string // the own option values of commands not selected (see useSubcommand)
 	Values           map[string]string
 	SaveToFile       bool
 	// launchDir is the folder the app was started in: what relative paths
@@ -433,6 +434,7 @@ func New(spec ToolSpec) *ToolApp {
 		owner:            owner,
 		homeResultsDir:   homeResults,
 	}
+	a.fillSubDefaults()
 	if wd, err := os.Getwd(); err == nil {
 		a.launchDir = wd
 	}
@@ -540,7 +542,7 @@ func (a *ToolApp) ApplyProfile(name string) bool {
 	for _, p := range a.Spec.Profiles {
 		if p.Name == name {
 			a.Profile = p.Name
-			for _, f := range a.Spec.Flags {
+			for _, f := range a.flags() {
 				if f.Kind == FlagBool {
 					a.Values[f.Flag] = "false"
 				}
@@ -611,7 +613,7 @@ func (a *ToolApp) composeFlagArgs(mask bool) (args []string, outPath string, std
 
 func (a *ToolApp) composeArgs(mode argMode) (args []string, outPath string, stdin []string) {
 	mask := mode.mask
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		val := strings.TrimSpace(a.Values[f.Flag])
 		if mode.status && f.Kind != FlagSecret && LooksDestructive(f.Flag, strings.TrimSpace(f.Label+" "+f.Hint)) {
 			continue
@@ -775,7 +777,7 @@ func (a *ToolApp) saveToggleLabel() string {
 // secretFlagNames lists the tool's secret options, such as "-p".
 func (a *ToolApp) secretFlagNames() []string {
 	var out []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind == FlagSecret && f.Flag != "" {
 			out = append(out, f.Flag)
 		}
@@ -841,7 +843,7 @@ func (a *ToolApp) newRunMasker() *outputMasker {
 	st := a.store
 	a.mu.Unlock()
 	if st != nil {
-		for _, f := range a.Spec.Flags {
+		for _, f := range a.allFlags() {
 			if f.Kind == FlagSecret && st.Has(f.SecretKey()) {
 				_ = st.Use(f.SecretKey(), func(b []byte) error { m.add(b); return nil })
 			}
@@ -857,7 +859,7 @@ func (a *ToolApp) newRunMasker() *outputMasker {
 // environment (NAME=•••••• with mask, for previews).
 func (a *ToolApp) secretEnv(mask bool) []string {
 	var env []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind != FlagSecret || f.SecretRoute() != RouteEnv {
 			continue
 		}
@@ -965,7 +967,7 @@ func (a *ToolApp) SetSecret(flag, value string) error {
 // silently without them.
 func (a *ToolApp) expiredSecrets() []string {
 	var out []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind == FlagSecret && a.secretExpired(f.SecretKey()) {
 			label := f.Label
 			if label == "" {
@@ -1005,7 +1007,7 @@ func pronoun(n int) string {
 // passed on the command line, where other users can see them in ps.
 func (a *ToolApp) argvSecrets() []string {
 	var out []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind == FlagSecret && f.SecretRoute() == RouteArgument && a.hasSecret(f.SecretKey()) {
 			label := f.Label
 			if label == "" {
@@ -1188,6 +1190,7 @@ func (a *ToolApp) LoadSettings() error {
 	for k, v := range st.Values {
 		a.Values[k] = v
 	}
+	a.fillSubDefaults()
 	a.SaveToFile = st.SaveToFile
 	// A folder saved before apps kept results in their own folder is the
 	// old default (~/mint-results/<tool>): the app's own folder replaces
@@ -1540,7 +1543,7 @@ type flagGroups struct {
 
 func (a *ToolApp) flagGroups() flagGroups {
 	g := flagGroups{primary: map[string][]mint.Row{}, advanced: map[string][]mint.Row{}}
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		secName := f.Section
 		if secName == "" {
 			secName = "Options"
@@ -2444,7 +2447,7 @@ func (a *ToolApp) BuildApp() *mint.App {
 				Label: label,
 				Desc:  desc,
 				Open: func() *mint.Screen {
-					a.ActiveSubcommand = name
+					a.useSubcommand(name)
 					return a.MainScreen()
 				},
 			})

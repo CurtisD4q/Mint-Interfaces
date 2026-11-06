@@ -434,70 +434,18 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 			if sub.Confirm {
 				buf.WriteString("\t\t\t\tConfirm: true,\n")
 			}
+			if len(sub.Flags) > 0 {
+				buf.WriteString("\t\t\t\tFlags: []appkit.FlagSpec{\n")
+				writeFlagList(&buf, sub.Flags)
+				buf.WriteString("\t\t\t\t},\n")
+			}
 			buf.WriteString("\t\t\t},\n")
 		}
 		buf.WriteString("\t\t},\n")
 	}
 	if len(spec.Flags) > 0 {
 		buf.WriteString("\t\tFlags: []appkit.FlagSpec{\n")
-		for _, f := range spec.Flags {
-			buf.WriteString("\t\t\t{\n")
-			fmt.Fprintf(&buf, "\t\t\t\tFlag:    %q,\n", f.Flag)
-			if f.Join != "" && f.Join != " " {
-				fmt.Fprintf(&buf, "\t\t\t\tJoin:    %q,\n", f.Join)
-			}
-			fmt.Fprintf(&buf, "\t\t\t\tKind:    appkit.%s,\n", flagKindIdent(f.Kind))
-			if id := roleIdent(f.Role); id != "" {
-				fmt.Fprintf(&buf, "\t\t\t\tRole:    appkit.%s,\n", id)
-			}
-			fmt.Fprintf(&buf, "\t\t\t\tSection: %q,\n", f.Section)
-			fmt.Fprintf(&buf, "\t\t\t\tLabel:   %q,\n", f.Label)
-			if f.Hint != "" {
-				fmt.Fprintf(&buf, "\t\t\t\tHint:    %q,\n", f.Hint)
-			}
-			if f.Default != "" {
-				fmt.Fprintf(&buf, "\t\t\t\tDefault: %q,\n", f.Default)
-			}
-			if len(f.Choices) > 0 {
-				buf.WriteString("\t\t\t\tChoices: []appkit.Choice{\n")
-				for _, c := range f.Choices {
-					fmt.Fprintf(&buf, "\t\t\t\t\t{Label: %q, Value: %q},\n", c.Label, c.Value)
-				}
-				buf.WriteString("\t\t\t\t},\n")
-			}
-			if len(f.ChoicesCmd) > 0 {
-				buf.WriteString("\t\t\t\tChoicesCmd: []string{")
-				for i, tok := range f.ChoicesCmd {
-					if i > 0 {
-						buf.WriteString(", ")
-					}
-					fmt.Fprintf(&buf, "%q", tok)
-				}
-				buf.WriteString("},\n")
-			}
-			if f.Kind == appkit.FlagInt && (f.Min != 0 || f.Max != 0) {
-				fmt.Fprintf(&buf, "\t\t\t\tMin:     %d,\n", f.Min)
-				fmt.Fprintf(&buf, "\t\t\t\tMax:     %d,\n", f.Max)
-				step := f.Step
-				if step <= 0 {
-					step = 1
-				}
-				fmt.Fprintf(&buf, "\t\t\t\tStep:    %d,\n", step)
-			}
-			if f.Advanced {
-				buf.WriteString("\t\t\t\tAdvanced: true,\n")
-			}
-			if f.SecretStdin {
-				buf.WriteString("\t\t\t\tSecretStdin: true,\n")
-			}
-			if f.SecretEnv != "" {
-				fmt.Fprintf(&buf, "\t\t\t\tSecretEnv: %q,\n", f.SecretEnv)
-			}
-			if f.EnvFlag != "" {
-				fmt.Fprintf(&buf, "\t\t\t\tEnvFlag: %q,\n", f.EnvFlag)
-			}
-			buf.WriteString("\t\t\t},\n")
-		}
+		writeFlagList(&buf, spec.Flags)
 		buf.WriteString("\t\t},\n")
 	}
 	buf.WriteString("\t}\n")
@@ -508,6 +456,70 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		return buf.Bytes(), nil
 	}
 	return formatted, nil
+}
+
+// writeFlagList writes flags as the entries of a []appkit.FlagSpec literal.
+// The program's own options and each command's options use it; the file is
+// gofmt'ed afterwards, so the indentation here does not matter.
+func writeFlagList(buf *bytes.Buffer, flags []appkit.FlagSpec) {
+	for _, f := range flags {
+		buf.WriteString("\t\t\t{\n")
+		fmt.Fprintf(buf, "\t\t\t\tFlag:    %q,\n", f.Flag)
+		if f.Join != "" && f.Join != " " {
+			fmt.Fprintf(buf, "\t\t\t\tJoin:    %q,\n", f.Join)
+		}
+		fmt.Fprintf(buf, "\t\t\t\tKind:    appkit.%s,\n", flagKindIdent(f.Kind))
+		if id := roleIdent(f.Role); id != "" {
+			fmt.Fprintf(buf, "\t\t\t\tRole:    appkit.%s,\n", id)
+		}
+		fmt.Fprintf(buf, "\t\t\t\tSection: %q,\n", f.Section)
+		fmt.Fprintf(buf, "\t\t\t\tLabel:   %q,\n", f.Label)
+		if f.Hint != "" {
+			fmt.Fprintf(buf, "\t\t\t\tHint:    %q,\n", f.Hint)
+		}
+		if f.Default != "" {
+			fmt.Fprintf(buf, "\t\t\t\tDefault: %q,\n", f.Default)
+		}
+		if len(f.Choices) > 0 {
+			buf.WriteString("\t\t\t\tChoices: []appkit.Choice{\n")
+			for _, c := range f.Choices {
+				fmt.Fprintf(buf, "\t\t\t\t\t{Label: %q, Value: %q},\n", c.Label, c.Value)
+			}
+			buf.WriteString("\t\t\t\t},\n")
+		}
+		if len(f.ChoicesCmd) > 0 {
+			buf.WriteString("\t\t\t\tChoicesCmd: []string{")
+			for i, tok := range f.ChoicesCmd {
+				if i > 0 {
+					buf.WriteString(", ")
+				}
+				fmt.Fprintf(buf, "%q", tok)
+			}
+			buf.WriteString("},\n")
+		}
+		if f.Kind == appkit.FlagInt && (f.Min != 0 || f.Max != 0) {
+			fmt.Fprintf(buf, "\t\t\t\tMin:     %d,\n", f.Min)
+			fmt.Fprintf(buf, "\t\t\t\tMax:     %d,\n", f.Max)
+			step := f.Step
+			if step <= 0 {
+				step = 1
+			}
+			fmt.Fprintf(buf, "\t\t\t\tStep:    %d,\n", step)
+		}
+		if f.Advanced {
+			buf.WriteString("\t\t\t\tAdvanced: true,\n")
+		}
+		if f.SecretStdin {
+			buf.WriteString("\t\t\t\tSecretStdin: true,\n")
+		}
+		if f.SecretEnv != "" {
+			fmt.Fprintf(buf, "\t\t\t\tSecretEnv: %q,\n", f.SecretEnv)
+		}
+		if f.EnvFlag != "" {
+			fmt.Fprintf(buf, "\t\t\t\tEnvFlag: %q,\n", f.EnvFlag)
+		}
+		buf.WriteString("\t\t\t},\n")
+	}
 }
 
 func flagKindIdent(k appkit.FlagKind) string {

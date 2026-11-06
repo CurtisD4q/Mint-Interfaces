@@ -587,10 +587,11 @@ func (a *ToolApp) outputFlagSet() map[string]struct{} {
 		}
 	}
 	add(a.Spec.OutputFlag)
-	for i := range a.Spec.Flags {
-		mode, dedicated := flagPathMode(&a.Spec.Flags[i])
+	fl := a.flags()
+	for i := range fl {
+		mode, dedicated := flagPathMode(&fl[i])
 		if dedicated && mode == pathOutput {
-			add(a.Spec.Flags[i].Flag)
+			add(fl[i].Flag)
 		}
 	}
 	return m

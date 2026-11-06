@@ -56,7 +56,7 @@ func (a *ToolApp) suiteList() []mint.Section {
 				}
 				return "select"
 			},
-			OnActivate: func(*mint.Ctx) { a.ActiveSubcommand = name },
+			OnActivate: func(*mint.Ctx) { a.useSubcommand(name) },
 		})
 	}
 	return []mint.Section{{Name: "Commands", Rows: rows}}

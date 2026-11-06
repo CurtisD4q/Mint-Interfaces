@@ -33,7 +33,7 @@ func (a *ToolApp) advancedInOwnPane() bool {
 
 func (a *ToolApp) advancedCount() int {
 	n := 0
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Advanced {
 			n++
 		}

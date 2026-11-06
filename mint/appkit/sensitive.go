@@ -147,7 +147,7 @@ func applyDataDefaults(spec *ToolSpec) {
 // revealingOn lists the labels of revealing options set for the next run.
 func (a *ToolApp) revealingOn() []string {
 	var out []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if !f.Reveals {
 			continue
 		}

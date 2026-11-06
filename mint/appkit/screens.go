@@ -738,7 +738,7 @@ func (a *ToolApp) freeTextWarning(found []FreeTextSecret) string {
 		"It goes on the command line, where other users on this computer can see it (for example with ps) while it runs. " +
 		"Mint hides it on screen, in the output, and in saved settings and history."
 	var safer []string
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind == FlagSecret {
 			label := f.Label
 			if label == "" {
@@ -957,7 +957,7 @@ func (a *ToolApp) inputSection(includeExtra bool) mint.Section {
 				Label:   "Subcommand mode",
 				Options: names,
 				Get:     func() string { return a.ActiveSubcommand },
-				Set:     func(v string) { a.ActiveSubcommand = v },
+				Set:     func(v string) { a.useSubcommand(v) },
 			}))
 		}
 		aboutLabel := "Mode description"
