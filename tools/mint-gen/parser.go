@@ -27,6 +27,7 @@ func ParseProgramIO(bin string) (appkit.ToolSpec, IOModel) {
 	srcs, notes := CollectHelpNotes(bin)
 	manText, helpText := manAndHelp(srcs)
 	spec, model := ParseManAndHelpIO(name, manText, helpText)
+	notes = append(notes, attachCommandFlags(bin, &spec, helpText+"\n"+manText)...)
 	model.HelpRead = describeHelpSources(srcs)
 	model.HelpNotes = notes
 	return spec, model
@@ -58,6 +59,7 @@ func ParseProgram(bin string) (appkit.ToolSpec, error) {
 	printHelpNotes(notes)
 	manText, helpText := manAndHelp(srcs)
 	spec := ParseManAndHelp(name, manText, helpText)
+	printHelpNotes(attachCommandFlags(bin, &spec, helpText+"\n"+manText))
 	return spec, nil
 }
 

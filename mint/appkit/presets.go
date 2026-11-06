@@ -62,7 +62,7 @@ func (a *ToolApp) savePresets() {
 
 // secretOption reports whether a flag's value must stay out of a preset.
 func (a *ToolApp) secretOption(flag string) bool {
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.allFlags() {
 		if f.Flag != flag && f.SecretKey() != flag {
 			continue
 		}
@@ -177,7 +177,7 @@ func (a *ToolApp) ApplyPreset(name string) bool {
 	a.SecondTarget = rec.SecondTarget
 	a.ExtraArgs = rec.ExtraArgs
 	if rec.ActiveSubcommand != "" {
-		a.ActiveSubcommand = rec.ActiveSubcommand
+		a.useSubcommand(rec.ActiveSubcommand)
 	}
 	a.SaveToFile = rec.SaveToFile
 	if rec.OutputFile != "" {
@@ -186,7 +186,7 @@ func (a *ToolApp) ApplyPreset(name string) bool {
 	if rec.Profile != "" {
 		a.Profile = rec.Profile
 	}
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Kind == FlagSecret || LooksSecret(f.Flag, f.Label, f.Hint) {
 			continue
 		}

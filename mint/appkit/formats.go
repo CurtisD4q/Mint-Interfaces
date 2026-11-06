@@ -38,7 +38,7 @@ func FormatExtension(v string) (string, bool) {
 // switch named after a format (--json), when it is a known format; else
 // Spec.DefaultExt.
 func (a *ToolApp) outputExt() string {
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		v := strings.TrimSpace(a.Values[f.Flag])
 		switch {
 		case f.Role == RoleFormat && v != "":
@@ -64,7 +64,7 @@ func (a *ToolApp) outputExt() string {
 // ("-t docx", "--to=docx", "--json").
 func (a *ToolApp) formatInExtraArgs() (string, bool) {
 	formatFlags := map[string]bool{}
-	for _, f := range a.Spec.Flags {
+	for _, f := range a.flags() {
 		if f.Role == RoleFormat {
 			formatFlags[f.Flag] = true
 		}
