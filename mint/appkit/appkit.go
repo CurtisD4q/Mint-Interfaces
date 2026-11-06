@@ -108,7 +108,11 @@ type ToolSpec struct {
 	Title       string `json:"title,omitempty"`
 	Desc        string `json:"desc,omitempty"`
 	Version     string `json:"version,omitempty"`
-	ArchetypeID string `json:"archetype_id,omitempty"` // which of the 38 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	ArchetypeID string `json:"archetype_id,omitempty"` // the primary of the 38 archetypes: "probe", "look-up"… (see ArchetypeDef)
+	// Archetypes are all the archetypes the program fits, the main one
+	// (ArchetypeID) first, when it fits more than one. Empty means
+	// ArchetypeID alone (see ArchetypeList).
+	Archetypes []ArchetypeID `json:"archetypes,omitempty"`
 	// FullScreen: the program draws its own full-screen interface (htop,
 	// nano, less), so Mint shows its command to run in a terminal instead
 	// of running it, and never polls it.
@@ -338,6 +342,8 @@ type ToolApp struct {
 // archetype's defaults (ArchetypeID, else the archetype list).
 func New(spec ToolSpec) *ToolApp {
 	switch {
+	case len(spec.Archetypes) > 0:
+		ApplyArchetypes(&spec, spec.ArchetypeList())
 	case spec.ArchetypeID != "":
 		if a, ok := LookupArchetype(spec.ArchetypeID); ok {
 			a.ApplyTo(&spec)
@@ -2462,7 +2468,7 @@ func (a *ToolApp) BuildApp() *mint.App {
 			Open:  a.ActionsScreen,
 		})
 	}
-	if a.Spec.ArchetypeID == "toolkit" || a.Spec.ArchetypeID == "records" {
+	if a.Spec.IsA("toolkit") || a.Spec.IsA("records") {
 		n := len(a.Spec.Subcommands)
 		if n > maxHomeSubcommands {
 			n = maxHomeSubcommands

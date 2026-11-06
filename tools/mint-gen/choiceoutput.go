@@ -36,31 +36,51 @@ func archetypeLabel(id appkit.ArchetypeID) string {
 	return fmt.Sprintf("%s (%s)", a.Name, a.ID)
 }
 
+// fitsLabel is the archetypes a program fits: "Toolkit", or "Search +
+// Query" for a program that may be either.
+func fitsLabel(id appkit.ArchetypeID, ids []appkit.ArchetypeID) string {
+	if len(ids) <= 1 {
+		return archetypeLabel(id)
+	}
+	parts := make([]string, len(ids))
+	for i, x := range ids {
+		parts[i] = archetypeLabel(x)
+	}
+	return strings.Join(parts, " + ")
+}
+
 // printArchetypeChoice writes the build output's archetype line. forced is
 // the --archetype value, when one was given.
 func printArchetypeChoice(w io.Writer, program string, c ArchetypeChoice, forced string) {
 	p := func(format string, a ...any) { fmt.Fprint(w, safeTerminalText(fmt.Sprintf(format, a...))+"\n") }
 	prog := shellWord(program)
 	if forced != "" {
-		a, _ := resolveArchetypeFlag(forced)
-		p("Archetype: %s, chosen with --archetype", archetypeLabel(a.ID))
+		ids, _ := resolveArchetypeList(forced)
+		if len(ids) > 0 {
+			p("Archetype: %s, chosen with --archetype", fitsLabel(ids[0], ids))
+		}
 		return
 	}
 	switch c.Confidence {
 	case ConfidenceListed:
-		p("Archetype: %s, listed for this program", archetypeLabel(c.ID))
+		p("Archetype: %s, listed for this program", fitsLabel(c.ID, c.Fits))
 	case ConfidenceClear:
-		p("Archetype: %s, a clear choice. Why: mint-gen --explain %s", archetypeLabel(c.ID), prog)
+		p("Archetype: %s, a clear choice. Why: mint-gen --explain %s", fitsLabel(c.ID, c.Fits), prog)
 	default:
 		also := ""
 		if len(c.Alternatives) > 0 {
 			var names []string
 			for _, a := range c.Alternatives {
+				if fitsOne(a, c.Fits) {
+					continue // already one of its archetypes
+				}
 				names = append(names, archetypeLabel(a))
 			}
-			also = "; also likely: " + strings.Join(names, ", ")
+			if len(names) > 0 {
+				also = "; also likely: " + strings.Join(names, ", ")
+			}
 		}
-		p("Archetype: %s, a CLOSE CALL%s", archetypeLabel(c.ID), also)
+		p("Archetype: %s, a CLOSE CALL%s", fitsLabel(c.ID, c.Fits), also)
 		change := "mint-gen --list-archetypes"
 		if len(c.Alternatives) > 0 {
 			change = fmt.Sprintf("mint-gen --archetype %s %s", c.Alternatives[0], prog)
@@ -79,6 +99,9 @@ func explainArchetypeChoice(w io.Writer, program string, c ArchetypeChoice) {
 		ConfidenceClose:  "a close call: check it",
 	}[c.Confidence]
 	p("  Archetype: %s, %s", archetypeLabel(c.ID), conf)
+	if len(c.Fits) > 1 {
+		p("  Fits:      %s (the evidence cannot tell them apart: each is within %s points of the best)", fitsLabel(c.ID, c.Fits), points(clearLead))
+	}
 	if a, ok := appkit.LookupArchetype(string(c.ID)); ok {
 		clause := func(s string) string { return lowerFirst(strings.TrimSuffix(strings.TrimSpace(s), ".")) }
 		p("             %s It takes %s; runs %s; shows %s.", a.Is, clause(a.Takes), clause(a.Runs), clause(a.Shows))
@@ -114,8 +137,41 @@ func lowerFirst(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
-// resolveArchetypeFlag reads an --archetype value: an archetype's ID or
-// name ("probe", "Look up").
+// resolveArchetypeFlag reads one archetype's ID or name ("probe", "Look up").
 func resolveArchetypeFlag(v string) (appkit.ArchetypeDef, bool) {
 	return appkit.LookupArchetype(v)
+}
+
+// resolveArchetypeList reads an --archetype value: one archetype, or
+// several separated by commas or "+" ("toolkit,records"), the first being
+// the main one. bad is the first name that is not an archetype.
+func resolveArchetypeList(v string) (ids []appkit.ArchetypeID, bad string) {
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '+' })
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		a, ok := resolveArchetypeFlag(p)
+		if !ok {
+			return nil, p
+		}
+		ids = append(ids, a.ID)
+	}
+	if ids = appkit.NormalizeArchetypes(ids); len(ids) == 0 {
+		if strings.TrimSpace(v) == "" {
+			v = "(empty)"
+		}
+		return nil, v
+	}
+	return ids, ""
+}
+
+func fitsOne(id appkit.ArchetypeID, ids []appkit.ArchetypeID) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }

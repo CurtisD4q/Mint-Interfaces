@@ -260,7 +260,7 @@ func (a *ToolApp) PreviewScreen(plan fileplan.Plan, run func(c *mint.Ctx, plan f
 			},
 		}))
 		summary = append(summary, mint.Section{Name: "Actions", Rows: acts})
-		if a.Spec.ArchetypeID == "edit-files" {
+		if a.Spec.IsA("edit-files") {
 			if len(files) == 0 {
 				files = []mint.Section{{Name: "Files", Rows: []mint.Row{mint.Note("  Nothing will change.")}}}
 			}

@@ -48,7 +48,7 @@ func runCLI(args []string) int {
 	fs.BoolVar(&system, "system", false, "With --install: print the commands that install Mint-Interfaces for everyone on this computer")
 	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
-	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself (e.g. probe, \"look up\"; see --list-archetypes)")
+	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself, or several separated by commas, the first being the main one (e.g. probe, \"look up\", toolkit,records; see --list-archetypes)")
 	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 38 archetypes and the add-ons")
 	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
 	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
@@ -231,17 +231,17 @@ func runCLI(args []string) int {
 	printHelpNotes(model.HelpNotes)
 
 	if archetypeFlag != "" {
-		a, ok := resolveArchetypeFlag(archetypeFlag)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(archetypeFlag))
+		ms, bad := resolveArchetypeList(archetypeFlag)
+		if bad != "" {
+			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(bad))
 			return 2
 		}
 		srcs, _ := CollectHelpNotes(program)
 		manText, helpText := manAndHelp(srcs)
-		applyChosenArchetype(&spec, a, manText+"\n"+helpText)
+		applyChosenArchetype(&spec, ms, manText+"\n"+helpText)
 		// The signals' caution stays with any archetype.
 		applySignals(&spec, model.Signals)
-		model.Notes = signalNotes(a.ID, model.Signals)
+		model.Notes = signalNotes(ms[0], model.Signals)
 	}
 
 	prof, _, cached := ensureTermProfile(false)
@@ -595,7 +595,7 @@ func runInteractiveTUI(initialProgram, repoRoot string) error {
 							Get:     func() string { return spec.ArchetypeID },
 							Set: func(v string) {
 								if a, ok := appkit.LookupArchetype(v); ok {
-									applyChosenArchetype(&spec, a, spec.Desc)
+									applyChosenArchetype(&spec, []appkit.ArchetypeID{a.ID}, spec.Desc)
 								}
 							},
 						}),

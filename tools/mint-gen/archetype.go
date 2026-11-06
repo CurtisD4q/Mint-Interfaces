@@ -706,6 +706,36 @@ type ArchetypeChoice struct {
 	Lead         float64          // points over the next archetype
 	Scores       []ArchetypeScore // best first (for --explain)
 	Alternatives []appkit.ArchetypeID
+	// Fits are all the archetypes the program may be, ID first (see
+	// fitsFrom). A clear choice fits one; a close call fits each archetype
+	// the evidence cannot tell apart.
+	Fits []appkit.ArchetypeID
+}
+
+// minFitScore is the fewest points an archetype needs to be one a program
+// may be: below it, being close to the best means nothing.
+const minFitScore = 15
+
+// fitsFrom is the archetypes a program whose main archetype is primary may
+// be: primary, then every archetype within clearLead points of the best
+// score (a close call between them), up to appkit.MaxArchetypes, best first.
+// A clear choice is ahead by clearLead or more, so it fits one archetype.
+func fitsFrom(primary appkit.ArchetypeID, scores []ArchetypeScore) []appkit.ArchetypeID {
+	top := 0.0
+	for _, s := range scores {
+		top = math.Max(top, s.Score)
+	}
+	out := []appkit.ArchetypeID{primary}
+	for _, s := range scores {
+		if len(out) >= appkit.MaxArchetypes {
+			break
+		}
+		if s.ID == primary || s.Score < minFitScore || top-s.Score >= clearLead {
+			continue
+		}
+		out = append(out, s.ID)
+	}
+	return appkit.NormalizeArchetypes(out)
 }
 
 // chooseArchetypeFor chooses from the help text alone, as for a program no
@@ -719,6 +749,7 @@ func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 	c := ArchetypeChoice{ID: scores[0].ID, Scores: scores, Lead: scores[0].Score - scores[1].Score}
 	c.Why = fmt.Sprintf("best evidence (%s points, %s ahead of %s)", points(scores[0].Score), points(c.Lead), scores[1].ID)
 	c.Confidence = choiceConfidence(c.Lead)
+	c.Fits = fitsFrom(c.ID, scores)
 	for _, s := range scores[1:3] {
 		if s.Score > 0 && scores[0].Score-s.Score < 2*clearLead {
 			c.Alternatives = append(c.Alternatives, s.ID)
@@ -732,7 +763,9 @@ func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 func chooseArchetype(bin string, manText, helpText string) ArchetypeChoice {
 	name := strings.ToLower(toolBaseName(bin))
 	if a, ok := appkit.ArchetypeForTool(name); ok {
-		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed}
+		// The list settles the primary; the help can still add others.
+		fits := fitsFrom(a.ID, scoreArchetypes(programTextFrom(name, manText, helpText)))
+		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed, Fits: fits}
 	}
 	return chooseArchetypeFor(programTextFrom(name, manText, helpText))
 }

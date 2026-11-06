@@ -193,9 +193,11 @@ func ParseManAndHelpIO(bin, manText, helpText string) (appkit.ToolSpec, IOModel)
 	spec.Flags = flags
 	text := programTextFrom(name, manText, helpText)
 	choice := chooseArchetype(name, manText, helpText)
-	def, _ := appkit.LookupArchetype(string(choice.ID))
-	def.ApplyTo(&spec)
-	if def.WantsSubcommands() && len(spec.Subcommands) == 0 {
+	if len(choice.Fits) == 0 {
+		choice.Fits = []appkit.ArchetypeID{choice.ID}
+	}
+	appkit.ApplyArchetypes(&spec, choice.Fits)
+	if spec.WantsSubcommands() && len(spec.Subcommands) == 0 {
 		if subs := extractSubcommands(manLines, helpLines); len(subs) > 0 {
 			spec.Subcommands = subs
 		}

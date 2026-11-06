@@ -84,3 +84,19 @@ func HasOwnLayout(t InterfaceTypeID) bool {
 	}
 	return false
 }
+
+// SpecHasOwnLayout reports whether an app built from spec draws its
+// interface type's own layout, not the classic screen: the type has one,
+// and the app has what that layout needs (commands for a suite, a state it
+// can read for a monitor).
+func SpecHasOwnLayout(spec ToolSpec) bool {
+	switch PlanFor(FactsFromSpec(spec)).Type {
+	case TypeCommandSuite:
+		return len(spec.Subcommands) > 0
+	case TypeLiveMonitor:
+		// As executionMode: polled only when it can read its state and
+		// has an interval or wants live refresh, and never full-screen.
+		return !spec.FullScreen && spec.CanReadState() && (spec.PollInterval > 0 || spec.Blueprint().Has(FeatLiveRefresh))
+	}
+	return false
+}

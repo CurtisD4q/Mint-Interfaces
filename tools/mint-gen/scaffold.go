@@ -179,6 +179,16 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 	if spec.ArchetypeID != "" {
 		fmt.Fprintf(&buf, "\t\tArchetypeID:       %q,\n", spec.ArchetypeID)
 	}
+	if ids := spec.ArchetypeList(); len(ids) > 1 {
+		buf.WriteString("\t\tArchetypes: []appkit.ArchetypeID{")
+		for i, id := range ids {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(&buf, "%q", id)
+		}
+		buf.WriteString("},\n")
+	}
 	if spec.FullScreen {
 		buf.WriteString("\t\tFullScreen:        true,\n")
 	}

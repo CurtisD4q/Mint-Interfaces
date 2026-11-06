@@ -170,7 +170,7 @@ func (a *ToolApp) extraArgsSection() mint.Section {
 }
 
 func (a *ToolApp) helpPrefix() []string {
-	if a.Spec.ArchetypeID == "toolkit" && a.ActiveSubcommand != "" {
+	if a.Spec.IsA("toolkit") && a.ActiveSubcommand != "" {
 		return []string{a.ActiveSubcommand}
 	}
 	return nil
@@ -181,10 +181,12 @@ func (a *ToolApp) helpPrefix() []string {
 // a page or a table of targets is the output, so it stays in that pane.
 func (a *ToolApp) rolePanes() []*mint.Pane {
 	var panes []*mint.Pane
-	switch a.Spec.ArchetypeID {
-	case "audit":
+	// A program can be both: an audit that also edits files has findings
+	// and a preview of what will change.
+	if a.Spec.IsA("audit") {
 		panes = appendPane(panes, onePane("Findings", a.findingsSections()))
-	case "mirror", "edit-files":
+	}
+	if a.Spec.IsA("mirror") || a.Spec.IsA("edit-files") {
 		panes = appendPane(panes, onePane("What will change", a.changePreviewSections()))
 	}
 	return panes

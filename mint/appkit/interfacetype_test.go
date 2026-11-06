@@ -279,3 +279,14 @@ func TestPlanDoesNotChangeTheScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestAFirmLogFollowerIsNotAMonitor(t *testing.T) {
+	f := Facts{KeepsRunning: true, TableOutput: true, Hints: []Feature{FeatFollow}, Weights: map[Feature]float64{FeatFollow: 1}}
+	if got := PlanFor(f).Type; got != TypeLogFollower {
+		t.Fatalf("got %s", got)
+	}
+	f.Hints = append(f.Hints, FeatLiveRefresh)
+	if got := PlanFor(f).Type; got != TypeLiveMonitor {
+		t.Fatalf("refreshing: got %s", got)
+	}
+}

@@ -785,13 +785,9 @@ const (
 	execState                 // read state, edit, apply
 )
 
-// blueprint is the archetype's feature plan, or empty when none is set.
-func (a *ToolApp) blueprint() Blueprint {
-	if def, ok := LookupArchetype(a.Spec.ArchetypeID); ok {
-		return def.Blueprint()
-	}
-	return Blueprint{}
-}
+// blueprint is the feature plan of all the program's archetypes together,
+// or empty when none is set.
+func (a *ToolApp) blueprint() Blueprint { return a.Spec.Blueprint() }
 
 // stateEditWanted reports whether this tool reads state and applies a
 // change: FeatStateEdit (settings, device, rules), an apply prefix, or a
@@ -801,8 +797,7 @@ func (a *ToolApp) stateEditWanted() bool {
 	if a.blueprint().Has(FeatStateEdit) {
 		return true
 	}
-	switch a.Spec.ArchetypeID {
-	case "settings", "device", "rules":
+	if a.Spec.IsA("settings") || a.Spec.IsA("device") || a.Spec.IsA("rules") {
 		return true
 	}
 	return len(a.Spec.ApplyArgs) > 0 || len(a.Spec.StatusArgs) > 0
@@ -843,11 +838,12 @@ func (a *ToolApp) showsInlineResults() bool {
 	if b.Has(FeatTable) || b.Has(FeatLiveRefresh) || b.Has(FeatFollow) || b.Has(FeatStateEdit) {
 		return true
 	}
-	def, ok := LookupArchetype(a.Spec.ArchetypeID)
-	if !ok {
-		return false
+	for _, def := range a.Spec.Members() {
+		if def.Group == GroupAnswer || def.ID == "probe" || def.ID == "record" {
+			return true
+		}
 	}
-	return def.Group == GroupAnswer || def.ID == "probe" || def.ID == "record"
+	return false
 }
 
 // MainScreen builds the one screen for this tool from three zones:
