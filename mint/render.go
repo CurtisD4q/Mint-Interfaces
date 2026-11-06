@@ -79,6 +79,10 @@ var (
 type canvas struct {
 	b strings.Builder
 	w int
+
+	// A view draws into parent, shifted dx columns right (see view).
+	parent *canvas
+	dx     int
 }
 
 func begin(h, w int) *canvas {
@@ -89,6 +93,10 @@ func begin(h, w int) *canvas {
 
 func (c *canvas) put(r, col int, s string) {
 	if r < 1 || col < 1 || col > c.w {
+		return
+	}
+	if c.parent != nil {
+		c.parent.put(r, col+c.dx, clipCells(s, c.w-col+1))
 		return
 	}
 	c.b.WriteString(move(r, col))

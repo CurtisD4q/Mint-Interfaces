@@ -772,6 +772,26 @@ Where the terminal reports focus (mode 1004), an app whose window or tmux pane l
 - Terminals without focus reporting never send it, so apps there stay as they are.
 - Set `MINT_DIM_UNFOCUSED=0` to keep apps bright when unfocused.
 
+## Panes side by side
+
+A screen's extra panes stack under its own sections. Set `Beside: true` on a pane to draw it to the right of the pane before it instead, in the same rows, and `Width` to give it a share of the width (`TopWidth` is the top pane's share; panes with no share split the width equally):
+
+```go
+&mint.Screen{
+    TopTitle: "Commands", TopWidth: 1,
+    Sections: commandList,
+    Panes: []*mint.Pane{
+        {Title: "Options", Beside: true, Width: 2, Sections: form},
+        {Title: "Result", Sections: output}, // stacked under both
+    },
+}
+```
+
+- Each pane keeps its own cursor and scroll, and Tab and Shift-Tab still go through every pane in order. A click focuses the pane under it, and hover and the pressed look stay in the pane the pointer is over.
+- A pane is never drawn narrower than 30 columns. On a terminal too narrow for the panes beside each other, they are stacked as if `Beside` were not set.
+- A pane beside another cannot be hidden with `|`, and `[` `]` resize the band as a whole.
+- `go run ./examples/columns` shows it.
+
 ## Keys
 
 Arrow keys, Enter, Space, Esc, `b` and `q` always work. Home, End, Page Up and Page Down jump and page through lists; other keys Mint doesn't use, such as Delete or F5, are ignored.

@@ -143,8 +143,14 @@ func (s *Screen) paneContentLen(index, spacing int) int {
 	if s == nil || s.viewWidth <= 0 {
 		return math.MaxInt32 / 8
 	}
-	st := s.uiAt(index)
-	return len(st.flatten(s.sectionsAt(index), s.viewWidth, spacing))
+	longest := 0
+	for _, c := range s.groupOf(index) {
+		st := s.uiAt(c.index)
+		if n := len(st.flatten(s.sectionsAt(c.index), c.w, spacing)); n > longest {
+			longest = n
+		}
+	}
+	return longest
 }
 
 // shareNums is each content pane's portion of 100 (or of den, when a
@@ -517,7 +523,10 @@ func placeBands(s *Screen, plans []panePlan, rows []int, content []bool, leads [
 	limit := contentTop + avail
 	out := make([]paneBand, 0, len(plans))
 	for i, p := range plans {
-		b := paneBand{index: p.index, hidden: s.paneHidden(p.index)}
+		b := paneBand{index: p.index, hidden: s.bandHidden(p.index)}
+		if g := s.groupOf(p.index); len(g) > 1 {
+			b.cols = g
+		}
 		if p.div && row < limit {
 			lead := 0
 			if i < len(leads) {
@@ -541,7 +550,7 @@ func placeBands(s *Screen, plans []panePlan, rows []int, content []bool, leads [
 			}
 			row += b.rows
 		}
-		if !p.content && p.div && !s.paneHidden(p.index) && p.index != s.focus {
+		if !p.content && p.div && !s.bandHidden(p.index) && p.index != s.leaderOf(s.focus) {
 			b.collapsed = true
 		}
 		if p.div || b.rows > 0 {

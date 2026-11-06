@@ -29,6 +29,7 @@ type pointerState struct {
 	row, col int
 	down     bool // the left button is held
 	pressRow int  // where it went down
+	pressCol int
 	seq      uint64
 }
 
@@ -60,7 +61,7 @@ func pressPointer(row, col int) {
 	ptr.mu.Lock()
 	defer ptr.mu.Unlock()
 	ptr.known, ptr.row, ptr.col = true, row, col
-	ptr.down, ptr.pressRow = true, row
+	ptr.down, ptr.pressRow, ptr.pressCol = true, row, col
 	ptr.seq++
 }
 
@@ -103,16 +104,35 @@ func pressedRow() (int, bool) {
 	return ptr.pressRow, ptr.known && ptr.down && ptr.row == ptr.pressRow
 }
 
+// paneWin is the columns of the pane being drawn while panes sit side by
+// side; w is 0 otherwise. Hover and pressed only apply inside it, so the
+// same row in the pane next door does not light up too.
+var paneWin struct{ x0, w int }
+
+func inPaneWin(col int) bool {
+	return paneWin.w == 0 || (col >= paneWin.x0 && col < paneWin.x0+paneWin.w)
+}
+
 // hoverAt reports whether row r has the hover look.
 func hoverAt(r int) bool {
 	row, ok := hoverRow()
-	return ok && row == r
+	if !ok || row != r {
+		return false
+	}
+	ptr.mu.Lock()
+	defer ptr.mu.Unlock()
+	return inPaneWin(ptr.col)
 }
 
 // pressedAt reports whether row r has the pressed look.
 func pressedAt(r int) bool {
 	row, ok := pressedRow()
-	return ok && row == r
+	if !ok || row != r {
+		return false
+	}
+	ptr.mu.Lock()
+	defer ptr.mu.Unlock()
+	return inPaneWin(ptr.pressCol)
 }
 
 // pointerWatch tells a screen when the pointer changed since it last drew.
