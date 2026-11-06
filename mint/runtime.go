@@ -654,17 +654,16 @@ func (l1 *level1Runtime) quantizePalette(p theme.Palette) theme.Palette {
 		return seq
 	}
 	return theme.Palette{
-		Accent:     quant(p.Accent, false),
-		Bright:     quant(p.Bright, false),
-		Text:       quant(p.Text, false),
-		Muted:      quant(p.Muted, false),
-		On:         quant(p.On, false),
-		Amber:      quant(p.Amber, false),
-		SelBg:      quant(p.SelBg, true),
-		Bold:       p.Bold,
-		Dim:        p.Dim,
-		Err:        quant(p.Err, false),
-		Background: p.Background,
+		Accent: quant(p.Accent, false),
+		Bright: quant(p.Bright, false),
+		Text:   quant(p.Text, false),
+		Muted:  quant(p.Muted, false),
+		On:     quant(p.On, false),
+		Amber:  quant(p.Amber, false),
+		SelBg:  quant(p.SelBg, true),
+		Bold:   p.Bold,
+		Dim:    p.Dim,
+		Err:    quant(p.Err, false),
 	}
 }
 

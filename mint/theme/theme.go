@@ -31,12 +31,6 @@ type Palette struct {
 	// Err colours error badges and toasts. It is optional: when empty,
 	// Amber is used.
 	Err string
-	// Background is the theme's page background. Inactive pane headings
-	// on a truecolor terminal are blended toward it. The zero value is
-	// black, which is what the default and terminal themes are drawn on:
-	// they paint onto the terminal's own background rather than a colour
-	// of their own.
-	Background [3]int
 }
 
 // Complete reports whether every required role is set (Err is optional).
@@ -121,33 +115,31 @@ func rgbBg(c [3]int) string {
 }
 func themeDefault() Palette {
 	return Palette{
-		Accent:     idxFg(141),
-		Bright:     idxFg(183),
-		Text:       idxFg(253),
-		Muted:      idxFg(245),
-		On:         idxFg(114),
-		Amber:      idxFg(214),
-		SelBg:      idxBg(237),
-		Bold:       bold,
-		Dim:        dim,
-		Err:        idxFg(203),
-		Background: [3]int{0, 0, 0},
+		Accent: idxFg(141),
+		Bright: idxFg(183),
+		Text:   idxFg(253),
+		Muted:  idxFg(245),
+		On:     idxFg(114),
+		Amber:  idxFg(214),
+		SelBg:  idxBg(237),
+		Bold:   bold,
+		Dim:    dim,
+		Err:    idxFg(203),
 	}
 }
 
 func themeTerminal() Palette {
 	return Palette{
-		Accent:     sgr(95),
-		Bright:     sgr(97),
-		Text:       sgr(37),
-		Muted:      sgr(90),
-		On:         sgr(92),
-		Amber:      sgr(93),
-		SelBg:      sgr(100),
-		Bold:       bold,
-		Dim:        dim,
-		Err:        sgr(91),
-		Background: [3]int{0, 0, 0},
+		Accent: sgr(95),
+		Bright: sgr(97),
+		Text:   sgr(37),
+		Muted:  sgr(90),
+		On:     sgr(92),
+		Amber:  sgr(93),
+		SelBg:  sgr(100),
+		Bold:   bold,
+		Dim:    dim,
+		Err:    sgr(91),
 	}
 }
 
@@ -155,17 +147,16 @@ type rgbSpec map[string][3]int
 
 func fromRGB(s rgbSpec) Palette {
 	return Palette{
-		Accent:     rgbFg(s["accent"]),
-		Bright:     rgbFg(s["bright"]),
-		Text:       rgbFg(s["text"]),
-		Muted:      rgbFg(s["muted"]),
-		On:         rgbFg(s["on"]),
-		Amber:      rgbFg(s["amber"]),
-		SelBg:      rgbBg(s["selbg"]),
-		Bold:       bold,
-		Dim:        dim,
-		Err:        rgbFg(s["err"]),
-		Background: s["bg"],
+		Accent: rgbFg(s["accent"]),
+		Bright: rgbFg(s["bright"]),
+		Text:   rgbFg(s["text"]),
+		Muted:  rgbFg(s["muted"]),
+		On:     rgbFg(s["on"]),
+		Amber:  rgbFg(s["amber"]),
+		SelBg:  rgbBg(s["selbg"]),
+		Bold:   bold,
+		Dim:    dim,
+		Err:    rgbFg(s["err"]),
 	}
 }
 
@@ -179,7 +170,6 @@ var presets = map[string]rgbSpec{
 		"amber":  {235, 203, 139},
 		"selbg":  {59, 66, 82},
 		"err":    {191, 97, 106},
-		"bg":     {46, 52, 64}, // nord0
 	},
 	"gruvbox": {
 		"accent": {250, 189, 47},
@@ -190,7 +180,6 @@ var presets = map[string]rgbSpec{
 		"amber":  {250, 189, 47},
 		"selbg":  {60, 56, 54},
 		"err":    {251, 73, 52},
-		"bg":     {40, 40, 40},
 	},
 	"dracula": {
 		"accent": {189, 147, 249},
@@ -201,7 +190,6 @@ var presets = map[string]rgbSpec{
 		"amber":  {241, 250, 140},
 		"selbg":  {68, 71, 90},
 		"err":    {255, 85, 85},
-		"bg":     {40, 42, 54},
 	},
 	"catppuccin": {
 		"accent": {203, 166, 247},
@@ -212,7 +200,6 @@ var presets = map[string]rgbSpec{
 		"amber":  {249, 226, 175},
 		"selbg":  {49, 50, 68},
 		"err":    {243, 139, 168},
-		"bg":     {30, 30, 46}, // mocha base
 	},
 }
 
