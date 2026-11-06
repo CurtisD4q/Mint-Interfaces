@@ -258,6 +258,7 @@ func runCLI(args []string) int {
 		fmt.Printf("  - %s\n", f)
 	}
 	printArchetypeChoice(os.Stdout, program, model.Archetype, archetypeFlag)
+	printInterfaceType(os.Stdout, spec, "")
 	printSignalNotes(os.Stdout, model.Notes)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)

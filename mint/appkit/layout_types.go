@@ -74,3 +74,13 @@ const titleLive = "Live values"
 func (a *ToolApp) monitorLayout(mode execMode) bool {
 	return mode == execPoll && a.Spec.CanReadState() && a.usesType(TypeLiveMonitor)
 }
+
+// HasOwnLayout reports whether interface type t has a layout of its own;
+// the other types draw the classic screen.
+func HasOwnLayout(t InterfaceTypeID) bool {
+	switch t {
+	case TypeCommandSuite, TypeLiveMonitor:
+		return true
+	}
+	return false
+}

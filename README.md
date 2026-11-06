@@ -800,6 +800,8 @@ Each command shows its own options first, then the program's. mint-gen reads a c
 
 The **live monitor** (a program that keeps running and shows rows) puts its options in a column on the left and the live values beside them, with the poll controls docked under both.
 
+`mint-gen` names the type when it builds an app, and `mint-gen --explain <program>` says why (for example `Screen:    Command suite (command-suite), because it has commands of its own`).
+
 Every other type still draws the classic screen, which also stays available for all apps: set `MINT_CLASSIC_LAYOUT=1` to draw every app with it.
 
 ## Keys
