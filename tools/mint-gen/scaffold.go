@@ -412,6 +412,9 @@ func renderSpecGo(spec appkit.ToolSpec) ([]byte, error) {
 		}
 		buf.WriteString("\t\t},\n")
 	}
+	if spec.GlobalFlagsFirst {
+		buf.WriteString("\t\tGlobalFlagsFirst: true,\n")
+	}
 	if len(spec.Subcommands) > 0 {
 		buf.WriteString("\t\tSubcommands: []appkit.SubcommandSpec{\n")
 		for _, sub := range spec.Subcommands {

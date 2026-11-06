@@ -141,3 +141,22 @@ func plural(n int, word string) string {
 	}
 	return strconv.Itoa(n) + " " + word + "s"
 }
+
+// optionsBeforeCommand reports whether the usage line puts the program's
+// options before the command word: "docker [OPTIONS] COMMAND", or git's
+// "git [-v | --version] [-C <path>] … <command> [<args>]", which may run over
+// several lines, with a bracket inside a bracket ([--exec-path[=<path>]]).
+// "7z <command> [<switches>...]" puts them after.
+func optionsBeforeCommand(name, text string) bool {
+	if name == "" {
+		return false
+	}
+	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `((?:\s+\[(?:[^\[\]]|\[[^\[\]]*\]){0,200}\])+)\s+` + commandWord + `\b`)
+	for _, m := range re.FindAllStringSubmatch(text, -1) {
+		groups := strings.ToLower(m[1])
+		if strings.Contains(groups, "option") || strings.Contains(groups, "flag") || strings.Contains(groups, "-") {
+			return true
+		}
+	}
+	return false
+}
