@@ -23,7 +23,7 @@ import (
 const commandWord = `(?:<|\[)?(?:sub)?command(?:>|\])?`
 
 // maxCommandHelps is the most command helps read for one program.
-const maxCommandHelps = 10
+const maxCommandHelps = 24
 
 // commandHelpForm reads how the program's help says to get one command's
 // help: as "<program> <command> --help" (or -h), or as "<program> help
