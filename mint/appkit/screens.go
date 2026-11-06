@@ -950,14 +950,17 @@ func (a *ToolApp) inputSection(includeExtra bool) mint.Section {
 		if a.ActiveSubcommand == "" {
 			a.ActiveSubcommand = subs[0].Name
 		}
-		rows = append(rows,
-			mint.Picker(mint.PickerOpts{
+		if !a.suiteLayout() {
+			// The command suite lists the commands in a pane of their own.
+			rows = append(rows, mint.Picker(mint.PickerOpts{
 				ID:      "suite:subcommand",
 				Label:   "Subcommand mode",
 				Options: names,
 				Get:     func() string { return a.ActiveSubcommand },
 				Set:     func(v string) { a.ActiveSubcommand = v },
-			}),
+			}))
+		}
+		rows = append(rows,
 			mint.Value(mint.ValueOpts{
 				Label: "Mode description",
 				Get: func() string {

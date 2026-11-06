@@ -92,6 +92,22 @@ func (a *ToolApp) layoutMain(scr *mint.Screen, mode execMode, canPoll bool, inte
 	title := a.outputSectionName(a.outputFallback(mode))
 	panes = appendPane(panes, onePane(titleOutput, []mint.Section{a.buildOutputDisplaySection(title)}))
 
+	if a.suiteLayout() {
+		// Commands on the left, the selected command's options beside
+		// them, then whatever else stacks below.
+		opts := onePane(titleOptions, basic)
+		if opts == nil {
+			opts = &mint.Pane{Title: titleOptions, Sections: []mint.Section{{Name: "Options", Rows: []mint.Row{mint.Note("This command has no options.")}}}}
+		}
+		opts.Beside, opts.Width = true, 2
+		panes = append([]*mint.Pane{opts}, panes...)
+		scr.TopTitle, scr.TopWidth = titleCommands, 1
+		scr.Sections = a.suiteList()
+		scr.SetPanes(panes)
+		scr.Dock = dropEmpty([]mint.Section{a.executionZone(mode, canPoll, interval)})
+		return
+	}
+	scr.TopWidth = 0
 	scr.TopTitle = titleBasic
 	scr.Sections = basic
 	scr.SetPanes(panes)
