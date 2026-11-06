@@ -224,6 +224,7 @@ func printIOModel(w io.Writer, m IOModel, spec appkit.ToolSpec) {
 	}
 	if m.Archetype.ID != "" {
 		explainArchetypeChoice(w, m.Tool, m.Archetype)
+		printInterfaceType(w, spec, "  ")
 		printSignalNotes(w, m.Notes)
 	}
 	if m.Usage != "" {
