@@ -16,6 +16,7 @@ type paneBand struct {
 	rows      int
 	collapsed bool
 	hidden    bool
+	cols      []colSpan // the panes of a split band, left to right; nil for one pane
 }
 
 // SelectedTableRow reports the table row under the cursor in the top pane,
@@ -224,6 +225,9 @@ func (s *Screen) toggleFocused() {
 	if s.focus < 0 || s.focus >= n {
 		s.focus = 0
 	}
+	if s.inSplitGroup(s.focus) {
+		return // a pane beside another is never hidden; the width is shared
+	}
 	shown := 0
 	for i := 0; i < n; i++ {
 		if !s.paneHidden(i) {
@@ -257,7 +261,7 @@ func (s *Screen) nudgeFocus(dir int) {
 	}
 	pos := -1
 	for i, b := range content {
-		if b.index == s.focus {
+		if b.index == s.leaderOf(s.focus) {
 			pos = i
 			break
 		}
@@ -280,7 +284,7 @@ func (s *Screen) nudgeFocus(dir int) {
 	if s.bias == nil {
 		s.bias = map[int]int{}
 	}
-	s.bias[focused.index] += dir
+	s.bias[focused.index] += dir // a split band is resized as one, under its first pane
 	// A neighbour already at the minimum cannot give or take a row. The
 	// blank space under the last pane absorbs it instead.
 	if dir > 0 && neighbour.rows-1 < paneMinRows {
@@ -328,22 +332,25 @@ func (s *Screen) bandIndex(row int) (int, bool) {
 // unfocused panes collapse to that divider and the focused pane takes
 // what is left.
 func (s *Screen) layoutBands(contentTop, avail int) []paneBand {
-	n := s.paneCount()
+	groups := s.groups()
+	n := len(groups)
 	if s.focus < 0 || s.focus >= s.focusCount() {
 		s.focus = 0
 	}
 	// The dock is not a pane. While it has focus, the last pane stays open
 	// so a short terminal does not collapse every pane.
 	focusPane := s.focus
-	if focusPane >= n {
-		focusPane = n - 1
+	if focusPane >= s.paneCount() {
+		focusPane = s.paneCount() - 1
 	}
 	if focusPane < 0 {
 		focusPane = 0
 	}
+	focusPane = s.leaderOf(focusPane)
 	plans := make([]panePlan, n)
 	for i := 0; i < n; i++ {
-		plans[i] = panePlan{index: i, weight: s.paneWeight(i), hidden: s.paneHidden(i)}
+		lead := groups[i][0].index
+		plans[i] = panePlan{index: lead, weight: s.paneWeight(lead), hidden: s.bandHidden(lead)}
 	}
 	shown := 0
 	for i := range plans {
@@ -607,11 +614,13 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 	// Lay the top pane out before the lower panes refresh, so a detail
 	// pane sees the row the cursor is on. Refresh can change how tall a
 	// lower pane needs to be, so the bands are measured again afterwards.
+	s.viewWidth = w
+	_, topW := s.paneSpan(0)
 	bands := s.layoutBands(contentTop, avail)
 	if rows := bandRows(bands, 0); rows > 0 {
 		top := s.uiAt(0)
 		use(top)
-		preparePane(top, s.Sections, w, sp, rows)
+		preparePane(top, s.Sections, topW, sp, rows)
 		s.noteSelection(top)
 	}
 	s.refreshSplitPanes()
@@ -620,7 +629,7 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 		if rows := bandRows(next, 0); rows > 0 {
 			top := s.uiAt(0)
 			use(top)
-			preparePane(top, s.Sections, w, sp, rows)
+			preparePane(top, s.Sections, topW, sp, rows)
 			before := s.selSig()
 			s.noteSelection(top)
 			if s.selSig() != before {
@@ -631,15 +640,18 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 	}
 	s.bands = next
 	for _, b := range s.bands {
-		if b.divRow > 0 {
-			paintDivider(cv, b.divRow, w, s.paneTitle(b.index), b.index == s.focus)
+		for _, c := range b.spans(w) {
+			if b.divRow > 0 {
+				win := cv.view(c.x0, c.w)
+				paintDivider(win, b.divRow, c.w, s.paneTitle(c.index), c.index == s.focus)
+			}
+			if b.rows <= 0 {
+				continue
+			}
+			pst := s.uiAt(c.index)
+			use(pst)
+			preparePane(pst, s.sectionsAt(c.index), c.w, sp, b.rows)
 		}
-		if b.rows <= 0 {
-			continue
-		}
-		pst := s.uiAt(b.index)
-		use(pst)
-		preparePane(pst, s.sectionsAt(b.index), w, sp, b.rows)
 	}
 	// Gap rules sit on blank rows. Paint them before pane bodies so a
 	// scrollbar drawn with the body keeps the right-hand column.
@@ -648,9 +660,47 @@ func (s *Screen) paintSplit(cv *canvas, w, contentTop, avail int, use func(*uiSt
 		if b.rows <= 0 {
 			continue
 		}
-		pst := s.uiAt(b.index)
-		use(pst)
-		paintRows(cv, pst, pst.items, b.top, b.rows, w, b.index == s.focus, widget, marked)
+		for _, c := range b.spans(w) {
+			pst := s.uiAt(c.index)
+			use(pst)
+			pst.x0 = c.x0 - 1
+			win := cv
+			if len(b.cols) > 0 {
+				win = cv.view(c.x0, c.w)
+				paneWin.x0, paneWin.w = c.x0, c.w
+			}
+			paintRows(win, pst, pst.items, b.top, b.rows, c.w, c.index == s.focus, widget, marked)
+			paneWin.x0, paneWin.w = 0, 0
+		}
+		s.paintColumnRules(cv, b)
+	}
+}
+
+// spans is the panes a band draws: its columns when split, else one pane
+// over the full width.
+func (b paneBand) spans(w int) []colSpan {
+	if len(b.cols) > 0 {
+		return b.cols
+	}
+	return []colSpan{{b.index, 1, w}}
+}
+
+// paintColumnRules draws the dim rule between the panes of a split band,
+// down the first column of every pane but the first (a column no pane
+// draws in).
+func (s *Screen) paintColumnRules(cv *canvas, b paneBand) {
+	if len(b.cols) < 2 {
+		return
+	}
+	first := b.top
+	if b.divRow > 0 {
+		first = b.divRow
+	}
+	last := b.top + b.rows - 1
+	for _, c := range b.cols[1:] {
+		for r := first; r <= last; r++ {
+			cv.put(r, c.x0, ruleStyle()+"│"+Reset)
+		}
 	}
 }
 

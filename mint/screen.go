@@ -40,6 +40,10 @@ type Screen struct {
 	// split what remains.
 	Weight float64
 
+	// TopWidth is the top pane's share of the width when the pane after it
+	// has Beside set (0 shares equally).
+	TopWidth float64
+
 	// TopTitle names the top band when it is a pane of its own, such as
 	// Basic Options. Empty keeps the screen title as that band's name and
 	// draws no divider while the band is open.
@@ -118,6 +122,13 @@ type Pane struct {
 	Weight   float64
 	Refresh  func(*Pane)
 
+	// Beside draws this pane to the right of the pane before it, in the
+	// same band of rows, instead of under it. Width is its share of the
+	// band's width among the panes beside each other (0 shares equally).
+	// On a terminal too narrow for them, the panes are stacked as usual.
+	Beside bool
+	Width  float64
+
 	ui     *uiState
 	hidden bool
 }
@@ -155,6 +166,7 @@ type uiState struct {
 	collapsed   map[string]bool
 	footSig     string
 	page        int
+	x0          int // columns to the left of this pane's window (0 unless split)
 }
 
 // Ctx is handed to row callbacks. It can open dialogs, show toasts, run
@@ -1005,6 +1017,7 @@ func (screen *Screen) bind() {
 	}
 
 	lastClickIdx, lastClickTime := 0, time.Time{}
+	var lastClickPane *uiState // rows are numbered per pane, so a double click is on one pane
 
 	// copyRow puts the selected row on the clipboard (y): a table row's
 	// cells (tab-separated), a value as shown, or else the row's label.
@@ -1177,7 +1190,7 @@ func (screen *Screen) bind() {
 				st = screen.uiAt(screen.focus)
 				dirty = true
 			default:
-				if idx, ok := screen.bandIndex(k.Mouse.Row); ok {
+				if idx, ok := screen.bandIndexAt(k.Mouse.Row, k.Mouse.Col); ok {
 					screen.focus = idx
 					st = screen.uiAt(idx)
 					dirty = true
@@ -1235,7 +1248,10 @@ func (screen *Screen) bind() {
 				dirty = true
 			}
 		case k.Mouse != nil && k.Mouse.Click:
-			m := k.Mouse
+			// A pane's hit columns are relative to its own window.
+			local := *k.Mouse
+			local.Col -= st.x0
+			m := &local
 			if sb := st.sb; sb != nil && m.Col == sb.col && m.Row >= sb.top && m.Row <= sb.top+sb.rows-1 {
 				frac := float64(m.Row-sb.top) / float64(max(1, sb.rows-1))
 				st.scroll = clampInt(floorf(frac*float64(sb.maxoff)+0.5), 0, sb.maxoff)
@@ -1255,9 +1271,9 @@ func (screen *Screen) bind() {
 			} else if entry, ok := st.hit[m.Row]; ok {
 				if si := selIndexOf(entry.idx); si >= 1 {
 					now := time.Now()
-					double := si == st.row && lastClickIdx == entry.idx && now.Sub(lastClickTime) <= 450*time.Millisecond
+					double := si == st.row && lastClickIdx == entry.idx && lastClickPane == st && now.Sub(lastClickTime) <= 450*time.Millisecond
 					st.row = si
-					lastClickIdx, lastClickTime = entry.idx, now
+					lastClickIdx, lastClickTime, lastClickPane = entry.idx, now, st
 					dirty = true
 					it := &st.items[entry.idx-1]
 					onMark := m.Col == 5 || m.Col == 6
