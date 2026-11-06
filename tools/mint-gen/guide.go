@@ -37,7 +37,7 @@ The app opens on a home menu. Up and down move through the items, Enter opens on
 
 The main screen is where you set the command up. Choose the target, switch flags on or off, and fill in values. Then run the command from that screen. Extra arguments, at the top, takes any options the app has no box for.
 
-Some screens stack into panes. Tab and Shift-Tab move between panes. [ shrinks the focused pane and ] grows it. | hides the focused pane, and | again shows it. Click a pane to focus it.
+Some screens are made of panes. Tab and Shift-Tab move between panes. Click a pane to focus it. On a wide terminal some panes sit side by side (a list of commands beside the options for the selected one, say); on a narrow terminal they stack. [ shrinks the focused pane and ] grows it. | hides the focused stacked pane, and | again shows it.
 
 On a wide table, ← and → scroll sideways. H narrows the column you are on and L widens it.
 

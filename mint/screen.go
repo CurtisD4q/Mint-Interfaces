@@ -1129,7 +1129,7 @@ func (screen *Screen) bind() {
 			}
 			st = screen.uiAt(screen.focus)
 			it, _ := current()
-			hints := withSplitHints(footerHints(st.editing != nil, screen.Hints, it))
+			hints := withSplitHints(footerHints(st.editing != nil, screen.Hints, it), !screen.inSplitGroup(screen.focus))
 			badges := status()
 			cv.footer(h, w, hints, badges)
 			st.footSig = footerSig(badges)
