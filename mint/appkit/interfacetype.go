@@ -214,7 +214,9 @@ func (p Plan) Signature() string {
 func FactsFromSpec(spec ToolSpec) Facts {
 	f := Facts{
 		KeepsRunning: spec.PollInterval > 0 || spec.Follow != nil || spec.Service != nil,
-		ChangesState: len(spec.ApplyArgs) > 0 || len(spec.StatusArgs) > 0,
+		// A read-only program may have status arguments (a monitor reads its
+		// state with them) and still change nothing.
+		ChangesState: !spec.ReadOnly && (len(spec.ApplyArgs) > 0 || len(spec.StatusArgs) > 0),
 		TakesTarget:  spec.TargetLabel != "",
 		TwoInputs:    spec.TwoInputs,
 		Subcommands:  len(spec.Subcommands) > 0,
