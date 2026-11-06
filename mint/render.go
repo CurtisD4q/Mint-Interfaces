@@ -145,17 +145,14 @@ func ruleStyle() string { return C.Accent + C.Dim }
 // paintRule draws a full-width line of ─ across the content width (inside
 // the frame, stopping before the scrollbar column), in ruleStyle.
 func paintRule(c *canvas, row, w int) {
-	paintRuleSpan(c, row, 2, w-3, ruleStyle())
-}
-
-// paintRuleSpan draws n cells of ─ from column col, in style. n < 1 draws
-// nothing. The line stops where the caller says, so a side-by-side band
-// can colour each pane's share of one rule on its own.
-func paintRuleSpan(c *canvas, row, col, n int, style string) {
-	if c == nil || n < 1 || row < 1 || col < 1 {
+	if c == nil || w < 4 || row < 1 {
 		return
 	}
-	c.put(row, col, style+dividerLine("─", n)+Reset)
+	n := w - 3
+	if n < 1 {
+		return
+	}
+	c.put(row, 2, ruleStyle()+dividerLine("─", n)+Reset)
 }
 
 func (c *canvas) chromeTitle(w int, title, crumb string) {
