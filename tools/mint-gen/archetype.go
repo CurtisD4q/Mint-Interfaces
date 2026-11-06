@@ -706,6 +706,49 @@ type ArchetypeChoice struct {
 	Lead         float64          // points over the next archetype
 	Scores       []ArchetypeScore // best first (for --explain)
 	Alternatives []appkit.ArchetypeID
+	// Members are all the archetypes the program belongs to, with
+	// weights, ID first (see membershipsFrom).
+	Members []appkit.Membership
+}
+
+// A program belongs to every archetype that scores at least secondaryShare
+// of the best score (and minMemberScore points), up to
+// appkit.MaxMemberships, weighted by score. Most programs have one clear
+// archetype and stay with it; a close call, which used to be listed as
+// "also likely", becomes a second (or third) membership.
+const (
+	secondaryShare = 0.6
+	minMemberScore = 15
+)
+
+// membershipsFrom is the memberships for a program whose primary archetype
+// is primary, from its scores. The primary's weight is at least the best
+// score, so it stays first even when a list chose it over the scores.
+func membershipsFrom(primary appkit.ArchetypeID, scores []ArchetypeScore) []appkit.Membership {
+	top, own := 0.0, 0.0
+	for _, s := range scores {
+		if s.Score > top {
+			top = s.Score
+		}
+		if s.ID == primary {
+			own = s.Score
+		}
+	}
+	ref := math.Max(top, own)
+	if ref <= 0 {
+		return []appkit.Membership{{ID: primary, Weight: 1}}
+	}
+	ms := []appkit.Membership{{ID: primary, Weight: ref}}
+	for _, s := range scores {
+		if len(ms) >= appkit.MaxMemberships {
+			break
+		}
+		if s.ID == primary || s.Score < minMemberScore || s.Score < secondaryShare*ref {
+			continue
+		}
+		ms = append(ms, appkit.Membership{ID: s.ID, Weight: s.Score})
+	}
+	return appkit.NormalizeMemberships(ms)
 }
 
 // chooseArchetypeFor chooses from the help text alone, as for a program no
@@ -719,6 +762,7 @@ func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 	c := ArchetypeChoice{ID: scores[0].ID, Scores: scores, Lead: scores[0].Score - scores[1].Score}
 	c.Why = fmt.Sprintf("best evidence (%s points, %s ahead of %s)", points(scores[0].Score), points(c.Lead), scores[1].ID)
 	c.Confidence = choiceConfidence(c.Lead)
+	c.Members = membershipsFrom(c.ID, scores)
 	for _, s := range scores[1:3] {
 		if s.Score > 0 && scores[0].Score-s.Score < 2*clearLead {
 			c.Alternatives = append(c.Alternatives, s.ID)
@@ -732,7 +776,9 @@ func chooseFromScores(scores []ArchetypeScore) ArchetypeChoice {
 func chooseArchetype(bin string, manText, helpText string) ArchetypeChoice {
 	name := strings.ToLower(toolBaseName(bin))
 	if a, ok := appkit.ArchetypeForTool(name); ok {
-		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed}
+		// The list settles the primary; the help can still add others.
+		members := membershipsFrom(a.ID, scoreArchetypes(programTextFrom(name, manText, helpText)))
+		return ArchetypeChoice{ID: a.ID, Why: "listed for " + name + " in the archetype lists", Confidence: ConfidenceListed, Members: members}
 	}
 	return chooseArchetypeFor(programTextFrom(name, manText, helpText))
 }

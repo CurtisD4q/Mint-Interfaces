@@ -50,7 +50,8 @@ type Facts struct {
 	Destructive  bool // can delete, overwrite or kill something
 	FullScreen   bool // a full-screen terminal app
 
-	// Hints are the features the archetype wants (its blueprint). The
+	// Hints are the features the program's archetypes want together (the
+	// blended blueprint, see ToolSpec.Preferences). The
 	// answers decide the type; a hint is read only where a rule says so.
 	Hints []Feature
 	// Weights are the archetype's weights (0 to 1) for those features, for
@@ -103,9 +104,13 @@ var interfaceTypes = []InterfaceType{
 		Why:  "it keeps running and changes things, or serves",
 		When: func(f Facts) bool { return f.KeepsRunning && (f.ChangesState || f.Wants(FeatService)) }},
 	{ID: TypeLiveMonitor, Name: "Live monitor",
-		Is:   "Values or rows that refresh on their own.",
-		Why:  "it keeps running and prints rows or refreshes",
-		When: func(f Facts) bool { return f.KeepsRunning && (f.TableOutput || f.Wants(FeatLiveRefresh)) }},
+		Is:  "Values or rows that refresh on their own.",
+		Why: "it keeps running and prints rows or refreshes",
+		// A program that firmly wants a live log and does not refresh is a
+		// log follower, even when it prints rows (journalctl).
+		When: func(f Facts) bool {
+			return f.KeepsRunning && (f.TableOutput || f.Wants(FeatLiveRefresh)) && !(f.Firmly(FeatFollow) && !f.Wants(FeatLiveRefresh))
+		}},
 	{ID: TypeLogFollower, Name: "Log follower",
 		Is:   "A log that grows, newest at the bottom.",
 		Why:  "it keeps running and writes a stream",
@@ -226,10 +231,12 @@ func FactsFromSpec(spec ToolSpec) Facts {
 		Destructive:  spec.ConfirmRun,
 		FullScreen:   spec.FullScreen,
 	}
-	if def, ok := LookupArchetype(spec.ArchetypeID); ok {
-		b := def.Blueprint()
+	// The hints are all the program's archetypes together, by weight.
+	if len(spec.Memberships()) > 0 {
+		prefs := spec.Preferences()
+		b := BlueprintFrom(prefs)
 		f.Hints = append(f.Hints, b.Features...)
-		f.Weights = def.Prefer.Features
+		f.Weights = prefs.Features
 		if b.Has(FeatLiveRefresh) || b.Has(FeatFollow) || b.Has(FeatService) {
 			f.KeepsRunning = true
 		}

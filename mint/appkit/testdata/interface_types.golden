@@ -2,8 +2,8 @@
 launcher          143  13%
 session            30   2%
 service-control    42   3%
-live-monitor       60   5%
-log-follower       72   6%
+live-monitor       59   5%
+log-follower       73   6%
 command-suite      88   8%
 compare            38   3%
 state-editor       33   3%
@@ -22,7 +22,7 @@ convert     quick-answer 35, launcher 11, result-table 11, log-follower 9, servi
 device      quick-answer 10, launcher 6, log-follower 4, command-suite 3, action 2, live-monitor 2, service-control 2, state-editor 1
 edit-files  action 10, quick-answer 7, service-control 2, compare 1, state-editor 1
 filter      quick-answer 12, result-table 4, action 3, launcher 1, service-control 1, state-editor 1
-follow      quick-answer 7, launcher 5, log-follower 4, live-monitor 1, service-control 1
+follow      quick-answer 7, launcher 5, log-follower 5, service-control 1
 general     quick-answer 12
 generate    quick-answer 24, action 3, log-follower 3, result-table 3, launcher 2, state-editor 2
 history     quick-answer 22, command-suite 12, live-monitor 3, launcher 2, action 1, compare 1, result-table 1, service-control 1, state-editor 1

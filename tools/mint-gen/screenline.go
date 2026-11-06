@@ -18,8 +18,11 @@ func interfaceTypeLine(spec appkit.ToolSpec) string {
 		name = fmt.Sprintf("%s (%s)", t.Name, t.ID)
 	}
 	line := name + ", because " + p.Why
-	if !appkit.HasOwnLayout(p.Type) {
+	switch {
+	case !appkit.HasOwnLayout(p.Type):
 		line += "; drawn with the classic screen for now"
+	case !appkit.SpecHasOwnLayout(spec):
+		line += "; drawn with the classic screen, since this program has nothing for that layout to show yet"
 	}
 	if os.Getenv("MINT_CLASSIC_LAYOUT") == "1" {
 		line += "; MINT_CLASSIC_LAYOUT=1 is set, so apps run now draw the classic screen"

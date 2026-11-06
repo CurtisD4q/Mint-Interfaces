@@ -15,20 +15,18 @@ import (
 // Service, Transcript, RowActions, or a curated ReadOnly / StatusArgs) is
 // left alone.
 func attachParsedScreens(spec *appkit.ToolSpec, help string) {
-	if spec == nil || spec.ArchetypeID == "" {
+	if spec == nil || len(spec.Memberships()) == 0 {
 		return
 	}
-	def, ok := appkit.LookupArchetype(spec.ArchetypeID)
-	if !ok {
-		return
-	}
-	b := def.Blueprint()
-	if spec.Follow == nil && (spec.ArchetypeID == "follow" || b.Has(appkit.FeatFollow)) {
+	// Every archetype the program IsA can bring its screen: a log tool that
+	// is also a server gets both the follow view and the service controls.
+	b := spec.Blueprint()
+	if spec.Follow == nil && (spec.IsA("follow") || b.Has(appkit.FeatFollow)) {
 		if flag := parsedFollowFlag(spec.Flags); flag != "" {
 			spec.Follow = &appkit.FollowSpec{Flag: flag}
 		}
 	}
-	if spec.Service == nil && spec.ArchetypeID == "serve" {
+	if spec.Service == nil && spec.IsA("serve") {
 		if flag, port := parsedListenFlag(spec.Flags); flag != "" {
 			if port == 0 {
 				port = 8080
@@ -40,7 +38,7 @@ func attachParsedScreens(spec *appkit.ToolSpec, help string) {
 			}
 		}
 	}
-	if spec.Transcript == nil && spec.ArchetypeID == "session" && sessionCuesMatch(help) {
+	if spec.Transcript == nil && spec.IsA("session") && sessionCuesMatch(help) {
 		tr := appkit.TranscriptSpec{Adapter: "lines", QuitWords: []string{"quit", "exit"}}
 		if known, ok := appkit.KnownTranscriptSpec(spec.BinaryName()); ok {
 			tr.Adapter = known.Adapter
@@ -88,12 +86,17 @@ func parsedListenFlag(flags []appkit.FlagSpec) (flag string, port int) {
 	return flag, port
 }
 
-// applyChosenArchetype makes def the spec's archetype: layout, target box,
-// and the interactive screens that the help can support. A label this
-// archetype itself applied is cleared first, so the new one can hide the
-// target box; a label taken from the usage line is kept.
-func applyChosenArchetype(spec *appkit.ToolSpec, a appkit.ArchetypeDef, help string) {
-	if prev, ok := appkit.LookupArchetype(spec.ArchetypeID); ok && prev.ID != a.ID {
+// applyChosenArchetype makes ms the spec's archetypes (the first is the
+// primary): layout, target box, and the interactive screens that the help
+// can support. A label the old primary itself applied is cleared first, so
+// the new one can hide the target box; a label taken from the usage line is
+// kept.
+func applyChosenArchetype(spec *appkit.ToolSpec, ms []appkit.Membership, help string) {
+	ms = appkit.NormalizeMemberships(ms)
+	if len(ms) == 0 {
+		return
+	}
+	if prev, ok := appkit.LookupArchetype(spec.ArchetypeID); ok && prev.ID != ms[0].ID {
 		if spec.TargetLabel == prev.TargetLabel {
 			spec.TargetLabel = ""
 		}
@@ -111,7 +114,8 @@ func applyChosenArchetype(spec *appkit.ToolSpec, a appkit.ArchetypeDef, help str
 	spec.WantTarget = false
 	spec.HideTarget = false
 	clearParsedScreens(spec)
-	a.ApplyTo(spec)
+	spec.Archetypes = nil
+	appkit.ApplyMemberships(spec, ms)
 	if spec.TargetLabel == "" && !spec.HideTarget {
 		spec.TargetLabel = "Target / arguments"
 		if spec.TargetPlaceholder == "" {
@@ -233,15 +237,30 @@ func flagsLookDestructive(flags []appkit.FlagSpec) bool {
 // other answer-once tool that can run with no positional target. Look-ups
 // are not: they ask other computers (DNS, whois), which is not reading this
 // computer's state.
+//
+// A program that belongs to several archetypes is read-only only when every
+// one of them is: a lister that is also a settings tool changes things.
 func readOnlyArchetype(spec *appkit.ToolSpec, lines []string) bool {
-	switch spec.ArchetypeID {
+	members := spec.Members()
+	if len(members) == 0 {
+		return false
+	}
+	for _, def := range members {
+		if !readOnlyShape(def, spec, lines) {
+			return false
+		}
+	}
+	return true
+}
+
+func readOnlyShape(def appkit.ArchetypeDef, spec *appkit.ToolSpec, lines []string) bool {
+	switch def.ID {
 	case "watch", "list", "inspect":
 		return true
 	case "look-up":
 		return false
 	}
-	def, ok := appkit.LookupArchetype(spec.ArchetypeID)
-	if !ok || def.Group != appkit.GroupAnswer {
+	if def.Group != appkit.GroupAnswer {
 		return false
 	}
 	return runnableWithoutTarget(spec, lines)

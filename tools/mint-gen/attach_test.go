@@ -110,14 +110,14 @@ func TestApplyChosenArchetypeResetsTarget(t *testing.T) {
 		t.Fatalf("probe: %+v", spec.TargetLabel)
 	}
 	list, _ := appkit.LookupArchetype("list")
-	applyChosenArchetype(&spec, list, "")
+	applyChosenArchetype(&spec, one(list), "")
 	if !spec.HideTarget || spec.TwoInputs || spec.TargetLabel != "" {
 		t.Fatalf("list after probe: hide=%v two=%v label=%q", spec.HideTarget, spec.TwoInputs, spec.TargetLabel)
 	}
 	// A label taken from the usage line is not the archetype's, so it stays.
 	spec.TargetLabel = "Target host / network"
 	serve, _ := appkit.LookupArchetype("serve")
-	applyChosenArchetype(&spec, serve, "")
+	applyChosenArchetype(&spec, one(serve), "")
 	if spec.HideTarget || spec.TargetLabel != "Target host / network" || spec.Service == nil || spec.Service.PortFlag != "--port" {
 		t.Fatalf("serve kept the usage label and the port: hide=%v label=%q service=%+v", spec.HideTarget, spec.TargetLabel, spec.Service)
 	}
@@ -306,7 +306,7 @@ Commands:
 	control, _ := appkit.LookupArchetype("control")
 	for name, status := range want {
 		spec := appkit.ToolSpec{Name: name, ReadOnly: true, StatusArgs: []string{"nope"}}
-		applyChosenArchetype(&spec, control, fmt.Sprintf(help, name))
+		applyChosenArchetype(&spec, one(control), fmt.Sprintf(help, name))
 		if spec.ReadOnly {
 			t.Errorf("%s became read-only", name)
 		}
@@ -422,7 +422,7 @@ func TestApplyChosenArchetypeRecomputesSafety(t *testing.T) {
 	watch, _ := appkit.LookupArchetype("watch")
 	control, _ := appkit.LookupArchetype("control")
 	spec := appkit.ToolSpec{Name: "sampler"}
-	applyChosenArchetype(&spec, watch, "Usage: sampler [options]\n")
+	applyChosenArchetype(&spec, one(watch), "Usage: sampler [options]\n")
 	if !spec.ReadOnly || len(spec.StatusArgs) != 0 || len(spec.RowActions) != 0 {
 		t.Fatalf("watch observer: ro=%v status=%v actions=%v", spec.ReadOnly, spec.StatusArgs, spec.RowActions)
 	}
@@ -433,7 +433,7 @@ Commands:
   start    Start one
   status   Show status
 `
-	applyChosenArchetype(&spec, control, help)
+	applyChosenArchetype(&spec, one(control), help)
 	if spec.ReadOnly || !reflect.DeepEqual(spec.StatusArgs, []string{"status"}) {
 		t.Fatalf("control: ro=%v status=%v", spec.ReadOnly, spec.StatusArgs)
 	}
@@ -444,14 +444,14 @@ Commands:
 		t.Fatalf("confirm flags: %+v", spec.RowActions)
 	}
 
-	applyChosenArchetype(&spec, watch, "Usage: sampler [options]\n")
+	applyChosenArchetype(&spec, one(watch), "Usage: sampler [options]\n")
 	if !spec.ReadOnly || len(spec.StatusArgs) != 0 || len(spec.RowActions) != 0 {
 		t.Fatalf("back to watch: ro=%v status=%v actions=%v", spec.ReadOnly, spec.StatusArgs, spec.RowActions)
 	}
 
 	sys := appkit.ToolSpec{Name: "systemctl", ReadOnly: true, StatusArgs: []string{"status"},
 		RowActions: []appkit.RowActionSpec{{Label: "Gone", Hint: "gone"}}}
-	applyChosenArchetype(&sys, control, help)
+	applyChosenArchetype(&sys, one(control), help)
 	if sys.ReadOnly || !reflect.DeepEqual(sys.StatusArgs, []string{"list-units", "--type=service", "--no-pager"}) {
 		t.Fatalf("systemctl: ro=%v status=%v", sys.ReadOnly, sys.StatusArgs)
 	}
@@ -546,4 +546,9 @@ func actionHints(actions []appkit.RowActionSpec) []string {
 		out[i] = a.Hint
 	}
 	return out
+}
+
+// one is a single archetype as memberships.
+func one(a appkit.ArchetypeDef) []appkit.Membership {
+	return []appkit.Membership{{ID: a.ID, Weight: 1}}
 }
