@@ -408,14 +408,24 @@ func readEvent() *Key {
 		case a == 0x1b:
 			return named("esc")
 		case a >= 0xC2:
-			return named("M-" + readUTF8(a))
+			s := readUTF8(a)
+			if !utf8.ValidString(s) {
+				return nil
+			}
+			return named("M-" + s)
 		case a >= 32 && a < 0x7f:
 			return named("M-" + string([]byte{a}))
 		}
 		return named("esc")
 	}
-	if c >= 0xC2 {
-		return char(readUTF8(c))
+	if c >= 0x80 {
+		// A character must be valid UTF-8: a stray or cut-off byte, or a
+		// code past U+10FFFF, is dropped, never typed into a box (and so
+		// never into a command line).
+		if s := readUTF8(c); utf8.ValidString(s) {
+			return char(s)
+		}
+		return nil
 	}
 	return char(string([]byte{c}))
 }

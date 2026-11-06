@@ -321,7 +321,7 @@ type ToolApp struct {
 	refreshed  bool            // a refresh finished since the screen last looked
 	refreshErr string
 
-	memSetting   *bool           // InMemory as saved in settings (nil: never chosen)
+	memSetting   *bool           // InMemory as saved in settings (nil: never chosen, or chosen for a lower data level)
 	diskDir      string          // the results folder to return to when InMemory is turned off
 	memBacked    bool            // the in-memory folder really is in memory (tmpfs)
 	lastData     string          // level the last run's output turned out to have
@@ -704,6 +704,12 @@ func (a *ToolApp) flagWords(flags []FlagSpec, mode argMode) (args []string, stdi
 		if mode.status && f.Kind != FlagSecret && LooksDestructive(f.Flag, strings.TrimSpace(f.Label+" "+f.Hint)) {
 			continue
 		}
+		if !validFlagValue(f, val) {
+			// A value the box could not have held (from an old or
+			// hand-edited settings file or preset): left out, so the
+			// program uses its own default.
+			continue
+		}
 		switch f.Kind {
 		case FlagSecret:
 			key := f.SecretKey()
@@ -1081,6 +1087,13 @@ func (a *ToolApp) buildArgsFor(mode argMode) (args []string, outPath string, std
 	flagArgs, outPath, stdin := a.composeArgs(mode)
 	stdin = append(globalStdin, stdin...)
 	args = append(args, flagArgs...)
+	// No program can receive a NUL in an argument (it would end the word),
+	// and exec refuses one: a NUL pasted into a box is dropped.
+	for i, w := range args {
+		if strings.ContainsRune(w, 0) {
+			args[i] = strings.ReplaceAll(w, "\x00", "")
+		}
+	}
 	args, _ = a.diffArgs(args, prefix)
 	args, _ = a.findingsArgs(args, prefix)
 	args = a.followArgs(args, prefix)
@@ -1165,7 +1178,11 @@ type persistedSettings struct {
 	ResultsDir       string            `json:"results_dir"`
 	OutputFile       string            `json:"output_file"`
 	InMemory         *bool             `json:"in_memory,omitempty"`
-	DiskResultsDir   string            `json:"disk_results_dir,omitempty"`
+	// InMemoryLevel is the app's data level when InMemory was saved. A
+	// "not in memory" saved at a lower level is not a choice about secret
+	// results, so it does not keep them on disk (see New).
+	InMemoryLevel  string `json:"in_memory_level,omitempty"`
+	DiskResultsDir string `json:"disk_results_dir,omitempty"`
 }
 
 func (a *ToolApp) settingsPath() string {
@@ -1192,6 +1209,7 @@ func (a *ToolApp) SaveSettings() error {
 		ResultsDir:       a.ResultsDir,
 		OutputFile:       a.OutputFile,
 		InMemory:         &a.InMemory,
+		InMemoryLevel:    a.Spec.Data,
 		DiskResultsDir:   a.diskDir,
 	}
 	b, err := json.MarshalIndent(st, "", "  ")
@@ -1245,6 +1263,12 @@ func (a *ToolApp) LoadSettings() error {
 	}
 	if st.InMemory != nil {
 		on := *st.InMemory
+		if !on && a.Spec.Data == DataSecret && st.InMemoryLevel != DataSecret {
+			// Saved while the app's results were not secret (or by a
+			// version that did not record the level): not a choice to
+			// keep secret results on disk. The default applies.
+			return nil
+		}
 		a.memSetting = &on
 		a.diskDir = st.DiskResultsDir
 		if on {

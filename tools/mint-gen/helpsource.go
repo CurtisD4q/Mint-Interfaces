@@ -79,7 +79,7 @@ func findHelpPointers(name, text string) []helpPointer {
 	if name == "" {
 		return nil
 	}
-	re := regexp.MustCompile(`["'\x60\x{2018}\x{201C}](?:[^\s"'\x60]*/)?` + regexp.QuoteMeta(name) + `((?:[ \t]+[^\s"'\x60\x{2019}\x{201D}]+)+)[ \t]*["'\x60\x{2019}\x{201D}]`)
+	re := regexp.MustCompile(`["'\x60\x{2018}\x{201C}](?:[^\s"'\x60]*/)?` + reQuote(name) + `((?:[ \t]+[^\s"'\x60\x{2019}\x{201D}]+)+)[ \t]*["'\x60\x{2019}\x{201D}]`)
 	var out []helpPointer
 	seen := map[string]bool{}
 	for _, m := range re.FindAllStringSubmatch(text, 20) {

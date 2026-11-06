@@ -1,5 +1,7 @@
 package appkit
 
+import "strconv"
+
 // Each command's own options.
 //
 // A command in Spec.Subcommands may have options of its own (SubcommandSpec
@@ -110,4 +112,35 @@ func (a *ToolApp) forgetSecret(key string) {
 	if st != nil {
 		st.Delete(key)
 	}
+}
+
+// validFlagValue reports whether val is a value option f can take: a whole
+// number in its range for a number, one of its choices for a fixed list.
+// An empty value is always valid (it is not passed).
+func validFlagValue(f FlagSpec, val string) bool {
+	if val == "" {
+		return true
+	}
+	switch f.Kind {
+	case FlagInt:
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return false
+		}
+		if f.Min != 0 || f.Max != 0 {
+			return n >= f.Min && n <= f.Max
+		}
+		return true
+	case FlagChoice:
+		if len(f.ChoicesCmd) > 0 || len(f.Choices) == 0 {
+			return true // the choices are read at run time, or open
+		}
+		for _, c := range f.Choices {
+			if c.Value == val {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }

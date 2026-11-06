@@ -872,7 +872,9 @@ func (lb *lineBuffer) insertText(s string) {
 			clean.WriteRune(r)
 		}
 	}
-	added := util.Chars(clean.String())
+	// Pasted text can hold anything: also drop C1 controls and the bidi
+	// controls that would reorder what is shown (see CleanLine).
+	added := util.Chars(CleanLine(clean.String()))
 	if len(added) == 0 {
 		return
 	}

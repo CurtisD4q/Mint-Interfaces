@@ -94,7 +94,7 @@ func (a *ToolApp) formatInExtraArgs() (string, bool) {
 // from DefaultOutputFilename) the extension of the chosen output format.
 // Any other name, typed by the user, is left exactly as it is.
 func (a *ToolApp) withOutputExt(name string) string {
-	stamp := regexp.MustCompile(`^` + regexp.QuoteMeta(outputNameBase(a.Spec.Name)) + `-\d{8}-\d{6}\.[A-Za-z0-9.+-]+$`)
+	stamp := regexp.MustCompile(`^` + regexp.QuoteMeta(strings.ToValidUTF8(outputNameBase(a.Spec.Name), "\uFFFD")) + `-\d{8}-\d{6}\.[A-Za-z0-9.+-]+$`)
 	if !stamp.MatchString(name) {
 		return name
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/CurtisD4q/Mint-Interfaces/mint/theme"
 	"github.com/CurtisD4q/Mint-Interfaces/mint/util"
@@ -95,8 +96,16 @@ func (c *canvas) put(r, col int, s string) {
 	if r < 1 || col < 1 || col > c.w {
 		return
 	}
+	// Text is valid UTF-8, so it is measured as the terminal draws it (a
+	// stray byte shows as one replacement character), and nothing is drawn
+	// past the right edge: the terminal would wrap it onto the next line,
+	// over whatever is there.
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "\uFFFD")
+	}
+	s = clipCells(s, c.w-col+1)
 	if c.parent != nil {
-		c.parent.put(r, col+c.dx, clipCells(s, c.w-col+1))
+		c.parent.put(r, col+c.dx, s)
 		return
 	}
 	c.b.WriteString(move(r, col))
@@ -151,6 +160,7 @@ func (c *canvas) chromeTitle(w int, title, crumb string) {
 	if room < 4 {
 		room = 4
 	}
+	title, crumb = CleanLine(title), CleanLine(crumb)
 	c.put(2, 3, C.Accent+C.Bold+Truncate(title, room)+Reset)
 	if crumb != "" && w-2-VLen(crumb) > 3 {
 		c.put(2, w-2-VLen(crumb), C.Muted+crumb+Reset)

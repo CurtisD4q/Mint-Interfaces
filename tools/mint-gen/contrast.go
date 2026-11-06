@@ -99,7 +99,7 @@ func contrastRe(w string) *regexp.Regexp {
 	if re, ok := contrastRes[w]; ok {
 		return re
 	}
-	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(w) + `\b`)
+	re := regexp.MustCompile(`(?i)\b` + reQuote(w) + `\b`)
 	contrastRes[w] = re
 	return re
 }
