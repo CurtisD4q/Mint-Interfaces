@@ -22,47 +22,8 @@ func main() {
 }
 
 func runCLI(args []string) int {
-	fs := flag.NewFlagSet("mint-gen", flag.ContinueOnError)
-	var (
-		checkTarget    string
-		explainTarget  string
-		archetypeFlag  string
-		themeFlag      string
-		listArchetypes bool
-		listApps       bool
-		force          bool
-		buildBin       bool
-		runApp         bool
-		removeApp      bool
-		purgeApps      bool
-		rootFlag       bool
-		noRootFlag     bool
-		outDir         string
-		repoRoot       string
-		tuiMode        bool
-		probeTerm      bool
-		install        bool
-		system         bool
-	)
-	fs.BoolVar(&install, "install", false, "Install the mint-gen launcher for you, in ~/.local/bin/mint-interfaces/mint-gen (with --system: print the commands for everyone)")
-	fs.BoolVar(&system, "system", false, "With --install: print the commands that install Mint-Interfaces for everyone on this computer")
-	fs.StringVar(&checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
-	fs.StringVar(&explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")
-	fs.StringVar(&archetypeFlag, "archetype", "", "Choose the archetype yourself, or several separated by commas, the first being the main one (e.g. probe, \"look up\", toolkit,records; see --list-archetypes)")
-	fs.BoolVar(&listArchetypes, "list-archetypes", false, "List the 38 archetypes and the add-ons")
-	fs.BoolVar(&listApps, "list", false, "List the apps in <repo>/apps")
-	fs.BoolVar(&probeTerm, "probe-term", false, "Probe current terminal capabilities and refresh ~/.config/mint-interfaces/termcaps.json")
-	fs.BoolVar(&force, "force", false, "Generate interface even if the TUI compatibility check fails")
-	fs.BoolVar(&buildBin, "build", false, "Compile static Go binary (<tool>-mint) after scaffolding")
-	fs.BoolVar(&runApp, "run", false, "Launch the compiled <tool>-mint interface (builds it first if missing)")
-	fs.BoolVar(&removeApp, "remove", false, "Remove the scaffolded apps/<tool> directory and compiled <tool>-mint binary")
-	fs.BoolVar(&purgeApps, "purge", false, "Remove every app in <repo>/apps that mint-gen created, after asking to confirm (y/n)")
-	fs.BoolVar(&rootFlag, "sudo", false, "With --run: start the app with sudo without asking (sudo asks for the password)")
-	fs.BoolVar(&noRootFlag, "no-sudo", false, "With --run: start the app without sudo, without asking")
-	fs.StringVar(&themeFlag, "theme", "", "Set the colour theme for every Mint app (saved in ~/.config/mint-interfaces/theme.conf): default, terminal, nord, gruvbox, dracula, catppuccin or custom")
-	fs.StringVar(&outDir, "out", "", "Output directory (default: <repo>/apps/<tool>)")
-	fs.StringVar(&repoRoot, "root", "", "Mint-Interfaces repository root (auto-detected if empty)")
-	fs.BoolVar(&tuiMode, "tui", false, "Launch interactive Mint TUI generator")
+	opt := newMintOpts()
+	fs := opt.fs
 
 	ordered := flagsFirst(fs, args)
 	if helpRequested(ordered) {
@@ -72,72 +33,76 @@ func runCLI(args []string) int {
 	if err := fs.Parse(ordered); err != nil {
 		return 2
 	}
+	if opt.man {
+		fmt.Fprint(os.Stdout, manPage(fs))
+		return 0
+	}
 
 	// --theme NAME saves the theme for every Mint app, as the Theme
 	// screen's "Use this theme" does. On its own it does only that.
-	if themeFlag != "" {
-		if code := saveThemeForEveryApp(themeFlag); code != 0 {
+	if opt.themeFlag != "" {
+		if code := saveThemeForEveryApp(opt.themeFlag); code != 0 {
 			return code
 		}
-		if fs.NArg() == 0 && !listArchetypes && !probeTerm && !listApps && !tuiMode && explainTarget == "" && checkTarget == "" {
+		if fs.NArg() == 0 && !opt.listArchetypes && !opt.probeTerm && !opt.listApps && !opt.tuiMode && opt.explainTarget == "" && opt.checkTarget == "" {
 			return 0
 		}
 	}
 
-	if listArchetypes {
+	if opt.listArchetypes {
 		printArchetypeCatalogue()
 		return 0
 	}
 
-	if probeTerm {
+	if opt.probeTerm {
 		prof, cachePath, _ := ensureTermProfile(true)
 		fmt.Printf("Terminal:    %s\n", formatTermSummary(prof, false))
 		fmt.Printf("Saved to:    %s\n", cachePath)
-		if checkTarget == "" && fs.NArg() == 0 {
+		if opt.checkTarget == "" && fs.NArg() == 0 {
 			return 0
 		}
 	}
 
-	if repoRoot == "" {
-		repoRoot = detectRepoRoot()
-	} else if abs, err := filepath.Abs(repoRoot); err == nil && isRepoRoot(abs) {
-		repoRoot = abs
+	if opt.repoRoot == "" {
+		opt.repoRoot = detectRepoRoot()
+	} else if abs, err := filepath.Abs(opt.repoRoot); err == nil && isRepoRoot(abs) {
+		opt.repoRoot = abs
 	} else {
-		fmt.Fprintf(os.Stderr, "mint-gen: %s is not the Mint-Interfaces folder (no go.mod for github.com/CurtisD4q/Mint-Interfaces)\n", safeTerminalText(repoRoot))
+		fmt.Fprintf(os.Stderr, "mint-gen: %s is not the Mint-Interfaces folder (no go.mod for github.com/CurtisD4q/Mint-Interfaces)\n", safeTerminalText(opt.repoRoot))
 		return 2
 	}
-	if install {
-		if system {
-			return installSystemHelp(os.Stdout, repoRoot)
+	if opt.install {
+		if opt.system {
+			return installSystemHelp(os.Stdout, opt.repoRoot)
 		}
-		return installUser(os.Stdout, os.Stderr, repoRoot)
+		return installUser(os.Stdout, os.Stderr, opt.repoRoot)
 	}
 
 	// Everything below except --check and --explain builds, lists or
 	// removes apps, which live in the Mint-Interfaces folder.
 	needRoot := func() bool {
-		if repoRoot == "" {
+		if opt.repoRoot == "" {
 			fmt.Fprintln(os.Stderr, noRootMessage)
 			return false
 		}
 		return true
 	}
 
-	if listApps {
+	if opt.listApps {
 		if !needRoot() {
 			return 2
 		}
-		return printApps(os.Stdout, os.Stderr, repoRoot)
+		return printApps(os.Stdout, os.Stderr, opt.repoRoot)
 	}
 
-	if purgeApps {
+	if opt.purgeApps {
 		if !needRoot() {
 			return 2
 		}
-		return purgeAllApps(os.Stdin, os.Stdout, os.Stderr, repoRoot)
+		return purgeAllApps(os.Stdin, os.Stdout, os.Stderr, opt.repoRoot)
 	}
 
-	if tuiMode {
+	if opt.tuiMode {
 		if !needRoot() {
 			return 2
 		}
@@ -145,15 +110,15 @@ func runCLI(args []string) int {
 		if fs.NArg() > 0 {
 			target = fs.Arg(0)
 		}
-		if err := runInteractiveTUI(target, repoRoot); err != nil {
+		if err := runInteractiveTUI(target, opt.repoRoot); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 		return 0
 	}
 
-	if explainTarget != "" {
-		spec, model := ParseProgramIO(explainTarget)
+	if opt.explainTarget != "" {
+		spec, model := ParseProgramIO(opt.explainTarget)
 		printIOModel(os.Stdout, model, spec)
 		fmt.Println()
 		explainOptions(os.Stdout, spec)
@@ -161,21 +126,21 @@ func runCLI(args []string) int {
 		return 0
 	}
 
-	if checkTarget != "" {
+	if opt.checkTarget != "" {
 		prof, _, cached := ensureTermProfile(false)
-		rep := CheckCompatibility(checkTarget)
+		rep := CheckCompatibility(opt.checkTarget)
 		printCompatReport(rep)
 		fmt.Printf("Terminal:    %s\n", formatTermSummary(prof, cached))
 		if !rep.Compatible && rep.Category == CatFullScreenTUI {
-			if _, m := ParseProgramIO(checkTarget); m.Batch != nil {
-				fmt.Printf("Batch mode:  %s %s (%s): mint-gen can build it in this mode\n", checkTarget, strings.Join(m.Batch.Args, " "), m.Batch.Why)
+			if _, m := ParseProgramIO(opt.checkTarget); m.Batch != nil {
+				fmt.Printf("Batch mode:  %s %s (%s): mint-gen can build it in this mode\n", opt.checkTarget, strings.Join(m.Batch.Args, " "), m.Batch.Why)
 				rep.Compatible = true
 			}
 		}
 		if !rep.Compatible {
 			return 1
 		}
-		if spec, model := ParseProgramIO(checkTarget); spec.Name != "" {
+		if spec, model := ParseProgramIO(opt.checkTarget); spec.Name != "" {
 			printHelpNotes(model.HelpNotes)
 			fmt.Println()
 			printSignalNotes(os.Stdout, model.Notes)
@@ -186,7 +151,7 @@ func runCLI(args []string) int {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-archetypes] [--explain <program>] [--archetype <archetype>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] <program> [output-dir]")
+		fmt.Fprintln(os.Stderr, "Usage: mint-gen [--list] [--list-archetypes] [--explain <program>] [--archetype <archetype>] [--check <program>] [--force] [--build] [--run] [--remove] [--out <dir>] [--man] <program> [output-dir]")
 		return 2
 	}
 
@@ -196,32 +161,32 @@ func runCLI(args []string) int {
 
 	program := fs.Arg(0)
 	var appArgs []string
-	if runApp {
+	if opt.runApp {
 		appArgs = fs.Args()[1:]
-	} else if outDir == "" && fs.NArg() >= 2 {
-		outDir = fs.Arg(1)
+	} else if opt.outDir == "" && fs.NArg() >= 2 {
+		opt.outDir = fs.Arg(1)
 	}
 
-	if removeApp {
-		return removeScaffoldedApp(program, outDir, repoRoot)
+	if opt.removeApp {
+		return removeScaffoldedApp(program, opt.outDir, opt.repoRoot)
 	}
 
-	if runApp && !buildBin {
-		binPath := existingBinaryPath(program, outDir, repoRoot)
+	if opt.runApp && !opt.buildBin {
+		binPath := existingBinaryPath(program, opt.outDir, opt.repoRoot)
 		if st, err := os.Stat(binPath); err == nil && !st.IsDir() {
-			return runBuiltApp(binPath, appArgs, startAsRoot(program, nil, rootFlag, noRootFlag, binPath))
+			return runBuiltApp(binPath, appArgs, startAsRoot(program, nil, opt.rootFlag, opt.noRootFlag, binPath))
 		}
-		buildBin = true
+		opt.buildBin = true
 	}
 
 	rep := CheckCompatibility(program)
-	if !rep.Compatible && !force && rep.Category == CatFullScreenTUI {
+	if !rep.Compatible && !opt.force && rep.Category == CatFullScreenTUI {
 		// A full-screen program with a batch mode is built in that mode.
 		if _, m := ParseProgramIO(program); m.Batch != nil {
 			rep.Compatible = true
 		}
 	}
-	if !rep.Compatible && !force {
+	if !rep.Compatible && !opt.force {
 		printCompatReport(rep)
 		fmt.Fprintf(os.Stderr, "\nRefusing to scaffold %q (excluded category: %s). Pass --force to override.\n", program, rep.Category)
 		return 1
@@ -230,8 +195,8 @@ func runCLI(args []string) int {
 	spec, model := ParseProgramIO(program)
 	printHelpNotes(model.HelpNotes)
 
-	if archetypeFlag != "" {
-		ms, bad := resolveArchetypeList(archetypeFlag)
+	if opt.archetypeFlag != "" {
+		ms, bad := resolveArchetypeList(opt.archetypeFlag)
 		if bad != "" {
 			fmt.Fprintf(os.Stderr, "mint-gen: unknown archetype %q (run `mint-gen --list-archetypes` to see them)\n", safeTerminalText(bad))
 			return 2
@@ -245,7 +210,7 @@ func runCLI(args []string) int {
 	}
 
 	prof, _, cached := ensureTermProfile(false)
-	res, err := ScaffoldApp(spec, outDir, repoRoot)
+	res, err := ScaffoldApp(spec, opt.outDir, opt.repoRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mint-gen: scaffold error: %v\n", err)
 		return 1
@@ -257,22 +222,22 @@ func runCLI(args []string) int {
 	for _, f := range res.Files {
 		fmt.Printf("  - %s\n", f)
 	}
-	printArchetypeChoice(os.Stdout, program, model.Archetype, archetypeFlag)
+	printArchetypeChoice(os.Stdout, program, model.Archetype, opt.archetypeFlag)
 	printInterfaceType(os.Stdout, spec, "")
 	printSignalNotes(os.Stdout, model.Notes)
 	fmt.Println()
 	printSafetyReport(os.Stdout, spec)
 	printKnownToolWarnings(os.Stderr)
 
-	if buildBin {
+	if opt.buildBin {
 		if err := buildScaffoldedApp(res.AppDir, res.BinaryOut); err != nil {
 			fmt.Fprintf(os.Stderr, "mint-gen: build error: %v\n", err)
 			return 1
 		}
 		fmt.Printf("Built static binary: %s\n", res.BinaryOut)
 	}
-	if runApp {
-		return runBuiltApp(res.BinaryOut, appArgs, startAsRoot(program, &spec, rootFlag, noRootFlag, res.BinaryOut))
+	if opt.runApp {
+		return runBuiltApp(res.BinaryOut, appArgs, startAsRoot(program, &spec, opt.rootFlag, opt.noRootFlag, res.BinaryOut))
 	}
 	return 0
 }

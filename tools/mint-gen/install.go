@@ -16,6 +16,7 @@ import (
 //
 //	~/.local/share/mint-interfaces/            the repository; apps in apps/<tool>/
 //	~/.local/bin/mint-interfaces/mint-gen      the launcher
+//	~/.local/share/man/man1/mint-interfaces.1  this manual (what mint-gen --man prints)
 //
 // The launcher runs the repository's own mint-gen with `go -C <repo> run
 // ./tools/mint-gen`, so it is never out of date after a git pull. Go
@@ -54,6 +55,17 @@ func userLauncherDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".local", "bin", "mint-interfaces")
+}
+
+// userManPagePath is where --install writes this manual. It is under
+// ~/.local/share/man, not $XDG_DATA_HOME: man-db adds that tree when
+// ~/.local/bin is on PATH. The launcher's own folder does not.
+func userManPagePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "man", "man1", "mint-interfaces.1")
 }
 
 // launchRoot is the repository mint-gen was run in by `go -C <repo> run`,
@@ -162,8 +174,56 @@ func installUser(out, errOut io.Writer, repo string) int {
 	if want := userInstallRoot(); want != "" && filepath.Clean(repo) != filepath.Clean(want) {
 		fmt.Fprintf(out, "  (the usual place for it is %s; this works from where it is)\n", want)
 	}
+	if code := installManPage(out, errOut); code != 0 {
+		return code
+	}
 	if !onPath(dir) {
 		fmt.Fprintf(out, "\n%s is not on your PATH. Add this line to ~/.profile (or ~/.bashrc, ~/.zshrc), then open a new terminal:\n\n  export PATH=\"$HOME/.local/bin/mint-interfaces:$PATH\"\n", dir)
+	}
+	return 0
+}
+
+// installManPage writes the manual mint-gen --man prints to
+// ~/.local/share/man/man1/mint-interfaces.1, creating the directory.
+// A symlink or other non-file at that path is left alone.
+func installManPage(out, errOut io.Writer) int {
+	path := userManPagePath()
+	if path == "" {
+		fmt.Fprintln(errOut, "mint-gen: cannot find your home folder")
+		return 1
+	}
+	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		fmt.Fprintf(errOut, "mint-gen: %s is there already and is not a file; move it away first\n", path)
+		return 1
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Fprintf(errOut, "mint-gen: %v\n", err)
+		return 1
+	}
+	tmp, err := os.CreateTemp(dir, ".mint-interfaces.1-*")
+	if err != nil {
+		fmt.Fprintf(errOut, "mint-gen: %v\n", err)
+		return 1
+	}
+	page := manPage(newMintOpts().fs)
+	_, werr := io.WriteString(tmp, page)
+	cerr := tmp.Close()
+	if werr == nil && cerr == nil {
+		werr = os.Chmod(tmp.Name(), 0o644)
+	}
+	if werr == nil && cerr == nil {
+		werr = os.Rename(tmp.Name(), path)
+	}
+	if werr != nil || cerr != nil {
+		_ = os.Remove(tmp.Name())
+		fmt.Fprintf(errOut, "mint-gen: could not write %s: %v %v\n", path, werr, cerr)
+		return 1
+	}
+	fmt.Fprintf(out, "Installed %s\n", path)
+	fmt.Fprintf(out, "  man mint-interfaces shows it when ~/.local/bin is on your PATH. man-db adds ~/.local/share/man then, so leave MANPATH unset. The launcher's folder does not do that on its own.\n")
+	if bin := filepath.Dir(userLauncherDir()); bin != "." && !onPath(bin) {
+		fmt.Fprintf(out, "  %s is missing from PATH, so man will not find this page until it is there.\n", bin)
 	}
 	return 0
 }
