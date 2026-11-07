@@ -132,6 +132,37 @@ func TestInstallUser(t *testing.T) {
 	if !strings.Contains(out.String(), `export PATH="$HOME/.local/bin/mint-interfaces:$PATH"`) {
 		t.Fatalf("no PATH hint:\n%s", out.String())
 	}
+	manPath := filepath.Join(home, ".local", "share", "man", "man1", "mint-interfaces.1")
+	page, err := os.ReadFile(manPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(page) != manPage(newMintOpts().fs) {
+		t.Fatal("installed manual is not what mint-gen --man prints")
+	}
+	if fi, _ := os.Stat(manPath); fi.Mode().Perm() != 0o644 {
+		t.Fatalf("manual mode %v", fi.Mode().Perm())
+	}
+	if !strings.Contains(out.String(), "man mint-interfaces") || !strings.Contains(out.String(), "MANPATH") {
+		t.Fatalf("no manual note:\n%s", out.String())
+	}
+	// A link is not replaced, and is not followed.
+	if err := os.Remove(manPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/tmp/not-the-manual", manPath); err != nil {
+		t.Fatal(err)
+	}
+	errOut.Reset()
+	if code := installUser(&out, &errOut, repo); code == 0 || !strings.Contains(errOut.String(), "not a file") {
+		t.Fatalf("replaced a symlink: %d %s", code, errOut.String())
+	}
+	if dest, _ := os.Readlink(manPath); dest != "/tmp/not-the-manual" {
+		t.Fatalf("symlink now %q", dest)
+	}
+	if err := os.Remove(manPath); err != nil {
+		t.Fatal(err)
+	}
 	// The shell reads the quoted path back as it was.
 	if sh, err := exec.LookPath("sh"); err == nil {
 		cmd := exec.Command(sh, "-n", path)
@@ -145,6 +176,9 @@ func TestInstallUser(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(path)+":/usr/bin")
 	if code := installUser(&out, &errOut, repo); code != 0 || strings.Contains(out.String(), "not on your PATH") {
 		t.Fatalf("reinstall: %d %s", code, out.String())
+	}
+	if again, err := os.ReadFile(manPath); err != nil || string(again) != manPage(newMintOpts().fs) {
+		t.Fatalf("reinstall left the manual missing: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\necho mine\n"), 0o755); err != nil {
 		t.Fatal(err)

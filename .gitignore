@@ -1,5 +1,8 @@
 # Scaffolded & compiled Mint apps
 /apps/
+
+# Manual from mint-gen --man. --install copies it to ~/.local/share/man.
+mint-interfaces.1
 *-mint
 /demo
 /example

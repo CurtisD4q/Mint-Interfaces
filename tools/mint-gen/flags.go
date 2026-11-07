@@ -32,7 +32,7 @@ type mintOpts struct {
 func newMintOpts() *mintOpts {
 	o := &mintOpts{}
 	fs := flag.NewFlagSet("mint-gen", flag.ContinueOnError)
-	fs.BoolVar(&o.install, "install", false, "Install the mint-gen launcher for you, in ~/.local/bin/mint-interfaces/mint-gen (with --system: print the commands for everyone)")
+	fs.BoolVar(&o.install, "install", false, "Install the mint-gen launcher for you, in ~/.local/bin/mint-interfaces/mint-gen, and this manual in ~/.local/share/man/man1 (with --system: print the commands for everyone)")
 	fs.BoolVar(&o.system, "system", false, "With --install: print the commands that install Mint-Interfaces for everyone on this computer")
 	fs.StringVar(&o.checkTarget, "check", "", "Check whether a program can run inside a pure Mint TUI")
 	fs.StringVar(&o.explainTarget, "explain", "", "Explain what a program reads and writes, and why, as mint-gen sees it")

@@ -213,7 +213,7 @@ func writeManDescription(w *manw) {
 
 func writeManManualPages(w *manw) {
 	w.sh("MANUAL PAGES")
-	w.prose("This manual is mint-interfaces(1). It describes Mint-Interfaces and the mint-gen generator. mint-gen --man writes it as roff, in mdoc, on standard output. Save that output as mint-interfaces.1 and read it with mandoc or man -l. The flag list is the flag set mint-gen parses. The archetypes and interface types are the ones the library registers, so building the page again follows the source.")
+	w.prose("This manual is mint-interfaces(1). It describes Mint-Interfaces and the mint-gen generator. mint-gen --man writes it as roff, in mdoc, on standard output. Save that output as mint-interfaces.1 and read it with mandoc or man -l. The install writes that same text to ~/.local/share/man/man1/mint-interfaces.1, so man mint-interfaces shows it when ~/.local/bin is on PATH. The flag list is the flag set mint-gen parses. The archetypes and interface types are the ones the library registers, so building the page again follows the source.")
 	w.pp("mint-gen --help prints the text guide: how to build an app, how to use one, then the same flags in the layout the Go flag package prints. The guide is the quick introduction. This manual is the page that stays aligned with the code.")
 	w.pp("A generated app has its own --man. ps-mint --man opens that app's Manual screen, which is also the Manual item on its home menu. The screen shows the wrapped program's manual: the page man would show for that program, or the program's --help when that program has no manual of its own. The app's --help is a short usage list (open the interface, open one screen, choose a theme for one run, print the version, print JSON for a launcher) and points at mint-gen --help for the guide.")
 }
@@ -432,6 +432,7 @@ func writeManFiles(w *manw) {
 		{"/etc/mint-interfaces/security.json", "The administrator's security settings, read when the user file does not set them."},
 		{"~/.config/mint-interfaces/tools.d/", "JSON files of extra facts about programs, read by mint-gen. /etc/mint-interfaces/tools.d/ is the system copy."},
 		{"~/.local/share/mint-interfaces/", "The repository in a user install. Generated apps live in its apps/ directory. The launcher is ~/.local/bin/mint-interfaces/mint-gen."},
+		{"~/.local/share/man/man1/mint-interfaces.1", "This manual, written by mint-gen --install. It is the same text as mint-gen --man. The man-db package adds ~/.local/share/man when ~/.local/bin is on PATH, and MANPATH can stay unset. The launcher directory ~/.local/bin/mint-interfaces does not add it."},
 		{"/usr/local/share/mint-interfaces/", "The repository in a system install. The launcher is /usr/local/bin/mint-gen."},
 		{"apps/<tool>/", "The scaffold mint-gen writes inside the repository, and the <tool>-mint binary after --build. --remove and --purge delete the files mint-gen wrote and leave saved results in the folder."},
 		{"~/mint-results/<tool>/", "Where an app saves output when it has no directory of its own, or that directory has moved."},
@@ -468,7 +469,7 @@ func writeManExamples(w *manw) {
 		"go run ./tools/mint-gen --man > mint-interfaces.1",
 		"mandoc -Tutf8 mint-interfaces.1",
 	)
-	w.pp("After mint-gen --install, the same flags work as mint-gen from any directory. Apps are still written in the repository's apps/ directory.")
+	w.pp("After mint-gen --install, the same flags work as mint-gen from any directory, and man mint-interfaces shows this page. Apps are still written in the repository's apps/ directory.")
 }
 
 func writeManSeeAlso(w *manw) {

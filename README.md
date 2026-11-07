@@ -84,6 +84,7 @@ Go moves into the repo to build mint-gen, and mint-gen moves back to the folder 
    ```sh
    export PATH="$HOME/.local/bin/mint-interfaces:$PATH"
    ```
+   `man mint-interfaces` reads `~/.local/share/man/man1/mint-interfaces.1`, which `--install` writes. man-db adds `~/.local/share/man` when `~/.local/bin` is on `PATH` (leave `MANPATH` unset); `~/.local/bin/mint-interfaces` alone does not.
 
 **For everyone (system install).** `mint-gen --install --system` prints these commands; mint-gen never runs sudo itself.
 
